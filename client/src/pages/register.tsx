@@ -18,10 +18,7 @@ export default function Register() {
 
   const registerMutation = useMutation({
     mutationFn: async (userData: { email: string; password: string; name: string }) => {
-      return await apiRequest('/api/auth/register', {
-        method: 'POST',
-        body: JSON.stringify(userData),
-      });
+      return await apiRequest('POST', '/api/auth/register', userData);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/auth/me'] });

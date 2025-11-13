@@ -1,5 +1,3 @@
-import { eq, and, desc } from "drizzle-orm";
-import { db } from "./db";
 import {
   type User,
   type InsertUser,
@@ -21,16 +19,6 @@ import {
   type InsertUserSettings,
   type TradingLog,
   type InsertTradingLog,
-  users,
-  kiwoomAccounts,
-  holdings,
-  orders,
-  aiModels,
-  aiRecommendations,
-  watchlist,
-  alerts,
-  userSettings,
-  tradingLogs,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -97,245 +85,354 @@ export interface IStorage {
   getTradingLogs(accountId: number, limit?: number): Promise<TradingLog[]>;
 }
 
-export class DbStorage implements IStorage {
+export class MemStorage implements IStorage {
+  private users: Map<string, User> = new Map();
+  private usersByEmail: Map<string, User> = new Map();
+  private usersByProvider: Map<string, User> = new Map();
+  
+  private kiwoomAccounts: Map<number, KiwoomAccount> = new Map();
+  private holdings: Map<number, Holding> = new Map();
+  private orders: Map<number, Order> = new Map();
+  private aiModels: Map<number, AiModel> = new Map();
+  private aiRecommendations: Map<number, AiRecommendation> = new Map();
+  private watchlistItems: Map<number, WatchlistItem> = new Map();
+  private alertsMap: Map<number, Alert> = new Map();
+  private settings: Map<string, UserSettings> = new Map();
+  private logs: Map<number, TradingLog> = new Map();
+  
+  private nextAccountId = 1;
+  private nextHoldingId = 1;
+  private nextOrderId = 1;
+  private nextModelId = 1;
+  private nextRecommendationId = 1;
+  private nextWatchlistId = 1;
+  private nextAlertId = 1;
+  private nextLogId = 1;
+
   // ==================== User Methods ====================
   
   async getUser(id: string): Promise<User | undefined> {
-    const result = await db.select().from(users).where(eq(users.id, id));
-    return result[0];
+    return this.users.get(id);
   }
 
   async getUserByEmail(email: string): Promise<User | undefined> {
-    const result = await db.select().from(users).where(eq(users.email, email));
-    return result[0];
+    return this.usersByEmail.get(email);
   }
 
   async getUserByAuthProvider(provider: string, providerId: string): Promise<User | undefined> {
-    const result = await db
-      .select()
-      .from(users)
-      .where(and(eq(users.authProvider, provider), eq(users.authProviderId, providerId)));
-    return result[0];
+    const key = `${provider}:${providerId}`;
+    return this.usersByProvider.get(key);
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    const result = await db.insert(users).values(insertUser).returning();
-    return result[0];
+    const id = `user_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+    const user: User = {
+      id,
+      email: insertUser.email,
+      passwordHash: insertUser.passwordHash || null,
+      name: insertUser.name,
+      authProvider: insertUser.authProvider || 'local',
+      authProviderId: insertUser.authProviderId || null,
+    };
+    
+    this.users.set(id, user);
+    if (user.email) {
+      this.usersByEmail.set(user.email, user);
+    }
+    if (user.authProvider && user.authProviderId) {
+      const key = `${user.authProvider}:${user.authProviderId}`;
+      this.usersByProvider.set(key, user);
+    }
+    
+    return user;
   }
 
   async updateUser(id: string, updates: Partial<User>): Promise<User | undefined> {
-    const result = await db.update(users).set(updates).where(eq(users.id, id)).returning();
-    return result[0];
+    const user = this.users.get(id);
+    if (!user) return undefined;
+    
+    const oldEmail = user.email;
+    const oldProvider = user.authProvider && user.authProviderId ? `${user.authProvider}:${user.authProviderId}` : null;
+    
+    const updated = { ...user, ...updates };
+    this.users.set(id, updated);
+    
+    if (oldEmail && oldEmail !== updated.email) {
+      this.usersByEmail.delete(oldEmail);
+    }
+    if (updated.email) {
+      this.usersByEmail.set(updated.email, updated);
+    }
+    
+    if (oldProvider) {
+      this.usersByProvider.delete(oldProvider);
+    }
+    if (updated.authProvider && updated.authProviderId) {
+      const newKey = `${updated.authProvider}:${updated.authProviderId}`;
+      this.usersByProvider.set(newKey, updated);
+    }
+    
+    return updated;
   }
 
   // ==================== Kiwoom Account Methods ====================
   
   async getKiwoomAccounts(userId: string): Promise<KiwoomAccount[]> {
-    return await db.select().from(kiwoomAccounts).where(eq(kiwoomAccounts.userId, userId));
+    return Array.from(this.kiwoomAccounts.values()).filter(acc => acc.userId === userId);
   }
 
   async getKiwoomAccount(id: number): Promise<KiwoomAccount | undefined> {
-    const result = await db.select().from(kiwoomAccounts).where(eq(kiwoomAccounts.id, id));
-    return result[0];
+    return this.kiwoomAccounts.get(id);
   }
 
-  async createKiwoomAccount(account: InsertKiwoomAccount): Promise<KiwoomAccount> {
-    const result = await db.insert(kiwoomAccounts).values(account).returning();
-    return result[0];
+  async createKiwoomAccount(insertAccount: InsertKiwoomAccount): Promise<KiwoomAccount> {
+    const id = this.nextAccountId++;
+    const account: KiwoomAccount = {
+      id,
+      ...insertAccount,
+    };
+    this.kiwoomAccounts.set(id, account);
+    return account;
   }
 
   async updateKiwoomAccount(id: number, updates: Partial<KiwoomAccount>): Promise<KiwoomAccount | undefined> {
-    const result = await db.update(kiwoomAccounts).set(updates).where(eq(kiwoomAccounts.id, id)).returning();
-    return result[0];
+    const account = this.kiwoomAccounts.get(id);
+    if (!account) return undefined;
+    
+    const updated = { ...account, ...updates };
+    this.kiwoomAccounts.set(id, updated);
+    return updated;
   }
 
   async deleteKiwoomAccount(id: number): Promise<void> {
-    await db.delete(kiwoomAccounts).where(eq(kiwoomAccounts.id, id));
+    this.kiwoomAccounts.delete(id);
   }
 
   // ==================== Holdings Methods ====================
   
   async getHoldings(accountId: number): Promise<Holding[]> {
-    return await db.select().from(holdings).where(eq(holdings.accountId, accountId));
+    return Array.from(this.holdings.values()).filter(h => h.accountId === accountId);
   }
 
   async getHolding(id: number): Promise<Holding | undefined> {
-    const result = await db.select().from(holdings).where(eq(holdings.id, id));
-    return result[0];
+    return this.holdings.get(id);
   }
 
-  async createHolding(holding: InsertHolding): Promise<Holding> {
-    const result = await db.insert(holdings).values(holding).returning();
-    return result[0];
+  async createHolding(insertHolding: InsertHolding): Promise<Holding> {
+    const id = this.nextHoldingId++;
+    const holding: Holding = {
+      id,
+      ...insertHolding,
+    };
+    this.holdings.set(id, holding);
+    return holding;
   }
 
   async updateHolding(id: number, updates: Partial<Holding>): Promise<Holding | undefined> {
-    const result = await db.update(holdings).set(updates).where(eq(holdings.id, id)).returning();
-    return result[0];
+    const holding = this.holdings.get(id);
+    if (!holding) return undefined;
+    
+    const updated = { ...holding, ...updates };
+    this.holdings.set(id, updated);
+    return updated;
   }
 
   async deleteHolding(id: number): Promise<void> {
-    await db.delete(holdings).where(eq(holdings.id, id));
+    this.holdings.delete(id);
   }
 
   async getHoldingByStock(accountId: number, stockCode: string): Promise<Holding | undefined> {
-    const result = await db
-      .select()
-      .from(holdings)
-      .where(and(eq(holdings.accountId, accountId), eq(holdings.stockCode, stockCode)));
-    return result[0];
+    return Array.from(this.holdings.values()).find(
+      h => h.accountId === accountId && h.stockCode === stockCode
+    );
   }
 
   // ==================== Order Methods ====================
   
-  async getOrders(accountId: number, limit: number = 100): Promise<Order[]> {
-    return await db
-      .select()
-      .from(orders)
-      .where(eq(orders.accountId, accountId))
-      .orderBy(desc(orders.createdAt))
-      .limit(limit);
+  async getOrders(accountId: number, limit?: number): Promise<Order[]> {
+    const filtered = Array.from(this.orders.values()).filter(o => o.accountId === accountId);
+    return limit ? filtered.slice(0, limit) : filtered;
   }
 
   async getOrder(id: number): Promise<Order | undefined> {
-    const result = await db.select().from(orders).where(eq(orders.id, id));
-    return result[0];
+    return this.orders.get(id);
   }
 
-  async createOrder(order: InsertOrder): Promise<Order> {
-    const result = await db.insert(orders).values({
-      ...order,
-      orderStatus: 'pending',
-    }).returning();
-    return result[0];
+  async createOrder(insertOrder: InsertOrder): Promise<Order> {
+    const id = this.nextOrderId++;
+    const order: Order = {
+      id,
+      ...insertOrder,
+    };
+    this.orders.set(id, order);
+    return order;
   }
 
   async updateOrder(id: number, updates: Partial<Order>): Promise<Order | undefined> {
-    const result = await db.update(orders).set(updates).where(eq(orders.id, id)).returning();
-    return result[0];
+    const order = this.orders.get(id);
+    if (!order) return undefined;
+    
+    const updated = { ...order, ...updates };
+    this.orders.set(id, updated);
+    return updated;
   }
 
   async deleteOrder(id: number): Promise<void> {
-    await db.delete(orders).where(eq(orders.id, id));
+    this.orders.delete(id);
   }
 
   // ==================== AI Model Methods ====================
   
   async getAiModels(userId: string): Promise<AiModel[]> {
-    return await db.select().from(aiModels).where(eq(aiModels.userId, userId));
+    return Array.from(this.aiModels.values()).filter(m => m.userId === userId);
   }
 
   async getAiModel(id: number): Promise<AiModel | undefined> {
-    const result = await db.select().from(aiModels).where(eq(aiModels.id, id));
-    return result[0];
+    return this.aiModels.get(id);
   }
 
-  async createAiModel(model: InsertAiModel): Promise<AiModel> {
-    const result = await db.insert(aiModels).values(model).returning();
-    return result[0];
+  async createAiModel(insertModel: InsertAiModel): Promise<AiModel> {
+    const id = this.nextModelId++;
+    const model: AiModel = {
+      id,
+      ...insertModel,
+    };
+    this.aiModels.set(id, model);
+    return model;
   }
 
   async updateAiModel(id: number, updates: Partial<AiModel>): Promise<AiModel | undefined> {
-    const result = await db.update(aiModels).set(updates).where(eq(aiModels.id, id)).returning();
-    return result[0];
+    const model = this.aiModels.get(id);
+    if (!model) return undefined;
+    
+    const updated = { ...model, ...updates };
+    this.aiModels.set(id, updated);
+    return updated;
   }
 
   async deleteAiModel(id: number): Promise<void> {
-    await db.delete(aiModels).where(eq(aiModels.id, id));
+    this.aiModels.delete(id);
   }
 
   // ==================== AI Recommendation Methods ====================
   
-  async getAiRecommendations(modelId: number, limit: number = 50): Promise<AiRecommendation[]> {
-    return await db
-      .select()
-      .from(aiRecommendations)
-      .where(eq(aiRecommendations.modelId, modelId))
-      .orderBy(desc(aiRecommendations.createdAt))
-      .limit(limit);
+  async getAiRecommendations(modelId: number, limit?: number): Promise<AiRecommendation[]> {
+    const filtered = Array.from(this.aiRecommendations.values()).filter(r => r.modelId === modelId);
+    return limit ? filtered.slice(0, limit) : filtered;
   }
 
-  async createAiRecommendation(recommendation: InsertAiRecommendation): Promise<AiRecommendation> {
-    const result = await db.insert(aiRecommendations).values(recommendation).returning();
-    return result[0];
+  async createAiRecommendation(insertRecommendation: InsertAiRecommendation): Promise<AiRecommendation> {
+    const id = this.nextRecommendationId++;
+    const recommendation: AiRecommendation = {
+      id,
+      ...insertRecommendation,
+    };
+    this.aiRecommendations.set(id, recommendation);
+    return recommendation;
   }
 
   async updateAiRecommendation(id: number, updates: Partial<AiRecommendation>): Promise<AiRecommendation | undefined> {
-    const result = await db.update(aiRecommendations).set(updates).where(eq(aiRecommendations.id, id)).returning();
-    return result[0];
+    const recommendation = this.aiRecommendations.get(id);
+    if (!recommendation) return undefined;
+    
+    const updated = { ...recommendation, ...updates };
+    this.aiRecommendations.set(id, updated);
+    return updated;
   }
 
   async deleteAiRecommendation(id: number): Promise<void> {
-    await db.delete(aiRecommendations).where(eq(aiRecommendations.id, id));
+    this.aiRecommendations.delete(id);
   }
 
   // ==================== Watchlist Methods ====================
   
   async getWatchlist(userId: string): Promise<WatchlistItem[]> {
-    return await db.select().from(watchlist).where(eq(watchlist.userId, userId));
+    return Array.from(this.watchlistItems.values()).filter(w => w.userId === userId);
   }
 
-  async createWatchlistItem(item: InsertWatchlistItem): Promise<WatchlistItem> {
-    const result = await db.insert(watchlist).values(item).returning();
-    return result[0];
+  async createWatchlistItem(insertItem: InsertWatchlistItem): Promise<WatchlistItem> {
+    const id = this.nextWatchlistId++;
+    const item: WatchlistItem = {
+      id,
+      ...insertItem,
+    };
+    this.watchlistItems.set(id, item);
+    return item;
   }
 
   async deleteWatchlistItem(id: number): Promise<void> {
-    await db.delete(watchlist).where(eq(watchlist.id, id));
+    this.watchlistItems.delete(id);
   }
 
   // ==================== Alert Methods ====================
   
   async getAlerts(userId: string): Promise<Alert[]> {
-    return await db.select().from(alerts).where(eq(alerts.userId, userId));
+    return Array.from(this.alertsMap.values()).filter(a => a.userId === userId);
   }
 
-  async createAlert(alert: InsertAlert): Promise<Alert> {
-    const result = await db.insert(alerts).values(alert).returning();
-    return result[0];
+  async createAlert(insertAlert: InsertAlert): Promise<Alert> {
+    const id = this.nextAlertId++;
+    const alert: Alert = {
+      id,
+      ...insertAlert,
+    };
+    this.alertsMap.set(id, alert);
+    return alert;
   }
 
   async updateAlert(id: number, updates: Partial<Alert>): Promise<Alert | undefined> {
-    const result = await db.update(alerts).set(updates).where(eq(alerts.id, id)).returning();
-    return result[0];
+    const alert = this.alertsMap.get(id);
+    if (!alert) return undefined;
+    
+    const updated = { ...alert, ...updates };
+    this.alertsMap.set(id, updated);
+    return updated;
   }
 
   async deleteAlert(id: number): Promise<void> {
-    await db.delete(alerts).where(eq(alerts.id, id));
+    this.alertsMap.delete(id);
   }
 
   // ==================== User Settings Methods ====================
   
   async getUserSettings(userId: string): Promise<UserSettings | undefined> {
-    const result = await db.select().from(userSettings).where(eq(userSettings.userId, userId));
-    return result[0];
+    return this.settings.get(userId);
   }
 
-  async createUserSettings(settings: InsertUserSettings): Promise<UserSettings> {
-    const result = await db.insert(userSettings).values(settings).returning();
-    return result[0];
+  async createUserSettings(insertSettings: InsertUserSettings): Promise<UserSettings> {
+    const settings: UserSettings = {
+      ...insertSettings,
+    };
+    this.settings.set(insertSettings.userId, settings);
+    return settings;
   }
 
   async updateUserSettings(userId: string, updates: Partial<UserSettings>): Promise<UserSettings | undefined> {
-    const result = await db.update(userSettings).set(updates).where(eq(userSettings.userId, userId)).returning();
-    return result[0];
+    const current = this.settings.get(userId);
+    if (!current) return undefined;
+    
+    const updated = { ...current, ...updates };
+    this.settings.set(userId, updated);
+    return updated;
   }
 
   // ==================== Trading Log Methods ====================
   
-  async createTradingLog(log: InsertTradingLog): Promise<TradingLog> {
-    const result = await db.insert(tradingLogs).values(log).returning();
-    return result[0];
+  async createTradingLog(insertLog: InsertTradingLog): Promise<TradingLog> {
+    const id = this.nextLogId++;
+    const log: TradingLog = {
+      id,
+      ...insertLog,
+      timestamp: insertLog.timestamp || new Date().toISOString(),
+    };
+    this.logs.set(id, log);
+    return log;
   }
 
-  async getTradingLogs(accountId: number, limit: number = 100): Promise<TradingLog[]> {
-    return await db
-      .select()
-      .from(tradingLogs)
-      .where(eq(tradingLogs.accountId, accountId))
-      .orderBy(desc(tradingLogs.createdAt))
-      .limit(limit);
+  async getTradingLogs(accountId: number, limit?: number): Promise<TradingLog[]> {
+    const filtered = Array.from(this.logs.values()).filter(l => l.accountId === accountId);
+    return limit ? filtered.slice(0, limit) : filtered;
   }
 }
 
-export const storage = new DbStorage();
+export const storage = new MemStorage();

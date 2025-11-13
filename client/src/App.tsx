@@ -16,7 +16,7 @@ import Watchlist from "@/pages/watchlist";
 import Settings from "@/pages/settings";
 
 function ProtectedRoute({ component: Component, ...rest }: any) {
-  const { data: user, isLoading, isError } = useQuery({
+  const { data: user, isLoading, isError, error } = useQuery({
     queryKey: ['/api/auth/me'],
     retry: false,
   });
@@ -29,8 +29,22 @@ function ProtectedRoute({ component: Component, ...rest }: any) {
     );
   }
 
-  if (isError || !user?.user) {
-    return <Redirect to="/login" />;
+  // Handle 401 (unauthorized) - redirect to login
+  if (isError) {
+    const statusCode = (error as any)?.response?.status;
+    if (statusCode === 401 || !user?.user) {
+      return <Redirect to="/login" />;
+    }
+    
+    // Other errors - show error message
+    console.error("Protected route error:", error);
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="text-lg text-destructive">
+          오류가 발생했습니다. 다시 시도해 주세요.
+        </div>
+      </div>
+    );
   }
 
   return <Component {...rest} />;

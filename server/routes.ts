@@ -1,7 +1,18 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import passport, { isAuthenticated, getCurrentUser, hashPassword } from "./auth";
+import { 
+  isAuthenticated, 
+  getCurrentUser, 
+  hashPassword,
+  localAuth,
+  googleAuth,
+  googleCallback,
+  kakaoAuth,
+  kakaoCallback,
+  naverAuth,
+  naverCallback
+} from "./auth";
 import { getKiwoomService } from "./services/kiwoom.service";
 import { getAIService } from "./services/ai.service";
 import { insertUserSchema, insertKiwoomAccountSchema, insertOrderSchema, insertAiModelSchema, insertWatchlistSchema, insertAlertSchema } from "@shared/schema";
@@ -25,7 +36,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const hashedPassword = await hashPassword(password!);
       const user = await storage.createUser({
         email,
-        password: hashedPassword,
+        passwordHash: hashedPassword,
         name,
         authProvider: 'local',
       });
@@ -45,17 +56,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Login with email/password
-  app.post("/api/auth/login", (req, res, next) => {
-    passport.authenticate("local", (err: any, user: any, info: any) => {
-      if (err) return res.status(500).json({ error: "Authentication failed" });
-      if (!user) return res.status(401).json({ error: info?.message || "Invalid credentials" });
-
-      req.login(user, (err) => {
-        if (err) return res.status(500).json({ error: "Login failed" });
-        res.json({ user: { id: user.id, email: user.email, name: user.name } });
-      });
-    })(req, res, next);
-  });
+  app.post("/api/auth/login", localAuth);
 
   // Logout
   app.post("/api/auth/logout", (req, res) => {
@@ -72,25 +73,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Google OAuth
-  app.get("/api/auth/google", passport.authenticate("google", { scope: ["profile", "email"] }));
-  app.get("/api/auth/google/callback",
-    passport.authenticate("google", { failureRedirect: "/login" }),
-    (req, res) => res.redirect("/")
-  );
+  app.get("/api/auth/google", googleAuth);
+  app.get("/api/auth/google/callback", googleCallback, (req, res) => res.redirect("/"));
 
   // Kakao OAuth
-  app.get("/api/auth/kakao", passport.authenticate("kakao"));
-  app.get("/api/auth/kakao/callback",
-    passport.authenticate("kakao", { failureRedirect: "/login" }),
-    (req, res) => res.redirect("/")
-  );
+  app.get("/api/auth/kakao", kakaoAuth);
+  app.get("/api/auth/kakao/callback", kakaoCallback, (req, res) => res.redirect("/"));
 
   // Naver OAuth
-  app.get("/api/auth/naver", passport.authenticate("naver"));
-  app.get("/api/auth/naver/callback",
-    passport.authenticate("naver", { failureRedirect: "/login" }),
-    (req, res) => res.redirect("/")
-  );
+  app.get("/api/auth/naver", naverAuth);
+  app.get("/api/auth/naver/callback", naverCallback, (req, res) => res.redirect("/"));
 
   // ==================== Kiwoom Account Routes ====================
 

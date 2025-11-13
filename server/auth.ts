@@ -38,11 +38,11 @@ passport.use(
           return done(null, false, { message: 'Invalid email or password' });
         }
 
-        if (!user.password) {
+        if (!user.passwordHash) {
           return done(null, false, { message: 'Please use social login' });
         }
 
-        const isValid = await bcrypt.compare(password, user.password);
+        const isValid = await bcrypt.compare(password, user.passwordHash);
 
         if (!isValid) {
           return done(null, false, { message: 'Invalid email or password' });
@@ -189,4 +189,31 @@ export function setupAuth(app: Express) {
   app.use(passport.session());
 }
 
-export default passport;
+// Passport authentication middleware helpers for routes
+export const localAuth = (req: any, res: any, next: any) => {
+  return passport.authenticate("local", (err: any, user: any, info: any) => {
+    if (err) return next(err);
+    if (!user) return res.status(401).json({ error: info?.message || "Invalid credentials" });
+    req.login(user, (loginErr: any) => {
+      if (loginErr) return next(loginErr);
+      // Sanitize user object - never leak password hash
+      return res.json({ 
+        user: { 
+          id: user.id, 
+          email: user.email, 
+          name: user.name,
+          profileImage: user.profileImage 
+        } 
+      });
+    });
+  })(req, res, next);
+};
+
+export const googleAuth = passport.authenticate("google", { scope: ["profile", "email"] });
+export const googleCallback = passport.authenticate("google", { failureRedirect: "/login" });
+
+export const kakaoAuth = passport.authenticate("kakao");
+export const kakaoCallback = passport.authenticate("kakao", { failureRedirect: "/login" });
+
+export const naverAuth = passport.authenticate("naver");
+export const naverCallback = passport.authenticate("naver", { failureRedirect: "/login" });
