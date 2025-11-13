@@ -101,12 +101,16 @@ export default function Dashboard() {
   const todayProfitRate = balance?.todayProfitRate || 0;
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold" data-testid="text-dashboard-title">대시보드</h1>
-          <p className="text-muted-foreground">AI 기반 자동매매 플랫폼</p>
-        </div>
+    <div className="relative min-h-screen">
+      {/* Animated gradient background */}
+      <div className="fixed inset-0 bg-gradient-to-br from-[hsl(var(--background))] via-[hsl(var(--neon-cyan))]/5 to-[hsl(var(--neon-purple))]/5 animate-gradient-flow -z-10" />
+      
+      <div className="p-6 space-y-6 relative z-0">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-gradient-cyber" data-testid="text-dashboard-title">대시보드</h1>
+            <p className="text-muted-foreground">AI 기반 자동매매 플랫폼</p>
+          </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
             <Button data-testid="button-add-account">
@@ -203,13 +207,13 @@ export default function Dashboard() {
       )}
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
+        <Card className="hover-elevate transition-all duration-300 border-[hsl(var(--neon-cyan))]/20">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">총 자산</CardTitle>
-            <Wallet className="h-4 w-4 text-muted-foreground" />
+            <Wallet className="h-5 w-5 text-[hsl(var(--neon-cyan))]" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold font-mono" data-testid="text-total-assets">
+            <div className="text-2xl font-bold font-mono text-glow-cyan" data-testid="text-total-assets">
               {formatCurrency(totalAssets)}
             </div>
             <p className="text-xs text-muted-foreground">
@@ -218,28 +222,28 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="hover-elevate transition-all duration-300 border-[hsl(var(--neon-green))]/20">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">오늘 수익</CardTitle>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+            <TrendingUp className="h-5 w-5 text-[hsl(var(--neon-green))]" />
           </CardHeader>
           <CardContent>
             <div
-              className={`text-2xl font-bold font-mono ${todayProfit > 0 ? 'text-green-600 dark:text-green-400' : todayProfit < 0 ? 'text-red-600 dark:text-red-400' : ''}`}
+              className={`text-2xl font-bold font-mono ${todayProfit > 0 ? 'text-[hsl(var(--neon-green))] animate-price-pulse' : todayProfit < 0 ? 'text-[hsl(var(--neon-red))]' : ''}`}
               data-testid="text-today-profit"
             >
               {formatCurrency(todayProfit)}
             </div>
-            <p className={`text-xs ${todayProfitRate > 0 ? 'text-green-600 dark:text-green-400' : todayProfitRate < 0 ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground'}`}>
+            <p className={`text-xs ${todayProfitRate > 0 ? 'text-[hsl(var(--neon-green))]' : todayProfitRate < 0 ? 'text-[hsl(var(--neon-red))]' : 'text-muted-foreground'}`}>
               {formatPercent(todayProfitRate)}
             </p>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="hover-elevate transition-all duration-300 border-[hsl(var(--neon-purple))]/20">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">누적 수익률</CardTitle>
-            <Target className="h-4 w-4 text-muted-foreground" />
+            <Target className="h-5 w-5 text-[hsl(var(--neon-purple))]" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold font-mono" data-testid="text-total-return">
@@ -251,10 +255,10 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="hover-elevate transition-all duration-300 border-primary/30">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">거래 모드</CardTitle>
-            <TrendingDown className="h-4 w-4 text-muted-foreground" />
+            <TrendingDown className={`h-5 w-5 ${settings?.tradingMode === 'real' ? 'text-[hsl(var(--neon-cyan))] animate-pulse-glow' : 'text-muted-foreground'}`} />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold" data-testid="text-trading-mode">
@@ -268,9 +272,12 @@ export default function Dashboard() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
-        <Card>
+        <Card className="hover-elevate">
           <CardHeader>
-            <CardTitle>포트폴리오 구성</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              포트폴리오 구성
+              <div className="w-2 h-2 rounded-full bg-[hsl(var(--neon-cyan))] animate-pulse-glow" />
+            </CardTitle>
             <CardDescription>종목별 비중</CardDescription>
           </CardHeader>
           <CardContent>
@@ -305,9 +312,12 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="hover-elevate">
           <CardHeader>
-            <CardTitle>보유 종목</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              보유 종목
+              <div className="w-2 h-2 rounded-full bg-[hsl(var(--neon-purple))] animate-pulse-glow" />
+            </CardTitle>
             <CardDescription>종목별 수익률</CardDescription>
           </CardHeader>
           <CardContent>
@@ -341,9 +351,12 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      <Card>
+      <Card className="hover-elevate">
         <CardHeader>
-          <CardTitle>자산 추이</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            자산 추이
+            <TrendingUp className="w-4 h-4 text-[hsl(var(--neon-green))]" />
+          </CardTitle>
           <CardDescription>최근 30일 총자산 변화</CardDescription>
         </CardHeader>
         <CardContent>
@@ -367,9 +380,12 @@ export default function Dashboard() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="hover-elevate">
         <CardHeader>
-          <CardTitle>최근 거래</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            최근 거래
+            <div className="w-2 h-2 rounded-full bg-[hsl(var(--neon-cyan))] animate-pulse-glow" />
+          </CardTitle>
           <CardDescription>거래 내역</CardDescription>
         </CardHeader>
         <CardContent>
@@ -378,6 +394,7 @@ export default function Dashboard() {
           </p>
         </CardContent>
       </Card>
+      </div>
     </div>
   );
 }
