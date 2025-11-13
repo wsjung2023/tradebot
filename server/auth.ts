@@ -59,12 +59,16 @@ passport.use(
 // ==================== Google OAuth Strategy ====================
 
 if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+  const baseURL = process.env.REPLIT_DOMAINS 
+    ? `https://${process.env.REPLIT_DOMAINS}` 
+    : 'http://localhost:5000';
+  
   passport.use(
     new GoogleStrategy(
       {
         clientID: process.env.GOOGLE_CLIENT_ID,
         clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-        callbackURL: '/api/auth/google/callback',
+        callbackURL: `${baseURL}/api/auth/google/callback`,
       },
       async (accessToken, refreshToken, profile, done) => {
         try {
