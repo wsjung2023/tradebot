@@ -107,6 +107,7 @@ export class MemStorage implements IStorage {
   private nextRecommendationId = 1;
   private nextWatchlistId = 1;
   private nextAlertId = 1;
+  private nextSettingsId = 1;
   private nextLogId = 1;
 
   // ==================== User Methods ====================
@@ -401,7 +402,7 @@ export class MemStorage implements IStorage {
 
   async createUserSettings(insertSettings: InsertUserSettings): Promise<UserSettings> {
     const settings: UserSettings = {
-      id: this.nextLogId++,
+      id: this.nextSettingsId++,
       userId: insertSettings.userId,
       defaultAccountId: insertSettings.defaultAccountId || null,
       tradingMode: insertSettings.tradingMode || 'mock',
