@@ -7,6 +7,7 @@ import { pool } from "./db";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { setupAuth } from "./auth";
+import { autoTradingWorker } from "./auto-trading-worker";
 
 const app = express();
 
@@ -149,5 +150,8 @@ app.use((req, res, next) => {
     reusePort: true,
   }, () => {
     log(`serving on port ${port}`);
+    
+    // Start auto trading background worker
+    autoTradingWorker.start();
   });
 })();

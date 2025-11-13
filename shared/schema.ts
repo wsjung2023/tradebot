@@ -258,6 +258,86 @@ export const marketIssues = pgTable("market_issues", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// ==================== Auto Trading System ====================
+
+// Auto trading settings - customizable trading parameters per AI model
+export const autoTradingSettings = pgTable("auto_trading_settings", {
+  id: serial("id").primaryKey(),
+  modelId: integer("model_id").notNull().unique().references(() => aiModels.id, { onDelete: 'cascade' }),
+  
+  // Position sizing
+  defaultPositionSize: decimal("default_position_size", { precision: 12, scale: 2 }).notNull().default('1000000'), // 100만원
+  maxPositionSize: decimal("max_position_size", { precision: 12, scale: 2 }).notNull().default('10000000'), // 1000만원
+  maxDailyTrades: integer("max_daily_trades").notNull().default(5),
+  
+  // 10-line rainbow chart settings (10% intervals from peak)
+  rainbowLineSettings: jsonb("rainbow_line_settings").notNull(), // Array of 10 objects: { line: 10-100, buyWeight: 0-100, sellWeight: 0-100 }
+  centerBuyLine: integer("center_buy_line").notNull().default(50), // 50% = primary buy zone
+  
+  // Entry/Exit conditions
+  minAiConfidence: decimal("min_ai_confidence", { precision: 5, scale: 2 }).notNull().default('70'), // 70%
+  requireGoodFinancials: boolean("require_good_financials").notNull().default(true),
+  requireHighLiquidity: boolean("require_high_liquidity").notNull().default(true),
+  requireMarketIssue: boolean("require_market_issue").notNull().default(false),
+  
+  // AI analysis weights
+  themeWeight: decimal("theme_weight", { precision: 5, scale: 2 }).notNull().default('20'),
+  newsWeight: decimal("news_weight", { precision: 5, scale: 2 }).notNull().default('15'),
+  financialsWeight: decimal("financials_weight", { precision: 5, scale: 2 }).notNull().default('25'),
+  liquidityWeight: decimal("liquidity_weight", { precision: 5, scale: 2 }).notNull().default('20'),
+  institutionalWeight: decimal("institutional_weight", { precision: 5, scale: 2 }).notNull().default('20'),
+  
+  // Dynamic exit adjustment
+  enableDynamicExit: boolean("enable_dynamic_exit").notNull().default(true),
+  stalePeriodDays: integer("stale_period_days").notNull().default(5), // Lower exit if held > 5 days
+  surgeThreshold: decimal("surge_threshold", { precision: 5, scale: 2 }).notNull().default('10'), // Raise exit if +10% surge
+  volumeSpikeMultiplier: decimal("volume_spike_multiplier", { precision: 5, scale: 2 }).notNull().default('3'), // 3x volume
+  
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// Trading performance - learning data for strategy improvement
+export const tradingPerformance = pgTable("trading_performance", {
+  id: serial("id").primaryKey(),
+  modelId: integer("model_id").notNull().references(() => aiModels.id, { onDelete: 'cascade' }),
+  orderId: integer("order_id").references(() => orders.id),
+  
+  // Trade details
+  stockCode: text("stock_code").notNull(),
+  stockName: text("stock_name").notNull(),
+  entryPrice: decimal("entry_price", { precision: 12, scale: 2 }).notNull(),
+  exitPrice: decimal("exit_price", { precision: 12, scale: 2 }),
+  quantity: integer("quantity").notNull(),
+  
+  // Performance metrics
+  profitLoss: decimal("profit_loss", { precision: 12, scale: 2 }),
+  profitLossRate: decimal("profit_loss_rate", { precision: 8, scale: 4 }),
+  holdingDays: integer("holding_days"),
+  isWin: boolean("is_win"),
+  
+  // Entry context
+  entryRainbowLine: integer("entry_rainbow_line"), // Which line triggered entry (10-100)
+  entryAiConfidence: decimal("entry_ai_confidence", { precision: 5, scale: 2 }),
+  entryConditions: jsonb("entry_conditions"), // Snapshot of conditions at entry
+  
+  // Exit context
+  exitReason: text("exit_reason"), // 'target', 'stoploss', 'dynamic_lower', 'dynamic_higher', 'timeout'
+  exitRainbowLine: integer("exit_rainbow_line"),
+  exitConditions: jsonb("exit_conditions"),
+  
+  // Learning data
+  themeScore: decimal("theme_score", { precision: 5, scale: 2 }),
+  newsScore: decimal("news_score", { precision: 5, scale: 2 }),
+  financialsScore: decimal("financials_score", { precision: 5, scale: 2 }),
+  liquidityScore: decimal("liquidity_score", { precision: 5, scale: 2 }),
+  institutionalScore: decimal("institutional_score", { precision: 5, scale: 2 }),
+  
+  entryTime: timestamp("entry_time").notNull().defaultNow(),
+  exitTime: timestamp("exit_time"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 // ==================== Insert Schemas ====================
 
 export const insertUserSchema = createInsertSchema(users, {
@@ -397,6 +477,24 @@ export const insertMarketIssueSchema = createInsertSchema(marketIssues, {
   createdAt: true 
 });
 
+export const insertAutoTradingSettingsSchema = createInsertSchema(autoTradingSettings, {
+  modelId: z.number().int().positive(),
+  rainbowLineSettings: z.any(),
+}).omit({ 
+  id: true, 
+  createdAt: true, 
+  updatedAt: true 
+});
+
+export const insertTradingPerformanceSchema = createInsertSchema(tradingPerformance, {
+  modelId: z.number().int().positive(),
+  stockCode: z.string().min(1),
+}).omit({ 
+  id: true, 
+  createdAt: true,
+  entryTime: true 
+});
+
 // ==================== Type Exports ====================
 
 export type User = typeof users.$inferSelect;
@@ -446,3 +544,9 @@ export type InsertFinancialSnapshot = z.infer<typeof insertFinancialSnapshotSche
 
 export type MarketIssue = typeof marketIssues.$inferSelect;
 export type InsertMarketIssue = z.infer<typeof insertMarketIssueSchema>;
+
+export type AutoTradingSettings = typeof autoTradingSettings.$inferSelect;
+export type InsertAutoTradingSettings = z.infer<typeof insertAutoTradingSettingsSchema>;
+
+export type TradingPerformance = typeof tradingPerformance.$inferSelect;
+export type InsertTradingPerformance = z.infer<typeof insertTradingPerformanceSchema>;

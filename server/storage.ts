@@ -31,6 +31,10 @@ import {
   type InsertFinancialSnapshot,
   type MarketIssue,
   type InsertMarketIssue,
+  type AutoTradingSettings,
+  type InsertAutoTradingSettings,
+  type TradingPerformance,
+  type InsertTradingPerformance,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -132,6 +136,20 @@ export interface IStorage {
   getMarketIssuesByStock(stockCode: string): Promise<MarketIssue[]>;
   createMarketIssue(issue: InsertMarketIssue): Promise<MarketIssue>;
   deleteMarketIssues(issueDate: string): Promise<void>;
+
+  // Auto Trading Settings methods
+  getAutoTradingSettings(modelId: number): Promise<AutoTradingSettings | undefined>;
+  createAutoTradingSettings(settings: InsertAutoTradingSettings): Promise<AutoTradingSettings>;
+  updateAutoTradingSettings(modelId: number, updates: Partial<AutoTradingSettings>): Promise<AutoTradingSettings | undefined>;
+  
+  // Trading Performance methods (학습 시스템)
+  getTradingPerformance(modelId: number, limit?: number): Promise<TradingPerformance[]>;
+  getTradingPerformanceByStock(modelId: number, stockCode: string): Promise<TradingPerformance | undefined>;
+  createTradingPerformance(performance: InsertTradingPerformance): Promise<TradingPerformance>;
+  updateTradingPerformance(id: number, updates: Partial<TradingPerformance>): Promise<TradingPerformance | undefined>;
+  
+  // Helper methods for auto trading
+  getActiveAiModels(): Promise<AiModel[]>;
 }
 
 export class MemStorage implements IStorage {
@@ -155,6 +173,8 @@ export class MemStorage implements IStorage {
   private watchlistSignals: Map<number, WatchlistSignal> = new Map();
   private financialSnapshots: Map<number, FinancialSnapshot> = new Map();
   private marketIssues: Map<number, MarketIssue> = new Map();
+  private autoTradingSettings: Map<number, AutoTradingSettings> = new Map();
+  private tradingPerformance: Map<number, TradingPerformance> = new Map();
   
   private nextAccountId = 1;
   private nextHoldingId = 1;
@@ -171,6 +191,8 @@ export class MemStorage implements IStorage {
   private nextWatchlistSignalId = 1;
   private nextFinancialSnapshotId = 1;
   private nextMarketIssueId = 1;
+  private nextAutoTradingSettingsId = 1;
+  private nextTradingPerformanceId = 1;
 
   // ==================== User Methods ====================
   
@@ -756,6 +778,116 @@ export class MemStorage implements IStorage {
       .map(([id, _]) => id);
     
     toDelete.forEach(id => this.marketIssues.delete(id));
+  }
+
+  // ==================== Auto Trading Settings Methods ====================
+
+  async getAutoTradingSettings(modelId: number): Promise<AutoTradingSettings | undefined> {
+    return Array.from(this.autoTradingSettings.values()).find(s => s.modelId === modelId);
+  }
+
+  async createAutoTradingSettings(insertSettings: InsertAutoTradingSettings): Promise<AutoTradingSettings> {
+    const id = this.nextAutoTradingSettingsId++;
+    const settings: AutoTradingSettings = {
+      id,
+      modelId: insertSettings.modelId,
+      defaultPositionSize: insertSettings.defaultPositionSize ?? '1000000',
+      maxPositionSize: insertSettings.maxPositionSize ?? '10000000',
+      maxDailyTrades: insertSettings.maxDailyTrades ?? 5,
+      rainbowLineSettings: insertSettings.rainbowLineSettings,
+      centerBuyLine: insertSettings.centerBuyLine ?? 50,
+      minAiConfidence: insertSettings.minAiConfidence ?? '70',
+      requireGoodFinancials: insertSettings.requireGoodFinancials ?? true,
+      requireHighLiquidity: insertSettings.requireHighLiquidity ?? true,
+      requireMarketIssue: insertSettings.requireMarketIssue ?? false,
+      themeWeight: insertSettings.themeWeight ?? '20',
+      newsWeight: insertSettings.newsWeight ?? '15',
+      financialsWeight: insertSettings.financialsWeight ?? '25',
+      liquidityWeight: insertSettings.liquidityWeight ?? '20',
+      institutionalWeight: insertSettings.institutionalWeight ?? '20',
+      enableDynamicExit: insertSettings.enableDynamicExit ?? true,
+      stalePeriodDays: insertSettings.stalePeriodDays ?? 5,
+      surgeThreshold: insertSettings.surgeThreshold ?? '10',
+      volumeSpikeMultiplier: insertSettings.volumeSpikeMultiplier ?? '3',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    this.autoTradingSettings.set(id, settings);
+    return settings;
+  }
+
+  async updateAutoTradingSettings(modelId: number, updates: Partial<AutoTradingSettings>): Promise<AutoTradingSettings | undefined> {
+    const settings = await this.getAutoTradingSettings(modelId);
+    if (!settings) return undefined;
+
+    const updated = { ...settings, ...updates, updatedAt: new Date() };
+    this.autoTradingSettings.set(settings.id, updated);
+    return updated;
+  }
+
+  // ==================== Trading Performance Methods ====================
+
+  async getTradingPerformance(modelId: number, limit?: number): Promise<TradingPerformance[]> {
+    const performances = Array.from(this.tradingPerformance.values())
+      .filter(p => p.modelId === modelId)
+      .sort((a, b) => b.entryTime.getTime() - a.entryTime.getTime());
+    
+    return limit ? performances.slice(0, limit) : performances;
+  }
+
+  async getTradingPerformanceByStock(modelId: number, stockCode: string): Promise<TradingPerformance | undefined> {
+    return Array.from(this.tradingPerformance.values())
+      .filter(p => p.modelId === modelId && p.stockCode === stockCode && !p.exitTime)
+      .sort((a, b) => b.entryTime.getTime() - a.entryTime.getTime())[0];
+  }
+
+  async createTradingPerformance(insertPerformance: InsertTradingPerformance): Promise<TradingPerformance> {
+    const id = this.nextTradingPerformanceId++;
+    const performance: TradingPerformance = {
+      id,
+      modelId: insertPerformance.modelId,
+      orderId: insertPerformance.orderId ?? null,
+      stockCode: insertPerformance.stockCode,
+      stockName: insertPerformance.stockName,
+      entryPrice: insertPerformance.entryPrice,
+      exitPrice: insertPerformance.exitPrice ?? null,
+      quantity: insertPerformance.quantity,
+      profitLoss: insertPerformance.profitLoss ?? null,
+      profitLossRate: insertPerformance.profitLossRate ?? null,
+      holdingDays: insertPerformance.holdingDays ?? null,
+      isWin: insertPerformance.isWin ?? null,
+      entryRainbowLine: insertPerformance.entryRainbowLine ?? null,
+      entryAiConfidence: insertPerformance.entryAiConfidence ?? null,
+      entryConditions: insertPerformance.entryConditions ?? null,
+      exitReason: insertPerformance.exitReason ?? null,
+      exitRainbowLine: insertPerformance.exitRainbowLine ?? null,
+      exitConditions: insertPerformance.exitConditions ?? null,
+      themeScore: insertPerformance.themeScore ?? null,
+      newsScore: insertPerformance.newsScore ?? null,
+      financialsScore: insertPerformance.financialsScore ?? null,
+      liquidityScore: insertPerformance.liquidityScore ?? null,
+      institutionalScore: insertPerformance.institutionalScore ?? null,
+      entryTime: new Date(),
+      exitTime: insertPerformance.exitTime ?? null,
+      createdAt: new Date(),
+    };
+    this.tradingPerformance.set(id, performance);
+    return performance;
+  }
+
+  async updateTradingPerformance(id: number, updates: Partial<TradingPerformance>): Promise<TradingPerformance | undefined> {
+    const performance = this.tradingPerformance.get(id);
+    if (!performance) return undefined;
+
+    const updated = { ...performance, ...updates };
+    this.tradingPerformance.set(id, updated);
+    return updated;
+  }
+
+  // ==================== Helper Methods for Auto Trading ====================
+
+  async getActiveAiModels(): Promise<AiModel[]> {
+    return Array.from(this.aiModels.values()).filter(m => m.isActive);
   }
 }
 
