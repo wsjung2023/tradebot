@@ -265,8 +265,8 @@ export default function ChartFormulaEditor() {
               </DialogHeader>
               <Tabs defaultValue="basic" className="w-full">
                 <TabsList className="grid w-full grid-cols-2">
-                  <TabsTrigger value="basic">기본 정보</TabsTrigger>
-                  <TabsTrigger value="formula">수식 & 스타일</TabsTrigger>
+                  <TabsTrigger value="basic" data-testid="tab-trigger-basic">기본 정보</TabsTrigger>
+                  <TabsTrigger value="formula" data-testid="tab-trigger-formula">수식 & 스타일</TabsTrigger>
                 </TabsList>
                 <TabsContent value="basic" className="space-y-4">
                   <div className="space-y-2">
@@ -289,9 +289,9 @@ export default function ChartFormulaEditor() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="indicator">지표 (Indicator)</SelectItem>
-                        <SelectItem value="signal">시그널 (Signal)</SelectItem>
-                        <SelectItem value="condition">조건 (Condition)</SelectItem>
+                        <SelectItem value="indicator" data-testid="option-formula-type-indicator">지표 (Indicator)</SelectItem>
+                        <SelectItem value="signal" data-testid="option-formula-type-signal">시그널 (Signal)</SelectItem>
+                        <SelectItem value="condition" data-testid="option-formula-type-condition">조건 (Condition)</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -333,9 +333,9 @@ export default function ChartFormulaEditor() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="line">라인 (Line)</SelectItem>
-                          <SelectItem value="bar">바 (Bar)</SelectItem>
-                          <SelectItem value="signal">시그널 (Signal)</SelectItem>
+                          <SelectItem value="line" data-testid="option-output-type-line">라인 (Line)</SelectItem>
+                          <SelectItem value="bar" data-testid="option-output-type-bar">바 (Bar)</SelectItem>
+                          <SelectItem value="signal" data-testid="option-output-type-signal">시그널 (Signal)</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -349,13 +349,13 @@ export default function ChartFormulaEditor() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="red">빨강 (Red)</SelectItem>
-                          <SelectItem value="orange">주황 (Orange)</SelectItem>
-                          <SelectItem value="yellow">노랑 (Yellow)</SelectItem>
-                          <SelectItem value="green">초록 (Green)</SelectItem>
-                          <SelectItem value="blue">파랑 (Blue)</SelectItem>
-                          <SelectItem value="indigo">남색 (Indigo)</SelectItem>
-                          <SelectItem value="violet">보라 (Violet)</SelectItem>
+                          <SelectItem value="red" data-testid="option-color-red">빨강 (Red)</SelectItem>
+                          <SelectItem value="orange" data-testid="option-color-orange">주황 (Orange)</SelectItem>
+                          <SelectItem value="yellow" data-testid="option-color-yellow">노랑 (Yellow)</SelectItem>
+                          <SelectItem value="green" data-testid="option-color-green">초록 (Green)</SelectItem>
+                          <SelectItem value="blue" data-testid="option-color-blue">파랑 (Blue)</SelectItem>
+                          <SelectItem value="indigo" data-testid="option-color-indigo">남색 (Indigo)</SelectItem>
+                          <SelectItem value="violet" data-testid="option-color-violet">보라 (Violet)</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -404,7 +404,7 @@ export default function ChartFormulaEditor() {
           <Card>
             <CardContent className="py-12 text-center">
               <Code2 className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-              <p className="text-muted-foreground">등록된 차트 수식이 없습니다</p>
+              <p className="text-muted-foreground" data-testid="text-no-formulas">등록된 차트 수식이 없습니다</p>
               <p className="text-sm text-muted-foreground mt-1">새 수식을 추가하여 시작하세요</p>
             </CardContent>
           </Card>
@@ -509,9 +509,9 @@ export default function ChartFormulaEditor() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="D">일봉</SelectItem>
-                      <SelectItem value="W">주봉</SelectItem>
-                      <SelectItem value="M">월봉</SelectItem>
+                      <SelectItem value="D" data-testid="option-period-day">일봉</SelectItem>
+                      <SelectItem value="W" data-testid="option-period-week">주봉</SelectItem>
+                      <SelectItem value="M" data-testid="option-period-month">월봉</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

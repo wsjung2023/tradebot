@@ -175,15 +175,17 @@ export default function ConditionScreeningPage() {
                   </SelectTrigger>
                   <SelectContent>
                     {activeConditions.length === 0 && (
-                      <div className="p-4 text-sm text-muted-foreground text-center">
+                      <div className="p-4 text-sm text-muted-foreground text-center" data-testid="text-no-conditions">
                         활성화된 조건식이 없습니다
                       </div>
                     )}
                     {activeConditions.map((condition) => (
-                      <SelectItem key={condition.id} value={condition.id.toString()}>
+                      <SelectItem key={condition.id} value={condition.id.toString()} data-testid={`option-condition-${condition.id}`}>
                         {condition.conditionName} ({condition.marketType})
                         {condition.isRealTimeMonitoring && (
-                          <span className="ml-2 text-cyan-400">⚡ 실시간</span>
+                          <span className="ml-2 text-cyan-400 inline-flex items-center gap-1" data-testid={`text-realtime-${condition.id}`}>
+                            <Zap className="w-3 h-3" /> 실시간
+                          </span>
                         )}
                       </SelectItem>
                     ))}

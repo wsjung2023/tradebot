@@ -118,14 +118,44 @@
 - 차트 평가 시 SignalLine 구조체 반환
 - 재무 데이터 캐싱 준비 완료
 
+### ✅ 완료: 조건검색 프론트엔드 (2025-11-13 저녁)
+
+**4개 화면 완성 (Tasks condition-9~12):**
+1. **화면 0105 - 조건식 관리** (`/condition-formulas`):
+   - 조건 CRUD (생성, 수정, 삭제)
+   - HTS 조건식 가져오기 (stub)
+   - 활성화/비활성화, 실시간 모니터링 토글
+   - 전체 interactive 요소에 data-testid 추가
+
+2. **화면 0156 - 실시간 스크리닝** (`/condition-screening`):
+   - 조건식 선택 및 실행
+   - 검색 결과 테이블 (종목명, 코드, 현재가, 등락률)
+   - 자동 갱신 시스템 (30초~5분 interval, polling 방식)
+   - Number.isFinite validation으로 NaN 방지
+   - 이모지 제거 (⚡ → Zap 아이콘)
+
+3. **화면 0130 - 차트 시그널 관심종목** (`/watchlist-signals`):
+   - 관심종목 + 차트수식 매핑
+   - 시그널 라인 표시
+   - CRUD 기능
+
+4. **차트수식 에디터** (`/chart-formula-editor`):
+   - 수식 CRUD (formulaName, formulaType, rawFormula, color, lineWeight)
+   - Tabs UI (기본 정보 / 수식 & 스타일)
+   - 실시간 평가 (종목코드 + 기간 입력 → 시그널 라인 반환)
+   - 7색 시그널 시스템 (red, orange, yellow, green, blue, indigo, violet)
+   - 전체 form inputs, selects, buttons에 data-testid
+
+**품질 보증:**
+- apiRequest 중앙 집중식 에러 처리 (throwIfResNotOk)
+- 모든 interactive/display 요소에 data-testid 추가 (테스트 자동화 준비)
+- 입력 검증 강화 (interval validation, formula name/rawFormula required)
+- Neo-Fintech Storm UI 스타일 적용
+
 ### 🚧 진행 중
-1. **조건검색 프론트엔드** (Tasks condition-9~12):
-   - 화면 0105: 조건식 관리
-   - 화면 0156: 실시간 스크리닝
-   - 화면 0130: 차트 시그널 관심종목
-   - 차트수식 에디터
-2. 실시간 조건검색 프로세서 (WebSocket)
-3. 재무데이터 배치 캐싱 시스템
+1. 실시간 조건검색 프로세서 (WebSocket)
+2. 재무데이터 배치 캐싱 시스템
+3. Task #2: AI 분석 통합 (10-line rainbow chart system)
 4. PWA 설정 (Task #9: Service Worker, 오프라인 모드)
 5. 보안 강화 (Task #10: API 키 암호화, rate limiting)
 6. 전체 시스템 테스트 (Task #11)
