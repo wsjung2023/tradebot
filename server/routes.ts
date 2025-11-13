@@ -703,26 +703,33 @@ export async function registerRoutes(app: Express, sessionMiddleware: any): Prom
       }
       
       // Execute condition search via Kiwoom service
-      const results = await kiwoomService.getConditionSearchResults(
+      const searchResponse = await kiwoomService.getConditionSearchResults(
         condition.conditionName,
-        condition.marketType
+        0 // conditionIndex - using 0 as default, should be stored with formula
       );
       
-      // Store results in database
+      // Extract results from response (output1 contains the stock list)
+      const results = searchResponse?.output1 || [];
+      
+      // Store results in database (skip entries without valid stock code)
       for (const result of results) {
+        if (!result.stck_cd || !result.stck_nm) {
+          continue; // Skip invalid entries
+        }
+        
         await storage.createConditionResult({
           conditionId,
-          stockCode: result.stockCode,
-          stockName: result.stockName,
+          stockCode: result.stck_cd,
+          stockName: result.stck_nm,
           matchScore: null,
-          currentPrice: result.currentPrice?.toString() || null,
-          changeRate: result.changeRate?.toString() || null,
-          volume: result.volume || null,
+          currentPrice: result.stck_prpr || null,
+          changeRate: result.prdy_ctrt || null,
+          volume: result.vol ? Number(result.vol) : null,
           marketCap: null,
           per: null,
           pbr: null,
           passedFilters: true,
-          metadata: result,
+          metadata: result as any,
         });
       }
       

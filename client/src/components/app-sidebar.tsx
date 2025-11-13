@@ -12,6 +12,7 @@ import {
   BookOpen,
   Search,
   ScanSearch,
+  LineChart,
 } from "lucide-react";
 import {
   Sidebar,
@@ -79,6 +80,11 @@ const menuItems = [
     title: "실시간 스크리닝",
     url: "/condition-screening",
     icon: ScanSearch,
+  },
+  {
+    title: "시그널 분석",
+    url: "/watchlist-signals",
+    icon: LineChart,
   },
   {
     title: "설정",

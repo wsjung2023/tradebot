@@ -20,6 +20,7 @@ import Guide from "@/pages/guide";
 import Accounts from "@/pages/accounts";
 import ConditionFormulas from "@/pages/condition-formulas";
 import ConditionScreening from "@/pages/condition-screening";
+import WatchlistSignals from "@/pages/watchlist-signals";
 
 function ProtectedRoute({ component: Component, ...rest }: any) {
   const { data: user, isLoading, isError, error } = useQuery({
@@ -83,6 +84,7 @@ function AuthenticatedRouter() {
               <Route path="/watchlist" component={Watchlist} />
               <Route path="/condition-formulas" component={ConditionFormulas} />
               <Route path="/condition-screening" component={ConditionScreening} />
+              <Route path="/watchlist-signals" component={WatchlistSignals} />
               <Route path="/settings" component={Settings} />
               <Route component={NotFound} />
             </Switch>
