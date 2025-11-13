@@ -4,13 +4,7 @@ import { KiwoomService } from './services/kiwoom.service';
 import { AIService } from './services/ai.service';
 import { AiModel, AutoTradingSettings, ConditionFormula } from '@shared/schema';
 import { decrypt } from './utils/crypto';
-
-interface RainbowLineEvaluation {
-  currentLine: number; // Which line (10-100%) is current price at?
-  action: 'buy' | 'sell' | 'hold';
-  weight: number; // Position weight 0-100
-  confidence: number;
-}
+import { RainbowChartAnalyzer } from './formula/rainbow-chart';
 
 class AutoTradingWorker {
   private isRunning = false;
@@ -270,46 +264,41 @@ class AutoTradingWorker {
     stock: { code: string; price: number },
     settings: AutoTradingSettings,
     kiwoomService: KiwoomService
-  ): Promise<RainbowLineEvaluation> {
-    // Get historical data to find peak
-    const ohlcv = await kiwoomService.getOHLCV(stock.code, 500);
+  ): Promise<{ currentLine: number; action: 'buy' | 'sell' | 'hold'; weight: number; confidence: number }> {
+    // Get 2 years of data
+    const ohlcv = await kiwoomService.getOHLCV(stock.code, 730);
     
-    // Find peak price in lookback period (2 years)
-    const peak = Math.max(...ohlcv.map((d: any) => d.high));
+    // Use RainbowChartAnalyzer
+    const result = RainbowChartAnalyzer.analyze(stock.code, ohlcv);
+    const signalStrength = RainbowChartAnalyzer.getSignalStrength(result);
     
-    // Calculate current position (10% - 100%)
-    const currentPercentage = (stock.price / peak) * 100;
+    // Find current line number (0-9)
+    const currentPercent = ((stock.price - result.low2Y) / (result.high2Y - result.low2Y)) * 100;
+    const currentLine = Math.round((currentPercent / 100) * 9);
     
-    // Round to nearest 10% line
-    const currentLine = Math.round(currentPercentage / 10) * 10;
-    
-    // Get settings for this line
-    const rainbowSettings = settings.rainbowLineSettings as any[];
-    const lineSetting = rainbowSettings.find(s => s.line === currentLine) || {
-      line: currentLine,
-      buyWeight: 0,
-      sellWeight: 0,
-    };
-
-    // Determine action
-    let action: 'buy' | 'sell' | 'hold';
+    // Map recommendation to action
+    let action: 'buy' | 'sell' | 'hold' = 'hold';
     let weight = 0;
-
-    if (currentLine <= settings.centerBuyLine) {
-      // Below or at 50% = buy zone
+    
+    if (result.recommendation === 'strong-buy') {
       action = 'buy';
-      weight = lineSetting.buyWeight || (100 - currentLine); // Lower = heavier buy
-    } else {
-      // Above 50% = sell zone
+      weight = 100;
+    } else if (result.recommendation === 'buy') {
+      action = 'buy';
+      weight = 70;
+    } else if (result.recommendation === 'sell') {
       action = 'sell';
-      weight = lineSetting.sellWeight || (currentLine - 50); // Higher = heavier sell
+      weight = 70;
+    } else if (result.recommendation === 'strong-sell') {
+      action = 'sell';
+      weight = 100;
     }
 
     return {
       currentLine,
       action,
       weight,
-      confidence: Math.abs(currentLine - settings.centerBuyLine) * 2, // Distance from center
+      confidence: signalStrength,
     };
   }
 

@@ -34,6 +34,7 @@ import {
   type InsertConditionFormula
 } from "@shared/schema";
 import { MarketDataHub } from "./market-data-hub";
+import { rainbowRouter } from "./routes/rainbow";
 import { z } from "zod";
 
 export async function registerRoutes(app: Express, sessionMiddleware: any): Promise<Server> {
@@ -1143,6 +1144,9 @@ export async function registerRoutes(app: Express, sessionMiddleware: any): Prom
       res.status(500).json({ error: error.message });
     }
   });
+
+  // Rainbow Chart Routes
+  app.use('/api/rainbow', rainbowRouter);
 
   const httpServer = createServer(app);
 

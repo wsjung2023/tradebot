@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import type { AiModel, Holding, Order } from '@shared/schema';
+import { RainbowChartAnalyzer, type OHLCVData, type RainbowChartResult } from '../formula/rainbow-chart';
 
 interface StockAnalysisRequest {
   stockCode: string;
@@ -7,6 +8,7 @@ interface StockAnalysisRequest {
   currentPrice: number;
   priceHistory?: Array<{ date: string; price: number; volume: number }>;
   technicalIndicators?: any;
+  rainbowChart?: RainbowChartResult;
 }
 
 interface StockAnalysisResponse {
@@ -66,6 +68,15 @@ Stock Information:
 - Current Price: ₩${request.currentPrice.toLocaleString()}
 ${request.priceHistory ? `- Recent Price Data: ${JSON.stringify(request.priceHistory.slice(0, 30))}` : ''}
 ${request.technicalIndicators ? `- Technical Indicators: ${JSON.stringify(request.technicalIndicators)}` : ''}
+${request.rainbowChart ? `
+10-Line Rainbow Chart Analysis (2-Year Range):
+- 2Y High: ₩${request.rainbowChart.high2Y.toLocaleString()}
+- 2Y Low: ₩${request.rainbowChart.low2Y.toLocaleString()}
+- Current Zone: ${request.rainbowChart.currentZone}
+- Chart Recommendation: ${request.rainbowChart.recommendation.toUpperCase()}
+- Line 5 (50% retracement - PRIMARY BUY): ₩${request.rainbowChart.lines[5].price.toLocaleString()}
+- Current vs 50% Line: ${((request.currentPrice / request.rainbowChart.lines[5].price - 1) * 100).toFixed(2)}%
+` : ''}
 
 Based on technical analysis, market trends, and trading patterns, provide:
 1. Recommended action: BUY, SELL, or HOLD
