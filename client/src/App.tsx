@@ -17,6 +17,7 @@ import TradeHistory from "@/pages/trade-history";
 import Watchlist from "@/pages/watchlist";
 import Settings from "@/pages/settings";
 import Guide from "@/pages/guide";
+import Accounts from "@/pages/accounts";
 
 function ProtectedRoute({ component: Component, ...rest }: any) {
   const { data: user, isLoading, isError, error } = useQuery({
@@ -71,6 +72,7 @@ function AuthenticatedRouter() {
             <Switch>
               <Route path="/" component={Dashboard} />
               <Route path="/guide" component={Guide} />
+              <Route path="/accounts" component={Accounts} />
               <Route path="/trading" component={Trading} />
               <Route path="/ai-analysis" component={AIAnalysis} />
               <Route path="/auto-trading" component={AutoTrading} />
