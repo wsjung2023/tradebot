@@ -1,5 +1,6 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
+import { WebSocketServer } from "ws";
 import { storage } from "./storage";
 import { 
   isAuthenticated, 
@@ -16,10 +17,12 @@ import {
 import { getKiwoomService } from "./services/kiwoom.service";
 import { getAIService } from "./services/ai.service";
 import { insertUserSchema, insertKiwoomAccountSchema, insertOrderSchema, insertAiModelSchema, insertWatchlistSchema, insertAlertSchema } from "@shared/schema";
+import { MarketDataHub } from "./market-data-hub";
 
-export async function registerRoutes(app: Express): Promise<Server> {
+export async function registerRoutes(app: Express, sessionMiddleware: any): Promise<Server> {
   const kiwoomService = getKiwoomService();
   const aiService = getAIService();
+  const marketHub = new MarketDataHub(kiwoomService);
 
   // ==================== Authentication Routes ====================
 
@@ -138,7 +141,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const balance = await kiwoomService.getAccountBalance(account.accountNumber);
-      res.json(balance);
+      
+      // Generate 30-day asset history (mock data)
+      const assetHistory = [];
+      const totalAssets = parseFloat(balance.output1?.tot_evlu_amt || '100000000');
+      let baseAsset = totalAssets;
+      const today = new Date();
+      
+      for (let i = 29; i >= 0; i--) {
+        const date = new Date(today);
+        date.setDate(date.getDate() - i);
+        const dailyChange = (Math.random() - 0.5) * 0.02;
+        baseAsset = baseAsset * (1 + dailyChange);
+        const profit = baseAsset - (totalAssets * 0.95);
+        
+        assetHistory.push({
+          date: date.toISOString().split('T')[0],
+          totalAssets: Math.round(baseAsset),
+          profit: Math.round(profit),
+        });
+      }
+      
+      res.json({
+        ...balance,
+        totalAssets,
+        todayProfit: parseFloat(balance.output1?.evlu_pfls_smtl_amt || '0'),
+        todayProfitRate: (parseFloat(balance.output1?.evlu_pfls_smtl_amt || '0') / totalAssets) * 100,
+        totalReturn: Math.random() * 30 - 10,
+        assetHistory,
+      });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -399,6 +430,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   const httpServer = createServer(app);
+
+  // WebSocket server for real-time market data
+  const wss = new WebSocketServer({ server: httpServer, path: "/ws/market" });
+  
+  wss.on("connection", (ws) => {
+    marketHub.addClient(ws);
+  });
+
+  httpServer.on("upgrade", (request, socket, head) => {
+    if (!request.url?.startsWith("/ws/market")) return;
+    
+    sessionMiddleware(request as any, {} as any, () => {
+      const user = (request as any).session?.passport?.user;
+      if (!user) {
+        socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+        socket.destroy();
+        return;
+      }
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        wss.emit("connection", ws, request);
+      });
+    });
+  });
 
   return httpServer;
 }

@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { TrendingUp, TrendingDown, Wallet, Target, Plus, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 
 export default function Dashboard() {
   const { toast } = useToast();
@@ -269,8 +270,45 @@ export default function Dashboard() {
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>포트폴리오</CardTitle>
-            <CardDescription>보유 종목 현황</CardDescription>
+            <CardTitle>포트폴리오 구성</CardTitle>
+            <CardDescription>종목별 비중</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {holdings && holdings.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie
+                    data={holdings.map((h: any) => ({
+                      name: h.stockName,
+                      value: h.currentValue || h.quantity * (h.currentPrice || h.averagePrice),
+                    }))}
+                    cx="50%"
+                    cy="50%"
+                    labelLine={false}
+                    label={(entry) => entry.name}
+                    outerRadius={80}
+                    fill="#8884d8"
+                    dataKey="value"
+                  >
+                    {holdings.map((_: any, index: number) => (
+                      <Cell key={`cell-${index}`} fill={['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8'][index % 5]} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(value: any) => formatCurrency(value)} />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <p className="text-sm text-muted-foreground text-center py-8">
+                보유 종목이 없습니다
+              </p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>보유 종목</CardTitle>
+            <CardDescription>종목별 수익률</CardDescription>
           </CardHeader>
           <CardContent>
             {holdings && holdings.length > 0 ? (
@@ -286,8 +324,8 @@ export default function Dashboard() {
                       <p className="text-sm text-muted-foreground">{holding.stockCode}</p>
                     </div>
                     <div className="text-right">
-                      <p className="font-mono">{holding.quantity}주</p>
-                      <p className={`text-sm ${holding.profitLossRate > 0 ? 'text-green-600' : holding.profitLossRate < 0 ? 'text-red-600' : 'text-muted-foreground'}`}>
+                      <p className="font-mono text-sm">{holding.quantity}주</p>
+                      <p className={`text-sm font-medium ${holding.profitLossRate > 0 ? 'text-green-600 dark:text-green-400' : holding.profitLossRate < 0 ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground'}`}>
                         {formatPercent(holding.profitLossRate)}
                       </p>
                     </div>
@@ -301,19 +339,33 @@ export default function Dashboard() {
             )}
           </CardContent>
         </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>AI 추천</CardTitle>
-            <CardDescription>실시간 매매 신호</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground text-center py-8">
-              AI 모델을 활성화해주세요
-            </p>
-          </CardContent>
-        </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>자산 추이</CardTitle>
+          <CardDescription>최근 30일 총자산 변화</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {balance?.assetHistory && balance.assetHistory.length > 0 ? (
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={balance.assetHistory}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="date" />
+                <YAxis />
+                <Tooltip formatter={(value: any) => formatCurrency(value)} />
+                <Legend />
+                <Line type="monotone" dataKey="totalAssets" stroke="#8884d8" name="총자산" strokeWidth={2} />
+                <Line type="monotone" dataKey="profit" stroke="#82ca9d" name="수익" strokeWidth={2} />
+              </LineChart>
+            </ResponsiveContainer>
+          ) : (
+            <p className="text-sm text-muted-foreground text-center py-8">
+              데이터가 누적되면 차트가 표시됩니다
+            </p>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

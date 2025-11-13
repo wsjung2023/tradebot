@@ -24,24 +24,24 @@ app.use(express.json({
 app.use(express.urlencoded({ extended: false }));
 
 // Session configuration
-app.use(
-  session({
-    store: new PgSession({
-      pool,
-      tableName: 'session',
-      createTableIfMissing: true,
-    }),
-    secret: process.env.SESSION_SECRET || 'kiwoom-ai-trading-secret-key-change-in-production',
-    resave: false,
-    saveUninitialized: false,
-    cookie: {
-      maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-      secure: process.env.NODE_ENV === 'production',
-      httpOnly: true,
-      sameSite: 'lax', // CSRF protection
-    },
-  })
-);
+const sessionMiddleware = session({
+  store: new PgSession({
+    pool,
+    tableName: 'session',
+    createTableIfMissing: true,
+  }),
+  secret: process.env.SESSION_SECRET || 'kiwoom-ai-trading-secret-key-change-in-production',
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+    secure: process.env.NODE_ENV === 'production',
+    httpOnly: true,
+    sameSite: 'lax', // CSRF protection
+  },
+});
+
+app.use(sessionMiddleware);
 
 // Setup Passport authentication
 setupAuth(app);
@@ -77,7 +77,7 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  const server = await registerRoutes(app);
+  const server = await registerRoutes(app, sessionMiddleware);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
