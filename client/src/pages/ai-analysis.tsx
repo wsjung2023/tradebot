@@ -50,7 +50,8 @@ export default function AIAnalysis() {
 
   const analyzeStockMutation = useMutation({
     mutationFn: async (data: { stockCode: string; stockName: string; currentPrice: number }) => {
-      return await apiRequest('POST', '/api/ai/analyze-stock', data);
+      const res = await apiRequest('POST', '/api/ai/analyze-stock', data);
+      return res.json();
     },
     onSuccess: (data) => {
       setAnalysis(data);
@@ -60,20 +61,18 @@ export default function AIAnalysis() {
       });
     },
     onError: (error: any) => {
-      const errorMsg = error.response?.status === 401
-        ? "로그인이 필요합니다"
-        : error.message || "종목 분석 중 오류가 발생했습니다";
       toast({
         variant: "destructive",
         title: "분석 실패",
-        description: errorMsg,
+        description: error.message || "종목 분석 중 오류가 발생했습니다",
       });
     },
   });
 
   const analyzePortfolioMutation = useMutation({
     mutationFn: async (accountId: number) => {
-      return await apiRequest('POST', '/api/ai/analyze-portfolio', { accountId });
+      const res = await apiRequest('POST', '/api/ai/analyze-portfolio', { accountId });
+      return res.json();
     },
     onSuccess: (data) => {
       setPortfolioAnalysis(data);
@@ -83,13 +82,10 @@ export default function AIAnalysis() {
       });
     },
     onError: (error: any) => {
-      const errorMsg = error.response?.status === 401
-        ? "로그인이 필요합니다"
-        : error.message || "포트폴리오 분석 중 오류가 발생했습니다";
       toast({
         variant: "destructive",
         title: "분석 실패",
-        description: errorMsg,
+        description: error.message || "포트폴리오 분석 중 오류가 발생했습니다",
       });
     },
   });
