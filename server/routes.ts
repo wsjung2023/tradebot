@@ -16,7 +16,7 @@ import {
 } from "./auth";
 import { getKiwoomService } from "./services/kiwoom.service";
 import { getAIService } from "./services/ai.service";
-import { insertUserSchema, insertKiwoomAccountSchema, insertOrderSchema, insertAiModelSchema, insertWatchlistSchema, insertAlertSchema } from "@shared/schema";
+import { insertUserSchema, insertKiwoomAccountSchema, insertOrderSchema, insertAiModelSchema, updateAiModelSchema, insertWatchlistSchema, insertAlertSchema } from "@shared/schema";
 import { MarketDataHub } from "./market-data-hub";
 
 export async function registerRoutes(app: Express, sessionMiddleware: any): Promise<Server> {
@@ -325,6 +325,51 @@ export async function registerRoutes(app: Express, sessionMiddleware: any): Prom
       res.json(model);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/ai/models/:id", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const modelId = parseInt(req.params.id);
+      
+      // Check ownership
+      const existingModel = await storage.getAiModel(modelId);
+      if (!existingModel) {
+        return res.status(404).json({ error: "Model not found" });
+      }
+      if (existingModel.userId !== user!.id) {
+        return res.status(403).json({ error: "Not authorized to update this model" });
+      }
+      
+      // Validate update payload with Zod
+      const validatedUpdates = updateAiModelSchema.parse(req.body);
+      
+      const model = await storage.updateAiModel(modelId, validatedUpdates);
+      res.json(model);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/ai/models/:id", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const modelId = parseInt(req.params.id);
+      
+      // Check ownership
+      const existingModel = await storage.getAiModel(modelId);
+      if (!existingModel) {
+        return res.status(404).json({ error: "Model not found" });
+      }
+      if (existingModel.userId !== user!.id) {
+        return res.status(403).json({ error: "Not authorized to delete this model" });
+      }
+      
+      await storage.deleteAiModel(modelId);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
     }
   });
 

@@ -201,6 +201,13 @@ export const insertAiModelSchema = createInsertSchema(aiModels, {
   totalTrades: true 
 });
 
+export const updateAiModelSchema = z.object({
+  modelName: z.string().min(1).optional(),
+  description: z.string().optional(),
+  config: z.any().optional(),
+  isActive: z.boolean().optional(),
+});
+
 export const insertAiRecommendationSchema = createInsertSchema(aiRecommendations, {
   action: z.enum(['buy', 'sell', 'hold']),
   confidence: z.string().or(z.number()),

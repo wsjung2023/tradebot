@@ -3,6 +3,7 @@ import {
   LayoutDashboard,
   TrendingUp,
   Brain,
+  Bot,
   Briefcase,
   Settings,
   LogOut,
@@ -39,6 +40,11 @@ const menuItems = [
     title: "AI 분석",
     url: "/ai-analysis",
     icon: Brain,
+  },
+  {
+    title: "자동매매",
+    url: "/auto-trading",
+    icon: Bot,
   },
   {
     title: "포트폴리오",
