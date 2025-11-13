@@ -79,13 +79,57 @@
 12. AI 분석 대시보드 (Task #5: GPT-4 종목 분석, 포트폴리오 최적화, 신뢰도 점수)
 13. 자동매매 시스템 (Task #6: AI 모델 CRUD, 활성화/비활성화, 추천 생성)
 14. 거래 내역 및 로그 (Task #7: 주문/체결 내역, 거래 로그, 통계 대시보드)
+15. 관심종목 및 알림 (Task #8)
+
+### ✅ 완료: 키움 조건검색 시스템 백엔드 (2025-11-13)
+
+**데이터베이스 확장 (6개 테이블):**
+- `condition_formulas` - 조건검색 공식 (화면 0105)
+- `condition_results` - 실시간 스크리닝 결과
+- `chart_formulas` - 차트 수식 (7색 시그널)
+- `watchlist_signals` - 관심종목 매매신호 (화면 0130)
+- `financial_snapshots` - 3년 재무제표 캐시
+- `market_issues` - 시장이슈종목
+
+**KiwoomService 확장 (7개 메소드):**
+- `getConditionList()` - HTS 저장 조건식 가져오기
+- `getConditionSearchResults()` - 조건검색 실행
+- `getFinancialStatements()` - 재무제표 조회
+- `getFinancialRatios()` - 재무비율 (ROE, ROA, 부채비율)
+- `getMarketIssues()` - 당일 시장이슈종목
+- `getThemeStocks()` - 테마/섹터 종목
+- `getHighVolumeStocks()` - 고유동성 종목
+
+**수식 평가 엔진:**
+- `formula/parser.ts` - 차트 수식 → AST 파싱
+- `formula/evaluator.ts` - OHLCV 데이터 기반 시그널 계산
+- 지원 함수: highest(), lowest(), valuewhen(), h(), l(), c(), o(), v(), avg(), sum()
+- 7색 시그널 라인 생성 (매수/매도 지표)
+
+**API 엔드포인트 (19개 추가):**
+1. 조건검색 (6개): CRUD + 결과조회
+2. 차트수식 (6개): CRUD + 평가 (OHLCV → 시그널)
+3. 재무데이터 (2개): 조회 + 동기화
+4. 관심종목 시그널 (3개): CRUD
+5. 시장이슈 (2개): 당일조회 + 종목별 조회
+
+**데이터 정규화:**
+- Kiwoom API 응답 → OHLCVData 변환
+- 차트 평가 시 SignalLine 구조체 반환
+- 재무 데이터 캐싱 준비 완료
 
 ### 🚧 진행 중
-1. 관심종목 및 알림 (Task #8)
-2. PWA 설정 (Task #9: Service Worker, 오프라인 모드)
-3. 보안 강화 (Task #10: API 키 암호화, rate limiting)
-4. 전체 시스템 테스트 (Task #11)
-5. 최종 배포 준비 (Task #12)
+1. **조건검색 프론트엔드** (Tasks condition-9~12):
+   - 화면 0105: 조건식 관리
+   - 화면 0156: 실시간 스크리닝
+   - 화면 0130: 차트 시그널 관심종목
+   - 차트수식 에디터
+2. 실시간 조건검색 프로세서 (WebSocket)
+3. 재무데이터 배치 캐싱 시스템
+4. PWA 설정 (Task #9: Service Worker, 오프라인 모드)
+5. 보안 강화 (Task #10: API 키 암호화, rate limiting)
+6. 전체 시스템 테스트 (Task #11)
+7. 최종 배포 준비 (Task #12)
 
 ## 개발 가이드
 
