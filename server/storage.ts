@@ -130,7 +130,7 @@ export class MemStorage implements IStorage {
     const user: User = {
       id,
       email: insertUser.email,
-      passwordHash: insertUser.passwordHash || null,
+      password: insertUser.password || null,
       name: insertUser.name,
       authProvider: insertUser.authProvider || 'local',
       authProviderId: insertUser.authProviderId || null,

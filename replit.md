@@ -62,21 +62,24 @@
 
 ### ✅ 완료
 1. 데이터베이스 스키마 설계
-2. Storage 인터페이스 (DbStorage)
-3. Passport.js 인증 시스템
-4. 키움증권 API 서비스
-5. OpenAI AI 서비스
-6. 백엔드 API 라우트
-7. 프론트엔드 기본 구조
-8. 로그인/회원가입 페이지
-9. 기본 페이지 틀 (Dashboard, Trading, AI, Portfolio, Watchlist, Settings)
+2. Storage 인터페이스 (MemStorage - 개발용)
+3. Passport.js 인증 시스템 (Local + Google/Kakao/Naver OAuth)
+4. 로그인/회원가입 페이지 (이메일/비밀번호 + OAuth)
+5. Protected Routes 및 인증 가드
+6. 키움증권 계좌 연동 (CRUD, 잔고/보유종목 조회)
+7. 실시간 대시보드 (Recharts: 포트폴리오 파이차트, 30일 자산 추이)
+8. WebSocket 실시간 시세 시스템 (MarketDataHub, useMarketStream hook)
+9. 거래 화면 (실시간 가격, 일봉 차트, 호가 10단, 주문 패널)
+10. 키움증권 API 서비스 (stub - 실제 API 키 필요)
+11. OpenAI AI 서비스 (stub - GPT-4 분석 준비)
 
 ### 🚧 진행 중
-1. 실제 데이터를 활용한 대시보드 구현
-2. 거래 화면 (차트, 호가, 주문)
-3. AI 분석 대시보드
-4. WebSocket 실시간 시세
-5. PWA 설정
+1. AI 분석 대시보드 (GPT-4 종목 분석, 매매 신호)
+2. 자동매매 시스템 (AI 모델 설정, 백테스팅)
+3. 거래 내역 및 로그
+4. 관심종목 및 알림
+5. PWA 설정 (Service Worker, 오프라인 모드)
+6. 보안 강화 (API 키 암호화, rate limiting)
 
 ## 개발 가이드
 
@@ -118,10 +121,25 @@ npm run db:push
 7. 프로덕션 배포 준비
 
 ## 최근 변경사항 (2025-11-13)
-- PostgreSQL 데이터베이스 스키마 생성
-- Passport.js 다중 인증 시스템 구현
-- 키움증권 REST API 서비스 구현
-- OpenAI GPT-4 AI 분석 서비스 구현
-- 전체 백엔드 API 라우트 구현
-- 프론트엔드 기본 레이아웃 및 페이지 구현
-- CSRF 보호 추가
+
+### Task #1-4 완료
+- 키움 계좌 연동: 계좌 등록/관리, 잔고/보유종목 조회, API 키 설정
+- 실시간 대시보드: Recharts 차트 (포트폴리오 파이, 30일 자산 추이)
+- WebSocket 실시간 시세: MarketDataHub, useMarketStream hook, 연결 상태 표시
+- 거래 화면: 실시간 가격 카드, 일봉 차트, 호가 10단, 주문 패널
+
+### 인증 시스템 (Task #4.5 완료)
+- 로그인/회원가입 페이지 (이메일/비밀번호)
+- OAuth 버튼 (Google, Kakao, Naver)
+- Protected Routes (App.tsx의 ProtectedRoute)
+- Session 기반 인증 (PostgreSQL session store)
+
+### 기술적 개선
+- MemStorage ID counter 충돌 수정 (nextAccountId, nextHoldingId 분리)
+- React re-render 무한 루프 수정
+- Order validation schema 정렬 (orderMethod, orderQuantity)
+- WebSocket URL 수정 (window.location.host 사용, local/Replit 호환)
+
+### 다음 단계
+- Task #5: AI 분석 대시보드 구현
+- Task #6-12: 자동매매, 거래내역, 관심종목, PWA, 보안, 테스트

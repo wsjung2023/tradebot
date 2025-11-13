@@ -39,7 +39,7 @@ export async function registerRoutes(app: Express, sessionMiddleware: any): Prom
       const hashedPassword = await hashPassword(password!);
       const user = await storage.createUser({
         email,
-        passwordHash: hashedPassword,
+        password: hashedPassword,
         name,
         authProvider: 'local',
       });

@@ -34,11 +34,10 @@ export function useMarketStream(symbols: string[], channels: string[] = ["price"
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
-    // Construct WebSocket URL - include port if present (local dev), omit if not (Replit)
+    // Construct WebSocket URL from current origin (works for both local dev and Replit)
+    // window.location.host includes port automatically when present
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = window.location.port
-      ? `${protocol}//${window.location.hostname}:${window.location.port}/ws/market`
-      : `${protocol}//${window.location.hostname}/ws/market`;
+    const wsUrl = import.meta.env.VITE_WS_URL || `${protocol}//${window.location.host}/ws/market`;
     
     const ws = new WebSocket(wsUrl);
 

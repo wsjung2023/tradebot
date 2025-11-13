@@ -38,11 +38,11 @@ passport.use(
           return done(null, false, { message: 'Invalid email or password' });
         }
 
-        if (!user.passwordHash) {
+        if (!user.password) {
           return done(null, false, { message: 'Please use social login' });
         }
 
-        const isValid = await bcrypt.compare(password, user.passwordHash);
+        const isValid = await bcrypt.compare(password, user.password);
 
         if (!isValid) {
           return done(null, false, { message: 'Invalid email or password' });
