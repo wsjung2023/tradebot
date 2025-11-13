@@ -124,11 +124,12 @@ export class MarketDataHub {
     for (const symbol of symbols) {
       try {
         if (channels.includes("price")) {
-          const price = await this.kiwoomService.getStockPrice(symbol);
+          const priceData = await this.kiwoomService.getStockPrice(symbol);
+          const payload = this.transformPriceData(priceData, symbol);
           this.sendMessage(ws, {
             type: "price",
             symbol,
-            payload: price,
+            payload,
             timestamp: Date.now(),
           });
         }
@@ -157,7 +158,7 @@ export class MarketDataHub {
           const subscribers = this.symbolSubscribers.get(symbol);
           if (!subscribers || subscribers.size === 0) continue;
 
-          const price = await this.kiwoomService.getStockPrice(symbol);
+          const priceData = await this.kiwoomService.getStockPrice(symbol);
           const orderbook = await this.kiwoomService.getStockOrderbook(symbol);
 
           subscribers.forEach((ws) => {
@@ -165,10 +166,11 @@ export class MarketDataHub {
             if (!client) return;
 
             if (client.channels.has("price")) {
+              const payload = this.transformPriceData(priceData, symbol);
               this.sendMessage(ws, {
                 type: "price",
                 symbol,
-                payload: price,
+                payload,
                 timestamp: Date.now(),
               });
             }
@@ -187,6 +189,20 @@ export class MarketDataHub {
         }
       }
     }, 1000); // Update every second
+  }
+
+  private transformPriceData(data: any, symbol: string) {
+    const output = data?.output || {};
+    return {
+      currentPrice: parseFloat(output.stck_prpr || '0'),
+      change: parseFloat(output.prdy_vrss || '0'),
+      changeRate: parseFloat(output.prdy_ctrt || '0'),
+      openPrice: parseFloat(output.stck_oprc || '0'),
+      highPrice: parseFloat(output.stck_hgpr || '0'),
+      lowPrice: parseFloat(output.stck_lwpr || '0'),
+      volume: parseInt(output.acml_vol || '0'),
+      stockName: symbol,
+    };
   }
 
   private sendMessage(ws: WebSocket, message: MarketDataMessage) {
