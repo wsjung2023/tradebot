@@ -9,6 +9,7 @@ import {
   LogOut,
   Activity,
   ScrollText,
+  BookOpen,
 } from "lucide-react";
 import {
   Sidebar,
@@ -31,6 +32,11 @@ const menuItems = [
     title: "대시보드",
     url: "/",
     icon: LayoutDashboard,
+  },
+  {
+    title: "사용 가이드",
+    url: "/guide",
+    icon: BookOpen,
   },
   {
     title: "거래",

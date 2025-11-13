@@ -169,16 +169,28 @@ export default function Register() {
             </Button>
           </form>
 
-          <p className="text-sm text-center mt-6 text-white/70">
-            이미 계정이 있으신가요?{" "}
-            <a 
-              href="/login" 
-              className="text-[hsl(var(--neon-purple))] hover:text-[hsl(var(--neon-cyan))] font-medium transition-colors"
-              data-testid="link-login"
-            >
-              로그인
-            </a>
-          </p>
+          <div className="space-y-2 mt-6 text-center">
+            <p className="text-sm text-white/70">
+              이미 계정이 있으신가요?{" "}
+              <a 
+                href="/login" 
+                className="text-[hsl(var(--neon-purple))] hover:text-[hsl(var(--neon-cyan))] font-medium transition-colors"
+                data-testid="link-login"
+              >
+                로그인
+              </a>
+            </p>
+            <p className="text-sm text-white/70">
+              사용 방법이 궁금하신가요?{" "}
+              <a 
+                href="/guide" 
+                className="text-[hsl(var(--neon-cyan))] hover:text-[hsl(var(--neon-purple))] font-medium transition-colors"
+                data-testid="link-guide"
+              >
+                사용 가이드 보기
+              </a>
+            </p>
+          </div>
         </div>
 
         {/* Security highlights */}
