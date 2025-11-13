@@ -23,26 +23,74 @@ interface Orderbook {
   sell: Array<{ price: number; quantity: number }>;
 }
 
+export type ConnectionStatus = 'connecting' | 'online' | 'degraded' | 'offline' | 'failed';
+
 export function useMarketStream(symbols: string[], channels: string[] = ["price", "orderbook"]) {
   const [prices, setPrices] = useState<Record<string, StockPrice>>({});
   const [orderbooks, setOrderbooks] = useState<Record<string, Orderbook>>({});
-  const [connected, setConnected] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('offline');
+  const [retryCount, setRetryCount] = useState(0);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
   const heartbeatIntervalRef = useRef<NodeJS.Timeout>();
+  const missedPongsRef = useRef(0);
+  const MAX_RETRIES = 10;
+  const MAX_MISSED_PONGS = 3;
+
+  const getReconnectDelay = useCallback((retries: number) => {
+    const baseDelay = 1000;
+    const maxDelay = 30000;
+    const exponentialDelay = Math.min(baseDelay * Math.pow(2, retries), maxDelay);
+    const jitter = Math.random() * 1000;
+    return exponentialDelay + jitter;
+  }, []);
+
+  const cleanup = useCallback(() => {
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = undefined;
+    }
+    if (heartbeatIntervalRef.current) {
+      clearInterval(heartbeatIntervalRef.current);
+      heartbeatIntervalRef.current = undefined;
+    }
+  }, []);
 
   const connect = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) return;
+    if (!navigator.onLine) {
+      setConnectionStatus('offline');
+      setErrorMessage('네트워크 연결이 없습니다');
+      return;
+    }
 
-    // Construct WebSocket URL from current origin (works for both local dev and Replit)
-    // window.location.host includes port automatically when present
+    if (wsRef.current?.readyState === WebSocket.OPEN) return;
+    if (retryCount >= MAX_RETRIES) {
+      setConnectionStatus('failed');
+      setErrorMessage(`최대 재연결 횟수(${MAX_RETRIES})를 초과했습니다`);
+      return;
+    }
+
+    cleanup();
+    setConnectionStatus('connecting');
+    setErrorMessage(null);
+
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = import.meta.env.VITE_WS_URL || `${protocol}//${window.location.host}/ws/market`;
     
     const ws = new WebSocket(wsUrl);
+    let heartbeatTimeout: NodeJS.Timeout;
 
     ws.onopen = () => {
-      setConnected(true);
+      setConnectionStatus('online');
+      setRetryCount(0);
+      setErrorMessage(null);
+      missedPongsRef.current = 0;
       
       if (symbols.length > 0) {
         ws.send(JSON.stringify({
@@ -54,7 +102,16 @@ export function useMarketStream(symbols: string[], channels: string[] = ["price"
 
       heartbeatIntervalRef.current = setInterval(() => {
         if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: "ping" }));
+          ws.send(JSON.stringify({ type: "ping", timestamp: Date.now() }));
+          
+          heartbeatTimeout = setTimeout(() => {
+            missedPongsRef.current++;
+            if (missedPongsRef.current >= MAX_MISSED_PONGS) {
+              setConnectionStatus('degraded');
+              setErrorMessage('서버 응답이 없습니다');
+              ws.close();
+            }
+          }, 5000);
         }
       }, 30000);
     };
@@ -62,6 +119,16 @@ export function useMarketStream(symbols: string[], channels: string[] = ["price"
     ws.onmessage = (event) => {
       try {
         const message: MarketDataMessage = JSON.parse(event.data);
+
+        if (message.type === "pong") {
+          missedPongsRef.current = 0;
+          if (heartbeatTimeout) clearTimeout(heartbeatTimeout);
+          if (connectionStatus === 'degraded') {
+            setConnectionStatus('online');
+            setErrorMessage(null);
+          }
+          return;
+        }
 
         switch (message.type) {
           case "price":
@@ -80,49 +147,98 @@ export function useMarketStream(symbols: string[], channels: string[] = ["price"
               }));
             }
             break;
-          case "pong":
-            break;
         }
       } catch (error) {
         console.error("Error parsing WebSocket message:", error);
+        setErrorMessage('메시지 파싱 오류');
       }
     };
 
     ws.onerror = (error) => {
       console.error("WebSocket error:", error);
+      setConnectionStatus('degraded');
+      setErrorMessage('WebSocket 연결 오류');
     };
 
-    ws.onclose = () => {
-      setConnected(false);
+    ws.onclose = (event) => {
+      if (heartbeatTimeout) clearTimeout(heartbeatTimeout);
       if (heartbeatIntervalRef.current) {
         clearInterval(heartbeatIntervalRef.current);
+        heartbeatIntervalRef.current = undefined;
       }
 
-      reconnectTimeoutRef.current = setTimeout(() => {
-        connect();
-      }, 3000);
+      if (event.code === 1000) {
+        setConnectionStatus('offline');
+        return;
+      }
+
+      if (!navigator.onLine) {
+        setConnectionStatus('offline');
+        setErrorMessage('네트워크 연결이 끊어졌습니다');
+        return;
+      }
+
+      if (retryCount < MAX_RETRIES) {
+        const delay = getReconnectDelay(retryCount);
+        setConnectionStatus('connecting');
+        setErrorMessage(`재연결 중... (${retryCount + 1}/${MAX_RETRIES})`);
+        
+        reconnectTimeoutRef.current = setTimeout(() => {
+          setRetryCount(prev => prev + 1);
+          connect();
+        }, delay);
+      } else {
+        setConnectionStatus('failed');
+        setErrorMessage(`재연결 실패: 최대 시도 횟수 초과`);
+      }
     };
 
     wsRef.current = ws;
-  }, [symbols.join(','), channels.join(',')]);
+  }, [symbols.join(','), channels.join(','), retryCount, connectionStatus, cleanup, getReconnectDelay]);
+
+  const forceReconnect = useCallback(() => {
+    setRetryCount(0);
+    cleanup();
+    connect();
+  }, [cleanup, connect]);
 
   useEffect(() => {
-    if (symbols.length > 0) {
+    const handleOnline = () => {
+      setConnectionStatus('connecting');
+      setRetryCount(0);
+      connect();
+    };
+
+    const handleOffline = () => {
+      cleanup();
+      setConnectionStatus('offline');
+      setErrorMessage('네트워크 연결이 끊어졌습니다');
+    };
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden && wsRef.current?.readyState !== WebSocket.OPEN) {
+        connect();
+      }
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [connect, cleanup]);
+
+  useEffect(() => {
+    if (symbols.length > 0 && navigator.onLine) {
       connect();
     }
 
-    return () => {
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
-      if (heartbeatIntervalRef.current) {
-        clearInterval(heartbeatIntervalRef.current);
-      }
-    };
-  }, [connect]);
+    return cleanup;
+  }, [connect, cleanup, symbols.length]);
 
   useEffect(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN && symbols.length > 0) {
@@ -137,6 +253,10 @@ export function useMarketStream(symbols: string[], channels: string[] = ["price"
   return {
     prices,
     orderbooks,
-    connected,
+    connectionStatus,
+    connected: connectionStatus === 'online',
+    errorMessage,
+    retryCount,
+    forceReconnect,
   };
 }
