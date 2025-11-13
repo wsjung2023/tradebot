@@ -687,6 +687,61 @@ export async function registerRoutes(app: Express, sessionMiddleware: any): Prom
     }
   });
 
+  // Run condition search (execute screening)
+  app.post("/api/conditions/:id/run", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const conditionId = parseInt(req.params.id);
+      
+      const condition = await storage.getConditionFormula(conditionId);
+      if (!condition) {
+        return res.status(404).json({ error: "Condition formula not found" });
+      }
+      
+      if (condition.userId !== user!.id) {
+        return res.status(403).json({ error: "Not authorized to run this condition formula" });
+      }
+      
+      // Execute condition search via Kiwoom service
+      const results = await kiwoomService.getConditionSearchResults(
+        condition.conditionName,
+        condition.marketType
+      );
+      
+      // Store results in database
+      for (const result of results) {
+        await storage.createConditionResult({
+          conditionId,
+          stockCode: result.stockCode,
+          stockName: result.stockName,
+          matchScore: null,
+          currentPrice: result.currentPrice?.toString() || null,
+          changeRate: result.changeRate?.toString() || null,
+          volume: result.volume || null,
+          marketCap: null,
+          per: null,
+          pbr: null,
+          passedFilters: true,
+          metadata: result,
+        });
+      }
+      
+      // Update match count and last matched time
+      await storage.updateConditionFormula(conditionId, {
+        matchCount: results.length,
+        lastMatchedAt: new Date(),
+      });
+      
+      res.json({ 
+        message: "Condition search executed successfully",
+        matchCount: results.length 
+      });
+    } catch (error: any) {
+      console.error('Failed to run condition search:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.get("/api/conditions/:id/results", isAuthenticated, async (req, res) => {
     try {
       const user = getCurrentUser(req);

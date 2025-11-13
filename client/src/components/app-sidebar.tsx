@@ -11,6 +11,7 @@ import {
   ScrollText,
   BookOpen,
   Search,
+  ScanSearch,
 } from "lucide-react";
 import {
   Sidebar,
@@ -73,6 +74,11 @@ const menuItems = [
     title: "조건검색",
     url: "/condition-formulas",
     icon: Search,
+  },
+  {
+    title: "실시간 스크리닝",
+    url: "/condition-screening",
+    icon: ScanSearch,
   },
   {
     title: "설정",
