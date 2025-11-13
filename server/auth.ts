@@ -62,12 +62,19 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
     ? `https://${process.env.REPLIT_DOMAINS}` 
     : 'http://localhost:5000';
   
+  const callbackURL = `${baseURL}/api/auth/google/callback`;
+  
+  console.log('[OAuth] Google OAuth Configuration:');
+  console.log('  - Base URL:', baseURL);
+  console.log('  - Callback URL:', callbackURL);
+  console.log('  - Client ID (first 20 chars):', process.env.GOOGLE_CLIENT_ID.substring(0, 20) + '...');
+  
   passport.use(
     new GoogleStrategy(
       {
         clientID: process.env.GOOGLE_CLIENT_ID,
         clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-        callbackURL: `${baseURL}/api/auth/google/callback`,
+        callbackURL: callbackURL,
       },
       async (accessToken: any, refreshToken: any, profile: any, done: any) => {
         try {
