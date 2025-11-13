@@ -14,6 +14,7 @@ interface ClientSubscription {
   ws: WebSocket;
   symbols: Set<string>;
   channels: Set<string>;
+  lastActivity: number;
 }
 
 export class MarketDataHub {
@@ -21,10 +22,14 @@ export class MarketDataHub {
   private symbolSubscribers: Map<string, Set<WebSocket>> = new Map();
   private kiwoomService: KiwoomService;
   private priceUpdateInterval: NodeJS.Timeout | null = null;
+  private heartbeatInterval: NodeJS.Timeout | null = null;
+  private readonly HEARTBEAT_INTERVAL = 30000; // 30s
+  private readonly CLIENT_TIMEOUT = 90000; // 90s
 
   constructor(kiwoomService: KiwoomService) {
     this.kiwoomService = kiwoomService;
     this.startPriceUpdates();
+    this.startHeartbeat();
   }
 
   addClient(ws: WebSocket) {
@@ -32,6 +37,7 @@ export class MarketDataHub {
       ws,
       symbols: new Set(),
       channels: new Set(),
+      lastActivity: Date.now(),
     });
 
     ws.on("message", (data) => this.handleClientMessage(ws, data));
@@ -40,6 +46,7 @@ export class MarketDataHub {
       console.error("WebSocket error:", error);
       this.removeClient(ws);
     });
+    ws.on("pong", () => this.updateClientActivity(ws));
 
     this.sendMessage(ws, { type: "pong", timestamp: Date.now() });
   }
@@ -61,7 +68,16 @@ export class MarketDataHub {
     this.clients.delete(ws);
   }
 
+  private updateClientActivity(ws: WebSocket) {
+    const client = this.clients.get(ws);
+    if (client) {
+      client.lastActivity = Date.now();
+    }
+  }
+
   private handleClientMessage(ws: WebSocket, data: any) {
+    this.updateClientActivity(ws);
+    
     try {
       const message: MarketDataMessage = JSON.parse(data.toString());
       
@@ -149,6 +165,29 @@ export class MarketDataHub {
     }
   }
 
+  private startHeartbeat() {
+    this.heartbeatInterval = setInterval(() => {
+      const now = Date.now();
+      const deadClients: WebSocket[] = [];
+
+      this.clients.forEach((client, ws) => {
+        const timeSinceActivity = now - client.lastActivity;
+        
+        if (timeSinceActivity > this.CLIENT_TIMEOUT) {
+          console.log(`Client timeout detected (${timeSinceActivity}ms idle), disconnecting`);
+          deadClients.push(ws);
+        } else if (ws.readyState === WebSocket.OPEN) {
+          ws.ping();
+        }
+      });
+
+      deadClients.forEach(ws => {
+        this.removeClient(ws);
+        ws.close();
+      });
+    }, this.HEARTBEAT_INTERVAL);
+  }
+
   private startPriceUpdates() {
     this.priceUpdateInterval = setInterval(async () => {
       const allSymbols = Array.from(this.symbolSubscribers.keys());
@@ -214,6 +253,9 @@ export class MarketDataHub {
   stop() {
     if (this.priceUpdateInterval) {
       clearInterval(this.priceUpdateInterval);
+    }
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
     }
     this.clients.forEach((_, ws) => ws.close());
     this.clients.clear();
