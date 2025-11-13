@@ -6,8 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { SiGoogle, SiNaver } from "react-icons/si";
-import { MessageCircle, TrendingUp, Zap, Bot } from "lucide-react";
+import { SiGoogle } from "react-icons/si";
+import { TrendingUp, Zap, Bot } from "lucide-react";
 import heroImage from "@assets/stock_images/futuristic_ai_artifi_11460e5f.jpg";
 
 export default function Login() {
@@ -141,24 +141,6 @@ export default function Login() {
             >
               <SiGoogle className="mr-2 h-4 w-4" />
               Google 로그인
-            </Button>
-            <Button
-              variant="outline"
-              className="w-full bg-white/5 border-white/20 text-white hover:bg-white/10"
-              onClick={() => handleSocialLogin('kakao')}
-              data-testid="button-kakao-login"
-            >
-              <MessageCircle className="mr-2 h-4 w-4" />
-              Kakao 로그인
-            </Button>
-            <Button
-              variant="outline"
-              className="w-full bg-white/5 border-white/20 text-white hover:bg-white/10"
-              onClick={() => handleSocialLogin('naver')}
-              data-testid="button-naver-login"
-            >
-              <SiNaver className="mr-2 h-4 w-4" />
-              Naver 로그인
             </Button>
           </div>
 
