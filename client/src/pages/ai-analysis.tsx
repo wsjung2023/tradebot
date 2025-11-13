@@ -127,11 +127,11 @@ export default function AIAnalysis() {
   const getActionIcon = (action: string) => {
     switch (action) {
       case 'buy':
-        return <TrendingUp className="h-5 w-5 text-green-500" />;
+        return <TrendingUp className="h-5 w-5" />;
       case 'sell':
-        return <TrendingDown className="h-5 w-5 text-red-500" />;
+        return <TrendingDown className="h-5 w-5 text-destructive" />;
       default:
-        return <Minus className="h-5 w-5 text-yellow-500" />;
+        return <Minus className="h-5 w-5 text-muted-foreground" />;
     }
   };
 
@@ -237,7 +237,7 @@ export default function AIAnalysis() {
               </CardHeader>
               <CardContent className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="border rounded-lg p-6">
+                  <div className="rounded-md border bg-card p-6">
                     <div className="flex items-center gap-3">
                       {getActionIcon(analysis.action)}
                       <div>
@@ -249,9 +249,9 @@ export default function AIAnalysis() {
                     </div>
                   </div>
 
-                  <div className="border rounded-lg p-6">
+                  <div className="rounded-md border bg-card p-6">
                     <div className="flex items-center gap-3">
-                      <Target className="h-5 w-5 text-primary" />
+                      <Target className="h-5 w-5 text-foreground" />
                       <div>
                         <p className="text-sm text-muted-foreground">신뢰도</p>
                         <p className="text-lg font-bold" data-testid="text-confidence">
@@ -261,9 +261,9 @@ export default function AIAnalysis() {
                     </div>
                   </div>
 
-                  <div className="border rounded-lg p-6">
+                  <div className="rounded-md border bg-card p-6">
                     <div className="flex items-center gap-3">
-                      <TrendingUp className="h-5 w-5 text-green-500" />
+                      <TrendingUp className="h-5 w-5 text-foreground" />
                       <div>
                         <p className="text-sm text-muted-foreground">목표가</p>
                         <p className="text-lg font-bold" data-testid="text-target-price">
@@ -279,7 +279,7 @@ export default function AIAnalysis() {
                     <AlertCircle className="h-4 w-4" />
                     분석 근거
                   </h3>
-                  <div className="border rounded-lg p-6 bg-muted/50">
+                  <div className="rounded-md border bg-muted/50 p-6">
                     <p className="text-sm whitespace-pre-wrap" data-testid="text-reasoning">
                       {analysis.reasoning}
                     </p>
@@ -291,25 +291,25 @@ export default function AIAnalysis() {
                     <h3 className="font-semibold mb-2">기술적 지표</h3>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                       {analysis.indicators.trend && (
-                        <div className="border rounded-lg p-4">
+                        <div className="rounded-md border bg-card p-4">
                           <p className="text-xs text-muted-foreground">추세</p>
                           <p className="font-medium capitalize">{analysis.indicators.trend}</p>
                         </div>
                       )}
                       {analysis.indicators.momentum && (
-                        <div className="border rounded-lg p-4">
+                        <div className="rounded-md border bg-card p-4">
                           <p className="text-xs text-muted-foreground">모멘텀</p>
                           <p className="font-medium capitalize">{analysis.indicators.momentum}</p>
                         </div>
                       )}
                       {analysis.indicators.support && (
-                        <div className="border rounded-lg p-4">
+                        <div className="rounded-md border bg-card p-4">
                           <p className="text-xs text-muted-foreground">지지선</p>
                           <p className="font-medium">₩{analysis.indicators.support.toLocaleString()}</p>
                         </div>
                       )}
                       {analysis.indicators.resistance && (
-                        <div className="border rounded-lg p-4">
+                        <div className="rounded-md border bg-card p-4">
                           <p className="text-xs text-muted-foreground">저항선</p>
                           <p className="font-medium">₩{analysis.indicators.resistance.toLocaleString()}</p>
                         </div>
@@ -413,7 +413,7 @@ export default function AIAnalysis() {
                   ) : (
                     <div className="space-y-3">
                       {portfolioAnalysis.recommendations.map((rec, idx) => (
-                        <div key={idx} className="border rounded-lg p-4">
+                        <div key={idx} className="rounded-md border bg-card p-4">
                           <div className="flex items-center justify-between">
                             <div className="flex-1">
                               <div className="flex items-center gap-2 mb-1">
