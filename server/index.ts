@@ -18,6 +18,9 @@ declare module 'http' {
 
 const PgSession = ConnectPgSimple(session);
 
+// Trust proxy for Replit environment (needed for rate limiting)
+app.set('trust proxy', 1);
+
 // Security Headers
 app.use(helmet({
   contentSecurityPolicy: process.env.NODE_ENV === 'production' ? {
