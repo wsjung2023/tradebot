@@ -1,209 +1,287 @@
-# Design Guidelines: Kiwoom AI Trading Platform
+# Design Guidelines: Kiwoom AI Trading Platform - Neo-Fintech Storm Edition
 
-## Design Approach
+## 🚀 Visual Direction: "Neo-Fintech Storm"
 
-**System Selected**: Material Design with Financial Dashboard customization
+**Theme**: High-energy AI-powered trading platform with cyberpunk aesthetics and dynamic motion
+- Cyberpunk gradients (deep blues → electric purples → neon accents)
+- Holographic HUD overlays and glassmorphism
+- Animated particles simulating market data streams
+- High-contrast neon accents while preserving data legibility
+- "Storm-like" explosive scaling visualization
 
-**Rationale**: Professional trading platform requiring data density, real-time updates, and enterprise-grade reliability. Drawing inspiration from Bloomberg Terminal, TradingView, and Kiwoom HTS for familiar Korean user experience.
+**Emotional Target**: Convey AI automation power, market-chasing intensity, professional sophistication
 
-**Core Principles**:
-1. Data clarity over decoration
-2. Scannable information hierarchy
-3. Instant visual feedback for market changes
-4. Professional credibility through restraint
+---
+
+## Color System - Neo-Fintech Storm Palette
+
+### Primary Gradients
+- **Cyber Blue**: Deep space blue (#0A0E27) → Electric blue (#1E3A8A) → Bright cyan (#06B6D4)
+- **Neon Purple**: Deep purple (#2D1B69) → Vibrant purple (#7C3AED) → Hot pink (#EC4899)
+- **Energy Accent**: Electric green (#10B981) for gains, Neon red (#EF4444) for losses
+
+### Functional Colors
+- **AI Signals**: Neon cyan (#22D3EE) - AI recommendations, automated trading indicators
+- **Market Storm**: Purple gradients - background overlays, hero sections
+- **Data Pulse**: Animated glow effects on real-time updates
+- **Glass Surfaces**: rgba(255, 255, 255, 0.05) with backdrop-blur for cards
+
+### Semantic Tokens (Preserve Accessibility)
+- All color tokens maintain WCAG AA contrast ratios
+- Use semantic variables (--primary, --accent) with Neo-fintech values
+- Dark mode optimized (cyberpunk works best in dark themes)
 
 ---
 
 ## Typography System
 
 **Font Stack**:
-- Primary: 'Pretendard' (Korean optimization) or 'Inter' (fallback)
-- Monospace: 'JetBrains Mono' (for prices, codes, numbers)
+- Primary: 'Pretendard Variable' (Korean) or 'Inter Variable' (fallback)
+- Display/Hero: 'Pretendard Variable' with font-weight 700-900
+- Monospace: 'JetBrains Mono' (prices, codes, numbers)
+- Accent: Optional neon glow effects via text-shadow
 
 **Hierarchy**:
+- Hero Headlines: text-5xl md:text-7xl font-black with gradient text
 - Dashboard Title: text-2xl font-bold
-- Section Headers: text-lg font-semibold
+- Section Headers: text-lg font-semibold with neon underline accents
 - Data Labels: text-sm font-medium
-- Primary Data (prices): text-base font-mono font-semibold
+- Primary Data (prices): text-base font-mono font-semibold with pulse animations
 - Secondary Data: text-sm font-mono
-- Captions/Meta: text-xs
+- Captions/Meta: text-xs text-muted-foreground
 
-**Critical**: All numerical data (prices, volumes, percentages) use monospace font for alignment.
-
----
-
-## Layout System
-
-**Spacing Primitives**: Use Tailwind units of **2, 4, 6, 8** exclusively
-- Component padding: p-4 or p-6
-- Section spacing: space-y-6 or space-y-8
-- Card gaps: gap-4
-- Dense areas (order book): p-2, space-y-2
-
-**Grid Structure**:
-- Main Layout: 3-column desktop (sidebar-main-panel)
-- Dashboard Cards: grid-cols-1 md:grid-cols-2 lg:grid-cols-3
-- Charts: Full-width in main area (min-height-[500px])
-- Tables: Full-width with horizontal scroll
-
-**Container Widths**:
-- Sidebar: w-64 (navigation)
-- Main Content: flex-1 max-w-none
-- Right Panel: w-80 (watchlist/orders) - collapsible on mobile
+**Effects**:
+- Gradient text for hero headlines: `bg-gradient-to-r from-cyan-400 to-purple-600 bg-clip-text text-transparent`
+- Neon glow for emphasis: `text-shadow: 0 0 20px rgba(34, 211, 238, 0.5)`
 
 ---
 
-## Component Library
+## Motion & Animation System
+
+### Micro-Interactions (Framer Motion)
+- **Card Lift**: scale(1.02) + translateY(-4px) on hover, duration 200ms
+- **Metric Delta**: Number changes with spring animation, color flash
+- **WebSocket Pulse**: Opacity pulse 0.7 → 1.0 on price updates (500ms)
+- **Button Press**: scale(0.98) on active state
+
+### Hero Animations
+- **Particle Streams**: Floating particles simulating data flow (CSS animations)
+- **Gradient Flow**: Animated background gradients, 10s loop
+- **Parallax Scroll**: Hero image moves slower than content (0.5x speed)
+- **Glassmorphism Enter**: Cards fade in with blur reveal (800ms stagger)
+
+### Dashboard Dynamics
+- **Real-time Pulses**: AI signals glow on/off (2s loop)
+- **Chart Animations**: Stagger line draws, bar growth from 0
+- **Metric Counters**: Animated number count-ups on mount
+- **Status Badges**: Rotate/pulse for active states
+
+### Performance Constraints
+- GPU-accelerated properties only (transform, opacity)
+- Max 60fps target, CPU <30% on mid-tier devices
+- Disable motion for `prefers-reduced-motion: reduce`
+
+---
+
+## Component Library - Storm Edition
+
+### Hero Section (Login/Landing)
+**Full-Bleed AI Trading Hero**:
+- Background: Full-screen gradient overlay on AI trading stock image
+- Dark wash: `linear-gradient(135deg, rgba(10,14,39,0.85), rgba(45,27,105,0.75))`
+- Glassmorphism card: `backdrop-filter: blur(16px)` with subtle border
+- Animated particles: Floating cyan/purple dots (CSS keyframes)
+- CTA Buttons: Neon-accented primary buttons with glow effects
+- Headline: Gradient text "AI가 자동으로 투자합니다" with animated underline
+
+**Layout**:
+```
+[Full-screen background image with dark gradient]
+  [Center glass card - w-full max-w-md]
+    - Logo + dramatic headline
+    - Login form (email/password)
+    - OAuth buttons (Google/Kakao/Naver) with brand colors
+    - "계정이 없으신가요? 회원가입" link
+```
 
 ### Navigation
-**Top Bar** (fixed, h-16):
-- Logo + App name (left)
-- Account balance summary (center) - prominent display
-- User menu + mode toggle [Mock/Real] (right)
-- Real-time connection status indicator
+**Cyberpunk Top Bar** (h-16, backdrop-blur, border-b with neon accent):
+- Logo with gradient effect
+- Account balance with animated counter + neon glow
+- Connection status: Pulsing dot (green = connected, red = disconnected)
+- User menu + theme toggle (with smooth transitions)
 
-**Left Sidebar** (w-64, sticky):
-- Dashboard
-- Trading (with sub-items: Market, Orders, History)
-- Analysis (Charts, Indicators, AI Insights)
-- Portfolio
-- Settings
-- Minimal icons + text labels
+**Left Sidebar** (w-64, dark gradient background):
+- Menu items with neon accent on active state
+- Hover: Subtle glow effect + translateX(4px)
+- Icons from lucide-react with consistent sizing
+- Active indicator: Left border neon cyan (border-l-2)
 
-### Data Display
+### Data Display - Storm Edition
 
-**Price Cards**:
-- Large monospace numbers
-- Clear increase/decrease indicators (▲▼ symbols)
-- Percentage change badges
-- Sparkline mini-charts (optional context)
+**Metric Cards with Pulse**:
+- Card background: Glassmorphism or subtle gradient
+- Large numbers: Monospace with animated count-up
+- Change indicators: Animated ▲▼ with color (green/red)
+- Sparkline mini-charts with gradient fills
+- Real-time pulse: Subtle glow animation on WebSocket updates
 
-**Order Book/Hoga Table**:
-- Split layout: Sell orders (top) / Buy orders (bottom)
-- 10-level depth display
-- Right-aligned prices (monospace)
-- Left-aligned quantities
-- Row hover states for interaction
+**AI Signal Cards**:
+- Border: Animated neon glow (cyan for buy, purple for hold, red for sell)
+- Badge: "AI 추천" with pulsing animation
+- Confidence score: Progress bar with gradient fill
+- Action button: Primary with enhanced hover glow
 
-**Chart Component**:
-- Full-featured candlestick/line charts
-- Multiple timeframe tabs (1m, 5m, 15m, 1h, 1d)
-- Overlay indicators (MA lines, Bollinger Bands)
-- Bottom panel for volume bars
-- Technical indicator sub-charts (RSI, MACD) below main chart
-- Drawing tools toolbar (minimal, icon-based)
+**Charts with Storm Aesthetics**:
+- Background: Dark gradient
+- Grid lines: Subtle cyan/purple (low opacity)
+- Candlesticks: Neon green (up) / Neon red (down)
+- Volume bars: Gradient fills
+- Tooltips: Glassmorphism with backdrop-blur
+- Technical indicators: Neon colored lines with glow
 
-**Data Tables**:
-- Striped rows for readability
-- Sortable headers with visual indicators
-- Fixed header on scroll
-- Row selection for bulk actions
-- Dense spacing (py-2 per row)
+**Order Book/Hoga - Cyberpunk**:
+- Split view with neon separator line
+- Bid rows: Green gradient background (low opacity)
+- Ask rows: Red gradient background (low opacity)
+- Hover: Amplified glow effect
+- Price column: Bold monospace with neon text
 
-### Forms & Controls
+### Forms & Controls - Enhanced
 
 **Order Entry Panel**:
-- Tabbed interface: Market / Limit / Conditional
-- Prominent price input (large, centered)
-- Quantity input with +/- steppers
-- Buy/Sell action buttons (full-width, distinct)
-- Order summary (calculated total)
-- Submit button (prominent, bottom)
+- Glassmorphism background with border glow
+- Tab switcher: Animated underline (neon cyan)
+- Price/Quantity inputs: Large, centered, glowing focus ring
+- Buy button: Green gradient with hover glow
+- Sell button: Red gradient with hover glow
+- Submit: Full-width primary with pulsing animation
 
 **Search & Filters**:
-- Autocomplete stock search (top of trading view)
-- Filter chips for quick selections
-- Advanced filter drawer (slide-in from right)
+- Autocomplete: Glassmorphism dropdown with animated results
+- Filter chips: Neon-bordered badges with hover lift
+- Search icon: Animated pulse when active
 
-**Authentication**:
-- Clean, centered login form
-- Social login buttons (Google, Kakao, Naver) with brand icons
-- Email/password fields with validation
-- "Mock Trading" vs "Real Account" mode selector on login
+### Dashboards - Neo-Fintech Layout
 
-### Dashboards
-
-**Main Dashboard Layout**:
-- Top row: Key metrics cards (4 across) - Account Value, Today's P&L, Total Return, Win Rate
-- Second row: Portfolio allocation chart (left 2/3) + Top movers list (right 1/3)
-- Third row: Recent trades table (full-width)
-- Fourth row: AI recommendations cards (grid)
+**Main Dashboard**:
+- Background: Animated gradient (subtle, 20s loop)
+- Top metrics row: 4 glassmorphism cards with real-time counters
+- Portfolio chart: Full Recharts with cyberpunk color scheme
+- AI recommendations: Grid of glowing signal cards
+- Recent trades: Table with alternating row glow on hover
 
 **Trading Dashboard**:
-- Left 2/3: Main chart with indicators
-- Right 1/3: Order book (top) + Recent trades (bottom)
-- Bottom panel: Order entry form (expandable)
-
-**Analysis Dashboard**:
-- Multi-chart layout (grid-cols-2)
-- Condition scanner results (table)
-- AI pattern recognition insights (cards)
-- Backtesting results (charts + metrics)
+- Split layout: Chart (2/3) + Order book (1/3)
+- Bottom panel: Expandable order entry with slide-up animation
+- Real-time price ticker: Scrolling marquee at top (optional)
+- Chart toolbar: Icon buttons with glassmorphism background
 
 ---
 
-## Interaction Patterns
+## Interaction Patterns - Storm Edition
 
 **Real-time Updates**:
-- Subtle flash animations on price changes (no color, just opacity pulse)
-- WebSocket connection indicator (subtle dot in top bar)
-- Live updating without page refresh
+- Price changes: 300ms glow pulse (opacity 0.5 → 1.0)
+- New order: Slide-in from right with spring animation
+- AI signal: Border color fade + scale pulse (1.0 → 1.05 → 1.0)
+- WebSocket connection: Dot color transition (2s ease)
 
-**Responsive Behavior**:
-- Desktop: 3-column layout with all panels visible
-- Tablet: 2-column, collapsible right panel
-- Mobile: Single column, bottom navigation tabs, swipeable panels
+**Hover Effects**:
+- Cards: Lift + subtle glow amplification
+- Buttons: Glow intensity increase + scale(1.02)
+- Table rows: Background glow (green/red based on P&L)
+- Links: Neon underline grow animation
 
 **Loading States**:
-- Skeleton screens for charts (no spinners)
-- Progressive loading for tables
-- Shimmer effect for updating data
+- Skeleton screens: Animated shimmer with gradient (cyan → purple)
+- Progress bars: Indeterminate with flowing gradient
+- Spinners: Neon-colored arc with rotation
+
+**Transitions**:
+- Page changes: Fade + slide (300ms ease-out)
+- Modal open: Scale up from center + backdrop blur-in
+- Toast notifications: Slide-in from top-right with bounce
 
 ---
 
-## Visual Hierarchy
+## Responsive Behavior
 
-**Information Density**:
-- Dense mode for tables (toggle available)
-- Compact card layouts with clear borders
-- Generous whitespace only around primary actions
+**Desktop (≥1024px)**:
+- Full 3-column layout with all panels visible
+- Sidebar always expanded
+- Charts at maximum size
+- Hero section: Full-screen with parallax
 
-**Focus Areas**:
-- Current price: Largest, most prominent
-- Buy/Sell buttons: High contrast, impossible to miss
-- Critical alerts (margin calls): Distinct styling without relying on color
+**Tablet (768px - 1023px)**:
+- 2-column layout, collapsible sidebar
+- Right panel toggleable
+- Hero: Smaller padding, single column content
 
-**Depth Cues**:
-- Subtle shadows: shadow-sm for cards, shadow-md for modals
-- Borders: border for containers, divide-y for lists
-- Elevation: Modals (z-50), Dropdowns (z-40), Fixed headers (z-30)
-
----
-
-## Accessibility
-
-- High contrast ratios for all text (maintain WCAG AA)
-- Keyboard navigation for all trading functions (critical for speed)
-- Screen reader labels for chart data points
-- Focus indicators (ring-2 ring-offset-2)
-- Distinct visual markers beyond color (icons, patterns, labels)
+**Mobile (<768px)**:
+- Single column, bottom tab navigation
+- Sidebar drawer from left
+- Hero: Full-screen mobile-first layout
+- Swipeable panels for multi-view content
+- Minimum touch targets: 44px (h-11)
 
 ---
 
-## Mobile Considerations
+## Accessibility - WCAG AA Compliance
 
-**PWA Features**:
-- Bottom tab navigation (5 tabs max)
-- Swipeable chart timeframes
-- Pull-to-refresh for data
-- Offline chart viewing (cached data)
-- Push notifications for price alerts
-
-**Touch Optimization**:
-- Minimum touch target: 44px (h-11, min-h-11)
-- Spacious tap areas for order buttons
-- Swipe gestures for quick actions (watchlist management)
+- All animations respect `prefers-reduced-motion`
+- High contrast mode: Disable gradients, use solid colors
+- Keyboard navigation: Visible focus indicators (neon ring-2)
+- Screen readers: Proper ARIA labels for all interactive elements
+- Color independence: Use icons + text labels, not just color
+- Focus management: Trap focus in modals, restore on close
 
 ---
 
-This design creates a professional, data-dense trading platform that prioritizes function over form while maintaining visual polish. The system is scalable, accessible, and optimized for the high-stakes environment of stock trading.
+## Performance Budget
+
+- First Contentful Paint: <1.5s
+- Time to Interactive: <3.0s
+- Largest Contentful Paint: <2.5s
+- Cumulative Layout Shift: <0.1
+- Animation frame rate: Consistent 60fps
+- GPU utilization: <40% on mid-tier devices
+- Bundle size: <500KB gzipped (with code splitting)
+
+---
+
+## Asset Strategy
+
+**Hero Images**:
+- AI trading visualizations (holographic displays, cyberpunk aesthetics)
+- Market data storm imagery (dynamic charts, energy flows)
+- Dark wash overlay (85% opacity) for text readability
+
+**Icons**:
+- Lucide React for UI actions (consistent stroke-width: 2)
+- React Icons for brand logos (Google, Kakao, Naver)
+- Custom SVG for AI signals (neon glow effects)
+
+**Graphics**:
+- CSS-only particle effects (performance-optimized)
+- SVG backgrounds for patterns/noise
+- Canvas for complex data visualizations (optional)
+
+---
+
+## Implementation Checklist
+
+- [x] Color tokens defined in index.css (:root and .dark)
+- [ ] Gradient utilities and animation keyframes
+- [ ] Hero section with glassmorphism card
+- [ ] Dashboard gradient background system
+- [ ] Framer Motion setup for micro-interactions
+- [ ] WebSocket pulse animations
+- [ ] Chart color scheme updates (Recharts)
+- [ ] Responsive breakpoints tested
+- [ ] Accessibility audit (WCAG AA)
+- [ ] Performance validation (Lighthouse)
+
+---
+
+This design creates a **visually spectacular, high-energy AI trading platform** that conveys automation power and market intensity while maintaining professional credibility and data legibility. Every element reinforces the "Storm" metaphor - explosive growth, AI-driven velocity, and relentless market pursuit.
