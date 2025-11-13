@@ -1,12 +1,14 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@/components/ui/table";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { Search, Play, Plus, AlertCircle } from "lucide-react";
+import { Search, Play, Plus, AlertCircle, Zap } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { ConditionFormula, ConditionResult } from "@shared/schema";
 
@@ -14,6 +16,8 @@ export default function ConditionScreeningPage() {
   const { toast } = useToast();
   const [selectedConditionId, setSelectedConditionId] = useState<number | null>(null);
   const [isRunning, setIsRunning] = useState(false);
+  const [enableAutoRefresh, setEnableAutoRefresh] = useState(false);
+  const [refreshInterval, setRefreshInterval] = useState(60); // seconds - validated to be positive number
 
   // Fetch user's condition formulas
   const { data: conditions = [], isLoading: loadingConditions } = useQuery<ConditionFormula[]>({
@@ -105,6 +109,24 @@ export default function ConditionScreeningPage() {
   };
 
   const activeConditions = conditions.filter(c => c.isActive);
+  const selectedCondition = conditions.find(c => c.id === selectedConditionId);
+
+  // Auto-refresh implementation with validation
+  useEffect(() => {
+    if (!enableAutoRefresh || !selectedConditionId || !selectedCondition?.isRealTimeMonitoring) {
+      return;
+    }
+
+    // Validate refreshInterval to prevent NaN or invalid values
+    const validInterval = Number.isFinite(refreshInterval) && refreshInterval > 0 ? refreshInterval : 60;
+    const intervalMs = validInterval * 1000;
+    
+    const intervalId = setInterval(() => {
+      runMutation.mutate(selectedConditionId);
+    }, intervalMs);
+
+    return () => clearInterval(intervalId);
+  }, [enableAutoRefresh, selectedConditionId, refreshInterval, selectedCondition]);
 
   return (
     <div className="min-h-screen relative">
@@ -139,7 +161,7 @@ export default function ConditionScreeningPage() {
               활성화된 조건식을 선택하여 실시간 검색을 실행합니다
             </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
             <div className="flex items-end gap-4">
               <div className="flex-1">
                 <label className="text-sm font-medium mb-2 block">조건식</label>
@@ -160,6 +182,9 @@ export default function ConditionScreeningPage() {
                     {activeConditions.map((condition) => (
                       <SelectItem key={condition.id} value={condition.id.toString()}>
                         {condition.conditionName} ({condition.marketType})
+                        {condition.isRealTimeMonitoring && (
+                          <span className="ml-2 text-cyan-400">⚡ 실시간</span>
+                        )}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -176,6 +201,55 @@ export default function ConditionScreeningPage() {
                 {isRunning ? "실행 중..." : "실행"}
               </Button>
             </div>
+
+            {/* Auto-refresh controls */}
+            {selectedCondition?.isRealTimeMonitoring && (
+              <div className="border border-cyan-500/30 rounded-lg p-4 bg-cyan-500/5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Zap className="w-4 h-4 text-cyan-400" />
+                    <Label htmlFor="auto-refresh" className="text-sm font-medium text-cyan-400">
+                      자동 갱신
+                    </Label>
+                  </div>
+                  <Switch
+                    id="auto-refresh"
+                    checked={enableAutoRefresh}
+                    onCheckedChange={setEnableAutoRefresh}
+                    data-testid="switch-auto-refresh"
+                  />
+                </div>
+                {enableAutoRefresh && (
+                  <div className="flex items-center gap-3">
+                    <Label htmlFor="refresh-interval" className="text-sm whitespace-nowrap">
+                      갱신 주기:
+                    </Label>
+                    <Select
+                      value={refreshInterval.toString()}
+                      onValueChange={(value) => {
+                        const numValue = Number(value);
+                        if (Number.isFinite(numValue) && numValue > 0) {
+                          setRefreshInterval(numValue);
+                        }
+                      }}
+                    >
+                      <SelectTrigger id="refresh-interval" className="w-32" data-testid="select-refresh-interval">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="30" data-testid="interval-30">30초</SelectItem>
+                        <SelectItem value="60" data-testid="interval-60">1분</SelectItem>
+                        <SelectItem value="120" data-testid="interval-120">2분</SelectItem>
+                        <SelectItem value="300" data-testid="interval-300">5분</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground" data-testid="text-auto-refresh-info">
+                      {enableAutoRefresh && "자동으로 조건검색이 실행됩니다"}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -188,7 +262,7 @@ export default function ConditionScreeningPage() {
                   <AlertCircle className="w-5 h-5 text-purple-400" />
                   <CardTitle className="text-glow-purple">검색 결과</CardTitle>
                 </div>
-                <Badge variant="outline" className="border-purple-500/30 text-purple-400">
+                <Badge variant="outline" className="border-purple-500/30 text-purple-400" data-testid="badge-result-count">
                   {results.length}개 종목
                 </Badge>
               </div>

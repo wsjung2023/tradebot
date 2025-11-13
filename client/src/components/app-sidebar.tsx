@@ -13,6 +13,7 @@ import {
   Search,
   ScanSearch,
   LineChart,
+  Code2,
 } from "lucide-react";
 import {
   Sidebar,
@@ -85,6 +86,11 @@ const menuItems = [
     title: "시그널 분석",
     url: "/watchlist-signals",
     icon: LineChart,
+  },
+  {
+    title: "차트 수식",
+    url: "/chart-formula-editor",
+    icon: Code2,
   },
   {
     title: "설정",
