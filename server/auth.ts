@@ -1,7 +1,6 @@
 import passport from 'passport';
 import { Strategy as LocalStrategy } from 'passport-local';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
-import { Strategy as KakaoStrategy } from 'passport-kakao';
 import bcrypt from 'bcryptjs';
 import { storage } from './storage';
 import type { User } from '@shared/schema';
@@ -70,7 +69,7 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
         clientSecret: process.env.GOOGLE_CLIENT_SECRET,
         callbackURL: `${baseURL}/api/auth/google/callback`,
       },
-      async (accessToken, refreshToken, profile, done) => {
+      async (accessToken: any, refreshToken: any, profile: any, done: any) => {
         try {
           // Check if user exists with this Google ID
           let user = await storage.getUserByAuthProvider('google', profile.id);
@@ -100,6 +99,8 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
               // Create default settings
               await storage.createUserSettings({
                 userId: user!.id,
+                tradingMode: 'mock',
+                riskLevel: 'medium',
               });
             }
           }
@@ -114,52 +115,7 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
 }
 
 // ==================== Kakao OAuth Strategy ====================
-
-if (process.env.KAKAO_CLIENT_ID) {
-  passport.use(
-    new KakaoStrategy(
-      {
-        clientID: process.env.KAKAO_CLIENT_ID,
-        callbackURL: '/api/auth/kakao/callback',
-      },
-      async (accessToken, refreshToken, profile, done) => {
-        try {
-          let user = await storage.getUserByAuthProvider('kakao', profile.id);
-
-          if (!user) {
-            const email = profile._json?.kakao_account?.email || `kakao_${profile.id}@placeholder.com`;
-            const emailUser = await storage.getUserByEmail(email);
-
-            if (emailUser) {
-              user = await storage.updateUser(emailUser.id, {
-                authProvider: 'kakao',
-                authProviderId: profile.id,
-                profileImage: profile._json?.kakao_account?.profile?.profile_image_url,
-              });
-            } else {
-              user = await storage.createUser({
-                email,
-                name: profile.displayName || profile._json?.kakao_account?.profile?.nickname,
-                profileImage: profile._json?.kakao_account?.profile?.profile_image_url,
-                authProvider: 'kakao',
-                authProviderId: profile.id,
-                isEmailVerified: !!profile._json?.kakao_account?.email,
-              });
-
-              await storage.createUserSettings({
-                userId: user!.id,
-              });
-            }
-          }
-
-          return done(null, user);
-        } catch (error) {
-          return done(error as Error);
-        }
-      }
-    )
-  );
-}
+// Kakao OAuth removed per user request
 
 // ==================== Naver OAuth Strategy ====================
 // Note: Naver OAuth temporarily disabled - passport-naver-v2 integration needs configuration
