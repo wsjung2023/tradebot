@@ -159,6 +159,105 @@ export const tradingLogs = pgTable("trading_logs", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// ==================== Condition Search System ====================
+
+// Condition formulas (화면 0105 - 조건검색 식)
+export const conditionFormulas = pgTable("condition_formulas", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  conditionName: text("condition_name").notNull(),
+  description: text("description"),
+  formulaAst: jsonb("formula_ast").notNull(), // Parsed formula AST: (A and B) or (C and D) and E...
+  rawFormula: text("raw_formula"), // Original formula text
+  marketType: text("market_type").notNull().default('ALL'), // 'ALL', 'KOSPI', 'KOSDAQ', 'KONEX'
+  isActive: boolean("is_active").notNull().default(false),
+  isRealTimeMonitoring: boolean("is_real_time_monitoring").notNull().default(false),
+  matchCount: integer("match_count").notNull().default(0),
+  lastMatchedAt: timestamp("last_matched_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// Condition results - latest matches from real-time screening (화면 0156)
+export const conditionResults = pgTable("condition_results", {
+  id: serial("id").primaryKey(),
+  conditionId: integer("condition_id").notNull().references(() => conditionFormulas.id, { onDelete: 'cascade' }),
+  stockCode: text("stock_code").notNull(),
+  stockName: text("stock_name").notNull(),
+  matchScore: decimal("match_score", { precision: 5, scale: 2 }), // 0-100 confidence
+  currentPrice: decimal("current_price", { precision: 12, scale: 2 }),
+  volume: integer("volume"),
+  changeRate: decimal("change_rate", { precision: 8, scale: 4 }),
+  isMarketIssue: boolean("is_market_issue").notNull().default(false), // 시장이슈종목
+  hasGoodFinancials: boolean("has_good_financials").notNull().default(false), // 3년 재무 양호
+  hasHighLiquidity: boolean("has_high_liquidity").notNull().default(false), // 유동성 양호
+  passedFilters: boolean("passed_filters").notNull().default(false), // All filters passed
+  metadata: jsonb("metadata"), // Additional technical indicators
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// Chart formulas (차트 수식 관리자)
+export const chartFormulas = pgTable("chart_formulas", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  formulaName: text("formula_name").notNull(),
+  formulaType: text("formula_type").notNull(), // 'indicator', 'signal', 'condition'
+  description: text("description"),
+  formulaAst: jsonb("formula_ast").notNull(), // Parsed formula AST
+  rawFormula: text("raw_formula").notNull(), // e.g., "CL=valuewhen((highest(h(1).period)<highest(h.period))..."
+  outputType: text("output_type").notNull().default('line'), // 'line', 'bar', 'signal'
+  color: text("color"), // For 7-color system: red, orange, yellow, green, blue, indigo, violet
+  lineWeight: integer("line_weight").notNull().default(1),
+  version: integer("version").notNull().default(1),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// Watchlist signals - stores 7-color indicator states for each stock (화면 0130)
+export const watchlistSignals = pgTable("watchlist_signals", {
+  id: serial("id").primaryKey(),
+  watchlistId: integer("watchlist_id").notNull().references(() => watchlist.id, { onDelete: 'cascade' }),
+  chartFormulaId: integer("chart_formula_id").references(() => chartFormulas.id),
+  signalData: jsonb("signal_data").notNull(), // Time-series data for 7 signal lines
+  currentSignal: text("current_signal"), // Current buy/sell signal
+  signalStrength: decimal("signal_strength", { precision: 5, scale: 2 }), // 0-100
+  lastCalculatedAt: timestamp("last_calculated_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// Financial snapshots - 3-year financial data cache
+export const financialSnapshots = pgTable("financial_snapshots", {
+  id: serial("id").primaryKey(),
+  stockCode: text("stock_code").notNull(),
+  fiscalYear: integer("fiscal_year").notNull(),
+  revenue: decimal("revenue", { precision: 16, scale: 2 }),
+  operatingProfit: decimal("operating_profit", { precision: 16, scale: 2 }),
+  netIncome: decimal("net_income", { precision: 16, scale: 2 }),
+  totalAssets: decimal("total_assets", { precision: 16, scale: 2 }),
+  totalLiabilities: decimal("total_liabilities", { precision: 16, scale: 2 }),
+  totalEquity: decimal("total_equity", { precision: 16, scale: 2 }),
+  debtRatio: decimal("debt_ratio", { precision: 8, scale: 4 }),
+  roe: decimal("roe", { precision: 8, scale: 4 }), // Return on Equity
+  roa: decimal("roa", { precision: 8, scale: 4 }), // Return on Assets
+  isHealthy: boolean("is_healthy").notNull().default(true), // Overall health flag
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// Market issues - daily market issue tracking (시장이슈종목)
+export const marketIssues = pgTable("market_issues", {
+  id: serial("id").primaryKey(),
+  issueDate: text("issue_date").notNull(), // YYYYMMDD
+  stockCode: text("stock_code").notNull(),
+  stockName: text("stock_name").notNull(),
+  issueType: text("issue_type").notNull(), // 'news', 'theme', 'volume', 'price', 'sector'
+  issueTitle: text("issue_title"),
+  issueDescription: text("issue_description"),
+  impactLevel: text("impact_level").notNull().default('medium'), // 'low', 'medium', 'high'
+  relatedTheme: text("related_theme"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 // ==================== Insert Schemas ====================
 
 export const insertUserSchema = createInsertSchema(users, {
@@ -241,6 +340,63 @@ export const insertTradingLogSchema = createInsertSchema(tradingLogs).omit({
   createdAt: true 
 });
 
+export const insertConditionFormulaSchema = createInsertSchema(conditionFormulas, {
+  conditionName: z.string().min(1),
+  formulaAst: z.any(),
+  marketType: z.enum(['ALL', 'KOSPI', 'KOSDAQ', 'KONEX']),
+}).omit({ 
+  id: true, 
+  createdAt: true, 
+  updatedAt: true,
+  matchCount: true,
+  lastMatchedAt: true
+});
+
+export const insertConditionResultSchema = createInsertSchema(conditionResults).omit({ 
+  id: true, 
+  createdAt: true 
+});
+
+export const insertChartFormulaSchema = createInsertSchema(chartFormulas, {
+  formulaName: z.string().min(1),
+  formulaType: z.enum(['indicator', 'signal', 'condition']),
+  formulaAst: z.any(),
+  rawFormula: z.string().min(1),
+  outputType: z.enum(['line', 'bar', 'signal']),
+}).omit({ 
+  id: true, 
+  createdAt: true, 
+  updatedAt: true,
+  version: true
+});
+
+export const insertWatchlistSignalSchema = createInsertSchema(watchlistSignals, {
+  signalData: z.any(),
+}).omit({ 
+  id: true, 
+  lastCalculatedAt: true,
+  updatedAt: true 
+});
+
+export const insertFinancialSnapshotSchema = createInsertSchema(financialSnapshots, {
+  stockCode: z.string().min(1),
+  fiscalYear: z.number().int().min(2000),
+}).omit({ 
+  id: true, 
+  createdAt: true, 
+  updatedAt: true 
+});
+
+export const insertMarketIssueSchema = createInsertSchema(marketIssues, {
+  issueDate: z.string().regex(/^\d{8}$/),
+  stockCode: z.string().min(1),
+  issueType: z.enum(['news', 'theme', 'volume', 'price', 'sector']),
+  impactLevel: z.enum(['low', 'medium', 'high']),
+}).omit({ 
+  id: true, 
+  createdAt: true 
+});
+
 // ==================== Type Exports ====================
 
 export type User = typeof users.$inferSelect;
@@ -272,3 +428,21 @@ export type InsertUserSettings = z.infer<typeof insertUserSettingsSchema>;
 
 export type TradingLog = typeof tradingLogs.$inferSelect;
 export type InsertTradingLog = z.infer<typeof insertTradingLogSchema>;
+
+export type ConditionFormula = typeof conditionFormulas.$inferSelect;
+export type InsertConditionFormula = z.infer<typeof insertConditionFormulaSchema>;
+
+export type ConditionResult = typeof conditionResults.$inferSelect;
+export type InsertConditionResult = z.infer<typeof insertConditionResultSchema>;
+
+export type ChartFormula = typeof chartFormulas.$inferSelect;
+export type InsertChartFormula = z.infer<typeof insertChartFormulaSchema>;
+
+export type WatchlistSignal = typeof watchlistSignals.$inferSelect;
+export type InsertWatchlistSignal = z.infer<typeof insertWatchlistSignalSchema>;
+
+export type FinancialSnapshot = typeof financialSnapshots.$inferSelect;
+export type InsertFinancialSnapshot = z.infer<typeof insertFinancialSnapshotSchema>;
+
+export type MarketIssue = typeof marketIssues.$inferSelect;
+export type InsertMarketIssue = z.infer<typeof insertMarketIssueSchema>;

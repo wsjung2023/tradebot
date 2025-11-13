@@ -19,6 +19,18 @@ import {
   type InsertUserSettings,
   type TradingLog,
   type InsertTradingLog,
+  type ConditionFormula,
+  type InsertConditionFormula,
+  type ConditionResult,
+  type InsertConditionResult,
+  type ChartFormula,
+  type InsertChartFormula,
+  type WatchlistSignal,
+  type InsertWatchlistSignal,
+  type FinancialSnapshot,
+  type InsertFinancialSnapshot,
+  type MarketIssue,
+  type InsertMarketIssue,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -83,6 +95,43 @@ export interface IStorage {
   // Trading Log methods
   createTradingLog(log: InsertTradingLog): Promise<TradingLog>;
   getTradingLogs(accountId: number, limit?: number): Promise<TradingLog[]>;
+
+  // Condition Formula methods (화면 0105)
+  getConditionFormulas(userId: string): Promise<ConditionFormula[]>;
+  getConditionFormula(id: number): Promise<ConditionFormula | undefined>;
+  createConditionFormula(formula: InsertConditionFormula): Promise<ConditionFormula>;
+  updateConditionFormula(id: number, updates: Partial<ConditionFormula>): Promise<ConditionFormula | undefined>;
+  deleteConditionFormula(id: number): Promise<void>;
+
+  // Condition Result methods (화면 0156)
+  getConditionResults(conditionId: number): Promise<ConditionResult[]>;
+  createConditionResult(result: InsertConditionResult): Promise<ConditionResult>;
+  deleteConditionResults(conditionId: number): Promise<void>;
+
+  // Chart Formula methods
+  getChartFormulas(userId: string): Promise<ChartFormula[]>;
+  getChartFormula(id: number): Promise<ChartFormula | undefined>;
+  createChartFormula(formula: InsertChartFormula): Promise<ChartFormula>;
+  updateChartFormula(id: number, updates: Partial<ChartFormula>): Promise<ChartFormula | undefined>;
+  deleteChartFormula(id: number): Promise<void>;
+
+  // Watchlist Signal methods (화면 0130)
+  getWatchlistSignals(watchlistId: number): Promise<WatchlistSignal[]>;
+  createWatchlistSignal(signal: InsertWatchlistSignal): Promise<WatchlistSignal>;
+  updateWatchlistSignal(id: number, updates: Partial<WatchlistSignal>): Promise<WatchlistSignal | undefined>;
+  deleteWatchlistSignal(id: number): Promise<void>;
+
+  // Financial Snapshot methods (3년 재무 데이터)
+  getFinancialSnapshots(stockCode: string): Promise<FinancialSnapshot[]>;
+  getFinancialSnapshot(stockCode: string, fiscalYear: number): Promise<FinancialSnapshot | undefined>;
+  createFinancialSnapshot(snapshot: InsertFinancialSnapshot): Promise<FinancialSnapshot>;
+  updateFinancialSnapshot(id: number, updates: Partial<FinancialSnapshot>): Promise<FinancialSnapshot | undefined>;
+
+  // Market Issue methods (시장이슈종목)
+  getMarketIssues(issueDate: string): Promise<MarketIssue[]>;
+  getMarketIssuesByStock(stockCode: string): Promise<MarketIssue[]>;
+  createMarketIssue(issue: InsertMarketIssue): Promise<MarketIssue>;
+  deleteMarketIssues(issueDate: string): Promise<void>;
 }
 
 export class MemStorage implements IStorage {
@@ -100,6 +149,13 @@ export class MemStorage implements IStorage {
   private settings: Map<string, UserSettings> = new Map();
   private logs: Map<number, TradingLog> = new Map();
   
+  private conditionFormulas: Map<number, ConditionFormula> = new Map();
+  private conditionResults: Map<number, ConditionResult> = new Map();
+  private chartFormulas: Map<number, ChartFormula> = new Map();
+  private watchlistSignals: Map<number, WatchlistSignal> = new Map();
+  private financialSnapshots: Map<number, FinancialSnapshot> = new Map();
+  private marketIssues: Map<number, MarketIssue> = new Map();
+  
   private nextAccountId = 1;
   private nextHoldingId = 1;
   private nextOrderId = 1;
@@ -109,6 +165,12 @@ export class MemStorage implements IStorage {
   private nextAlertId = 1;
   private nextSettingsId = 1;
   private nextLogId = 1;
+  private nextConditionFormulaId = 1;
+  private nextConditionResultId = 1;
+  private nextChartFormulaId = 1;
+  private nextWatchlistSignalId = 1;
+  private nextFinancialSnapshotId = 1;
+  private nextMarketIssueId = 1;
 
   // ==================== User Methods ====================
   
@@ -455,6 +517,245 @@ export class MemStorage implements IStorage {
   async getTradingLogs(accountId: number, limit?: number): Promise<TradingLog[]> {
     const filtered = Array.from(this.logs.values()).filter(l => l.accountId === accountId);
     return limit ? filtered.slice(0, limit) : filtered;
+  }
+
+  // ==================== Condition Formula Methods ====================
+
+  async getConditionFormulas(userId: string): Promise<ConditionFormula[]> {
+    return Array.from(this.conditionFormulas.values()).filter(f => f.userId === userId);
+  }
+
+  async getConditionFormula(id: number): Promise<ConditionFormula | undefined> {
+    return this.conditionFormulas.get(id);
+  }
+
+  async createConditionFormula(insertFormula: InsertConditionFormula): Promise<ConditionFormula> {
+    const id = this.nextConditionFormulaId++;
+    const formula: ConditionFormula = {
+      id,
+      userId: insertFormula.userId,
+      conditionName: insertFormula.conditionName,
+      description: insertFormula.description ?? null,
+      formulaAst: insertFormula.formulaAst,
+      rawFormula: insertFormula.rawFormula ?? null,
+      marketType: insertFormula.marketType,
+      isActive: insertFormula.isActive ?? false,
+      isRealTimeMonitoring: insertFormula.isRealTimeMonitoring ?? false,
+      matchCount: 0,
+      lastMatchedAt: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    this.conditionFormulas.set(id, formula);
+    return formula;
+  }
+
+  async updateConditionFormula(id: number, updates: Partial<ConditionFormula>): Promise<ConditionFormula | undefined> {
+    const formula = this.conditionFormulas.get(id);
+    if (!formula) return undefined;
+
+    const updated = { ...formula, ...updates, updatedAt: new Date() };
+    this.conditionFormulas.set(id, updated);
+    return updated;
+  }
+
+  async deleteConditionFormula(id: number): Promise<void> {
+    this.conditionFormulas.delete(id);
+  }
+
+  // ==================== Condition Result Methods ====================
+
+  async getConditionResults(conditionId: number): Promise<ConditionResult[]> {
+    return Array.from(this.conditionResults.values()).filter(r => r.conditionId === conditionId);
+  }
+
+  async createConditionResult(insertResult: InsertConditionResult): Promise<ConditionResult> {
+    const id = this.nextConditionResultId++;
+    const result: ConditionResult = {
+      id,
+      conditionId: insertResult.conditionId,
+      stockCode: insertResult.stockCode,
+      stockName: insertResult.stockName,
+      matchScore: insertResult.matchScore ?? null,
+      currentPrice: insertResult.currentPrice ?? null,
+      volume: insertResult.volume ?? null,
+      changeRate: insertResult.changeRate ?? null,
+      isMarketIssue: insertResult.isMarketIssue ?? false,
+      hasGoodFinancials: insertResult.hasGoodFinancials ?? false,
+      hasHighLiquidity: insertResult.hasHighLiquidity ?? false,
+      passedFilters: insertResult.passedFilters ?? false,
+      metadata: insertResult.metadata ?? null,
+      createdAt: new Date(),
+    };
+    this.conditionResults.set(id, result);
+    return result;
+  }
+
+  async deleteConditionResults(conditionId: number): Promise<void> {
+    const toDelete = Array.from(this.conditionResults.entries())
+      .filter(([_, result]) => result.conditionId === conditionId)
+      .map(([id, _]) => id);
+    
+    toDelete.forEach(id => this.conditionResults.delete(id));
+  }
+
+  // ==================== Chart Formula Methods ====================
+
+  async getChartFormulas(userId: string): Promise<ChartFormula[]> {
+    return Array.from(this.chartFormulas.values()).filter(f => f.userId === userId);
+  }
+
+  async getChartFormula(id: number): Promise<ChartFormula | undefined> {
+    return this.chartFormulas.get(id);
+  }
+
+  async createChartFormula(insertFormula: InsertChartFormula): Promise<ChartFormula> {
+    const id = this.nextChartFormulaId++;
+    const formula: ChartFormula = {
+      id,
+      userId: insertFormula.userId,
+      formulaName: insertFormula.formulaName,
+      formulaType: insertFormula.formulaType,
+      description: insertFormula.description ?? null,
+      formulaAst: insertFormula.formulaAst,
+      rawFormula: insertFormula.rawFormula,
+      outputType: insertFormula.outputType,
+      color: insertFormula.color ?? null,
+      lineWeight: insertFormula.lineWeight ?? 1,
+      version: 1,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    this.chartFormulas.set(id, formula);
+    return formula;
+  }
+
+  async updateChartFormula(id: number, updates: Partial<ChartFormula>): Promise<ChartFormula | undefined> {
+    const formula = this.chartFormulas.get(id);
+    if (!formula) return undefined;
+
+    const updated = { ...formula, ...updates, updatedAt: new Date() };
+    this.chartFormulas.set(id, updated);
+    return updated;
+  }
+
+  async deleteChartFormula(id: number): Promise<void> {
+    this.chartFormulas.delete(id);
+  }
+
+  // ==================== Watchlist Signal Methods ====================
+
+  async getWatchlistSignals(watchlistId: number): Promise<WatchlistSignal[]> {
+    return Array.from(this.watchlistSignals.values()).filter(s => s.watchlistId === watchlistId);
+  }
+
+  async createWatchlistSignal(insertSignal: InsertWatchlistSignal): Promise<WatchlistSignal> {
+    const id = this.nextWatchlistSignalId++;
+    const signal: WatchlistSignal = {
+      id,
+      watchlistId: insertSignal.watchlistId,
+      chartFormulaId: insertSignal.chartFormulaId ?? null,
+      signalData: insertSignal.signalData,
+      currentSignal: insertSignal.currentSignal ?? null,
+      signalStrength: insertSignal.signalStrength ?? null,
+      lastCalculatedAt: new Date(),
+      updatedAt: new Date(),
+    };
+    this.watchlistSignals.set(id, signal);
+    return signal;
+  }
+
+  async updateWatchlistSignal(id: number, updates: Partial<WatchlistSignal>): Promise<WatchlistSignal | undefined> {
+    const signal = this.watchlistSignals.get(id);
+    if (!signal) return undefined;
+
+    const updated = { ...signal, ...updates, updatedAt: new Date() };
+    this.watchlistSignals.set(id, updated);
+    return updated;
+  }
+
+  async deleteWatchlistSignal(id: number): Promise<void> {
+    this.watchlistSignals.delete(id);
+  }
+
+  // ==================== Financial Snapshot Methods ====================
+
+  async getFinancialSnapshots(stockCode: string): Promise<FinancialSnapshot[]> {
+    return Array.from(this.financialSnapshots.values()).filter(s => s.stockCode === stockCode);
+  }
+
+  async getFinancialSnapshot(stockCode: string, fiscalYear: number): Promise<FinancialSnapshot | undefined> {
+    return Array.from(this.financialSnapshots.values()).find(
+      s => s.stockCode === stockCode && s.fiscalYear === fiscalYear
+    );
+  }
+
+  async createFinancialSnapshot(insertSnapshot: InsertFinancialSnapshot): Promise<FinancialSnapshot> {
+    const id = this.nextFinancialSnapshotId++;
+    const snapshot: FinancialSnapshot = {
+      id,
+      stockCode: insertSnapshot.stockCode,
+      fiscalYear: insertSnapshot.fiscalYear,
+      revenue: insertSnapshot.revenue ?? null,
+      operatingProfit: insertSnapshot.operatingProfit ?? null,
+      netIncome: insertSnapshot.netIncome ?? null,
+      totalAssets: insertSnapshot.totalAssets ?? null,
+      totalLiabilities: insertSnapshot.totalLiabilities ?? null,
+      totalEquity: insertSnapshot.totalEquity ?? null,
+      debtRatio: insertSnapshot.debtRatio ?? null,
+      roe: insertSnapshot.roe ?? null,
+      roa: insertSnapshot.roa ?? null,
+      isHealthy: insertSnapshot.isHealthy ?? true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    this.financialSnapshots.set(id, snapshot);
+    return snapshot;
+  }
+
+  async updateFinancialSnapshot(id: number, updates: Partial<FinancialSnapshot>): Promise<FinancialSnapshot | undefined> {
+    const snapshot = this.financialSnapshots.get(id);
+    if (!snapshot) return undefined;
+
+    const updated = { ...snapshot, ...updates };
+    this.financialSnapshots.set(id, updated);
+    return updated;
+  }
+
+  // ==================== Market Issue Methods ====================
+
+  async getMarketIssues(issueDate: string): Promise<MarketIssue[]> {
+    return Array.from(this.marketIssues.values()).filter(i => i.issueDate === issueDate);
+  }
+
+  async getMarketIssuesByStock(stockCode: string): Promise<MarketIssue[]> {
+    return Array.from(this.marketIssues.values()).filter(i => i.stockCode === stockCode);
+  }
+
+  async createMarketIssue(insertIssue: InsertMarketIssue): Promise<MarketIssue> {
+    const id = this.nextMarketIssueId++;
+    const issue: MarketIssue = {
+      id,
+      issueDate: insertIssue.issueDate,
+      stockCode: insertIssue.stockCode,
+      stockName: insertIssue.stockName,
+      issueType: insertIssue.issueType,
+      issueTitle: insertIssue.issueTitle ?? null,
+      issueDescription: insertIssue.issueDescription ?? null,
+      impactLevel: insertIssue.impactLevel,
+      relatedTheme: insertIssue.relatedTheme ?? null,
+      createdAt: new Date(),
+    };
+    this.marketIssues.set(id, issue);
+    return issue;
+  }
+
+  async deleteMarketIssues(issueDate: string): Promise<void> {
+    const toDelete = Array.from(this.marketIssues.entries())
+      .filter(([_, issue]) => issue.issueDate === issueDate)
+      .map(([id, _]) => id);
+    
+    toDelete.forEach(id => this.marketIssues.delete(id));
   }
 }
 

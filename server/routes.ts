@@ -16,8 +16,24 @@ import {
 } from "./auth";
 import { getKiwoomService } from "./services/kiwoom.service";
 import { getAIService } from "./services/ai.service";
-import { insertUserSchema, insertKiwoomAccountSchema, insertOrderSchema, insertAiModelSchema, updateAiModelSchema, insertWatchlistSchema, insertAlertSchema } from "@shared/schema";
+import { parseFormula } from "./services/formula/parser";
+import { FormulaEvaluator } from "./services/formula/evaluator";
+import { 
+  insertUserSchema, 
+  insertKiwoomAccountSchema, 
+  insertOrderSchema, 
+  insertAiModelSchema, 
+  updateAiModelSchema, 
+  insertWatchlistSchema, 
+  insertAlertSchema,
+  insertConditionFormulaSchema,
+  insertChartFormulaSchema,
+  insertWatchlistSignalSchema,
+  insertFinancialSnapshotSchema,
+  insertMarketIssueSchema
+} from "@shared/schema";
 import { MarketDataHub } from "./market-data-hub";
+import { z } from "zod";
 
 export async function registerRoutes(app: Express, sessionMiddleware: any): Promise<Server> {
   const kiwoomService = getKiwoomService();
@@ -47,6 +63,8 @@ export async function registerRoutes(app: Express, sessionMiddleware: any): Prom
       // Create default settings
       await storage.createUserSettings({
         userId: user.id,
+        tradingMode: 'mock',
+        riskLevel: 'medium',
       });
 
       req.login(user, (err) => {
@@ -236,7 +254,7 @@ export async function registerRoutes(app: Express, sessionMiddleware: any): Prom
         orderType: orderData.orderType,
         orderQuantity: orderData.orderQuantity,
         orderPrice: orderData.orderPrice ? parseFloat(orderData.orderPrice) : undefined,
-        orderMethod: orderData.orderMethod,
+        orderMethod: orderData.orderMethod as 'market' | 'limit',
       });
 
       // Update order with Kiwoom order number
@@ -294,7 +312,7 @@ export async function registerRoutes(app: Express, sessionMiddleware: any): Prom
 
       const analysis = await aiService.analyzePortfolio({
         holdings,
-        riskLevel: settings?.riskLevel || 'medium',
+        riskLevel: (settings?.riskLevel || 'medium') as 'low' | 'medium' | 'high',
         investmentGoal: 'growth',
       });
       
@@ -517,6 +535,483 @@ export async function registerRoutes(app: Express, sessionMiddleware: any): Prom
       );
       
       res.json(orders);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ==================== Condition Formula Routes (화면 0105) ====================
+
+  app.get("/api/conditions", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const conditions = await storage.getConditionFormulas(user!.id);
+      res.json(conditions);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/conditions", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const data = insertConditionFormulaSchema.parse({
+        ...req.body,
+        userId: user!.id,
+      });
+      
+      const condition = await storage.createConditionFormula(data);
+      res.status(201).json(condition);
+    } catch (error: any) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Invalid input', details: error.errors });
+      }
+      console.error('Failed to create condition formula:', error);
+      res.status(500).json({ error: 'Failed to create condition formula' });
+    }
+  });
+
+  app.get("/api/conditions/:id", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const conditionId = parseInt(req.params.id);
+      const condition = await storage.getConditionFormula(conditionId);
+      
+      if (!condition) {
+        return res.status(404).json({ error: "Condition formula not found" });
+      }
+      
+      if (condition.userId !== user!.id) {
+        return res.status(403).json({ error: "Not authorized to view this condition formula" });
+      }
+      
+      res.json(condition);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.put("/api/conditions/:id", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const conditionId = parseInt(req.params.id);
+      
+      const existingCondition = await storage.getConditionFormula(conditionId);
+      if (!existingCondition) {
+        return res.status(404).json({ error: "Condition formula not found" });
+      }
+      
+      if (existingCondition.userId !== user!.id) {
+        return res.status(403).json({ error: "Not authorized to update this condition formula" });
+      }
+      
+      const condition = await storage.updateConditionFormula(conditionId, req.body);
+      res.json(condition);
+    } catch (error: any) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Invalid input', details: error.errors });
+      }
+      console.error('Failed to update condition formula:', error);
+      res.status(500).json({ error: 'Failed to update condition formula' });
+    }
+  });
+
+  app.delete("/api/conditions/:id", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const conditionId = parseInt(req.params.id);
+      
+      const existingCondition = await storage.getConditionFormula(conditionId);
+      if (!existingCondition) {
+        return res.status(404).json({ error: "Condition formula not found" });
+      }
+      
+      if (existingCondition.userId !== user!.id) {
+        return res.status(403).json({ error: "Not authorized to delete this condition formula" });
+      }
+      
+      await storage.deleteConditionFormula(conditionId);
+      res.json({ message: "Condition formula deleted successfully" });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/conditions/:id/results", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const conditionId = parseInt(req.params.id);
+      
+      const condition = await storage.getConditionFormula(conditionId);
+      if (!condition) {
+        return res.status(404).json({ error: "Condition formula not found" });
+      }
+      
+      if (condition.userId !== user!.id) {
+        return res.status(403).json({ error: "Not authorized to view results for this condition formula" });
+      }
+      
+      const results = await storage.getConditionResults(conditionId);
+      res.json(results);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ==================== Chart Formula Routes (차트 수식) ====================
+
+  app.get("/api/chart-formulas", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const formulas = await storage.getChartFormulas(user!.id);
+      res.json(formulas);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/chart-formulas", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      
+      // Parse and validate the formula
+      const { rawFormula, ...restData } = req.body;
+      
+      if (!rawFormula) {
+        return res.status(400).json({ error: 'Formula text is required' });
+      }
+      
+      let formulaAst;
+      try {
+        formulaAst = parseFormula(rawFormula);
+      } catch (parseError: any) {
+        return res.status(400).json({ 
+          error: 'Invalid formula syntax', 
+          details: parseError.message 
+        });
+      }
+      
+      const data = insertChartFormulaSchema.parse({
+        ...restData,
+        userId: user!.id,
+        rawFormula,
+        formulaAst,
+      });
+      
+      const formula = await storage.createChartFormula(data);
+      res.status(201).json(formula);
+    } catch (error: any) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Invalid input', details: error.errors });
+      }
+      console.error('Failed to create chart formula:', error);
+      res.status(500).json({ error: 'Failed to create chart formula' });
+    }
+  });
+
+  app.get("/api/chart-formulas/:id", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const formulaId = parseInt(req.params.id);
+      const formula = await storage.getChartFormula(formulaId);
+      
+      if (!formula) {
+        return res.status(404).json({ error: "Chart formula not found" });
+      }
+      
+      if (formula.userId !== user!.id) {
+        return res.status(403).json({ error: "Not authorized to view this chart formula" });
+      }
+      
+      res.json(formula);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.put("/api/chart-formulas/:id", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const formulaId = parseInt(req.params.id);
+      
+      const existingFormula = await storage.getChartFormula(formulaId);
+      if (!existingFormula) {
+        return res.status(404).json({ error: "Chart formula not found" });
+      }
+      
+      if (existingFormula.userId !== user!.id) {
+        return res.status(403).json({ error: "Not authorized to update this chart formula" });
+      }
+      
+      // If rawFormula is being updated, re-parse it
+      let updates = { ...req.body };
+      if (req.body.rawFormula) {
+        try {
+          updates.formulaAst = parseFormula(req.body.rawFormula);
+        } catch (parseError: any) {
+          return res.status(400).json({ 
+            error: 'Invalid formula syntax', 
+            details: parseError.message 
+          });
+        }
+      }
+      
+      const formula = await storage.updateChartFormula(formulaId, updates);
+      res.json(formula);
+    } catch (error: any) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Invalid input', details: error.errors });
+      }
+      console.error('Failed to update chart formula:', error);
+      res.status(500).json({ error: 'Failed to update chart formula' });
+    }
+  });
+
+  app.delete("/api/chart-formulas/:id", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const formulaId = parseInt(req.params.id);
+      
+      const existingFormula = await storage.getChartFormula(formulaId);
+      if (!existingFormula) {
+        return res.status(404).json({ error: "Chart formula not found" });
+      }
+      
+      if (existingFormula.userId !== user!.id) {
+        return res.status(403).json({ error: "Not authorized to delete this chart formula" });
+      }
+      
+      await storage.deleteChartFormula(formulaId);
+      res.json({ message: "Chart formula deleted successfully" });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/chart-formulas/:id/evaluate", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const formulaId = parseInt(req.params.id);
+      
+      const formula = await storage.getChartFormula(formulaId);
+      if (!formula) {
+        return res.status(404).json({ error: "Chart formula not found" });
+      }
+      
+      if (formula.userId !== user!.id) {
+        return res.status(403).json({ error: "Not authorized to evaluate this chart formula" });
+      }
+      
+      const { stockCode, period = 'D' } = req.body;
+      
+      if (!stockCode) {
+        return res.status(400).json({ error: 'Stock code is required' });
+      }
+      
+      // Fetch chart data from Kiwoom
+      const chartData = await kiwoomService.getStockChart(stockCode, period);
+      
+      // Normalize Kiwoom chart data to OHLCV format
+      const ohlcvData = (chartData.output2 || []).map((candle: any) => ({
+        date: candle.stck_bsop_date || '',
+        open: parseFloat(candle.stck_oprc) || 0,
+        high: parseFloat(candle.stck_hgpr) || 0,
+        low: parseFloat(candle.stck_lwpr) || 0,
+        close: parseFloat(candle.stck_clpr) || 0,
+        volume: parseInt(candle.acml_vol) || 0,
+      }));
+      
+      // Evaluate formula
+      const evaluator = new FormulaEvaluator();
+      const results = evaluator.evaluate(formula.formulaAst as any, ohlcvData);
+      
+      // Generate signal line with color
+      const signalLine = {
+        color: formula.color || 'green',
+        name: formula.formulaName,
+        values: ohlcvData.map((d, i) => ({
+          date: d.date,
+          value: results[i],
+        })),
+      };
+      
+      res.json({
+        stockCode,
+        period,
+        formulaName: formula.formulaName,
+        signalLine,
+      });
+    } catch (error: any) {
+      console.error('Failed to evaluate chart formula:', error);
+      res.status(500).json({ error: 'Failed to evaluate chart formula' });
+    }
+  });
+
+  // ==================== Stock Fundamentals Routes (재무 데이터) ====================
+
+  app.get("/api/stocks/:code/fundamentals", isAuthenticated, async (req, res) => {
+    try {
+      const stockCode = req.params.code;
+      const snapshots = await storage.getFinancialSnapshots(stockCode);
+      
+      res.json(snapshots);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/stocks/sync-financials", isAuthenticated, async (req, res) => {
+    try {
+      const { stockCodes } = req.body;
+      
+      if (!Array.isArray(stockCodes) || stockCodes.length === 0) {
+        return res.status(400).json({ error: 'Stock codes array is required' });
+      }
+      
+      const results = [];
+      
+      for (const stockCode of stockCodes) {
+        try {
+          // Fetch financial statements from Kiwoom
+          const financialData = await kiwoomService.getFinancialStatements(stockCode);
+          
+          // Store each year's data
+          if (financialData.output && Array.isArray(financialData.output)) {
+            for (const yearData of financialData.output) {
+              const fiscalYear = parseInt(yearData.stac_yymm?.substring(0, 4) || '0');
+              
+              if (fiscalYear > 0) {
+                const snapshotData = insertFinancialSnapshotSchema.parse({
+                  stockCode,
+                  fiscalYear,
+                  revenue: yearData.sale_account || null,
+                  operatingProfit: yearData.bsop_prti || null,
+                  netIncome: yearData.ntin || null,
+                  totalAssets: yearData.total_aset || null,
+                  totalLiabilities: yearData.total_lblt || null,
+                  totalEquity: yearData.cpfn || null,
+                  debtRatio: null,
+                  roe: null,
+                  roa: null,
+                  isHealthy: true,
+                });
+                
+                // Check if snapshot exists
+                const existing = await storage.getFinancialSnapshot(stockCode, fiscalYear);
+                
+                if (existing) {
+                  await storage.updateFinancialSnapshot(existing.id, snapshotData);
+                } else {
+                  await storage.createFinancialSnapshot(snapshotData);
+                }
+              }
+            }
+          }
+          
+          results.push({ stockCode, success: true });
+        } catch (stockError: any) {
+          console.error(`Failed to sync financials for ${stockCode}:`, stockError);
+          results.push({ stockCode, success: false, error: stockError.message });
+        }
+      }
+      
+      res.json({ results });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ==================== Watchlist Signals Routes (화면 0130) ====================
+
+  app.get("/api/watchlist/:id/signals", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const watchlistId = parseInt(req.params.id);
+      
+      // Verify watchlist item ownership
+      const watchlistItem = await storage.getWatchlist(user!.id);
+      const item = watchlistItem.find(w => w.id === watchlistId);
+      
+      if (!item) {
+        return res.status(404).json({ error: "Watchlist item not found" });
+      }
+      
+      const signals = await storage.getWatchlistSignals(watchlistId);
+      res.json(signals);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/watchlist/:id/signals", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const watchlistId = parseInt(req.params.id);
+      
+      // Verify watchlist item ownership
+      const watchlistItems = await storage.getWatchlist(user!.id);
+      const item = watchlistItems.find(w => w.id === watchlistId);
+      
+      if (!item) {
+        return res.status(404).json({ error: "Watchlist item not found" });
+      }
+      
+      const data = insertWatchlistSignalSchema.parse({
+        ...req.body,
+        watchlistId,
+      });
+      
+      const signal = await storage.createWatchlistSignal(data);
+      res.status(201).json(signal);
+    } catch (error: any) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Invalid input', details: error.errors });
+      }
+      console.error('Failed to create watchlist signal:', error);
+      res.status(500).json({ error: 'Failed to create watchlist signal' });
+    }
+  });
+
+  app.delete("/api/watchlist/:id/signals/:signalId", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const watchlistId = parseInt(req.params.id);
+      const signalId = parseInt(req.params.signalId);
+      
+      // Verify watchlist item ownership
+      const watchlistItems = await storage.getWatchlist(user!.id);
+      const item = watchlistItems.find(w => w.id === watchlistId);
+      
+      if (!item) {
+        return res.status(404).json({ error: "Watchlist item not found" });
+      }
+      
+      await storage.deleteWatchlistSignal(signalId);
+      res.json({ message: "Watchlist signal deleted successfully" });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ==================== Market Issues Routes (시장이슈종목) ====================
+
+  app.get("/api/market-issues", isAuthenticated, async (req, res) => {
+    try {
+      const dateParam = req.query.date as string;
+      const issueDate = dateParam || new Date().toISOString().split('T')[0].replace(/-/g, '');
+      
+      const issues = await storage.getMarketIssues(issueDate);
+      res.json(issues);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/market-issues/stock/:code", isAuthenticated, async (req, res) => {
+    try {
+      const stockCode = req.params.code;
+      const issues = await storage.getMarketIssuesByStock(stockCode);
+      res.json(issues);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }

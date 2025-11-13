@@ -67,6 +67,84 @@ interface OrderResponse {
   };
 }
 
+interface ConditionListResponse {
+  output: Array<{
+    condition_name: string; // 조건검색식 이름
+    condition_index: number; // 조건검색식 인덱스
+  }>;
+}
+
+interface ConditionSearchResultsResponse {
+  output: Array<{
+    stock_code: string; // 종목코드
+    stock_name: string; // 종목명
+    current_price: string; // 현재가
+    change_rate: string; // 등락률
+  }>;
+}
+
+interface FinancialStatementsResponse {
+  output: Array<{
+    stac_yymm: string; // 결산년월
+    sale_account: string; // 매출액
+    sale_cost: string; // 매출원가
+    sale_totl_prfi: string; // 매출총이익
+    bsop_prti: string; // 영업이익
+    ntin: string; // 당기순이익
+    total_aset: string; // 총자산
+    total_lblt: string; // 총부채
+    cpfn: string; // 자본금
+  }>;
+}
+
+interface FinancialRatiosResponse {
+  output: {
+    roe: string; // 자기자본이익률
+    roa: string; // 총자산이익률
+    debt_ratio: string; // 부채비율
+    reserve_ratio: string; // 유보율
+    eps: string; // 주당순이익
+    per: string; // 주가수익비율
+    bps: string; // 주당순자산
+    pbr: string; // 주가순자산비율
+  };
+}
+
+interface MarketIssuesResponse {
+  output: Array<{
+    stock_code: string; // 종목코드
+    stock_name: string; // 종목명
+    issue_type: string; // 이슈구분
+    issue_title: string; // 이슈제목
+    current_price: string; // 현재가
+    change_rate: string; // 등락률
+    trading_volume: string; // 거래량
+  }>;
+}
+
+interface ThemeStocksResponse {
+  output: Array<{
+    stock_code: string; // 종목코드
+    stock_name: string; // 종목명
+    current_price: string; // 현재가
+    change_rate: string; // 등락률
+    trading_volume: string; // 거래량
+    market_cap: string; // 시가총액
+  }>;
+}
+
+interface HighVolumeStocksResponse {
+  output: Array<{
+    rank: string; // 순위
+    stock_code: string; // 종목코드
+    stock_name: string; // 종목명
+    current_price: string; // 현재가
+    change_rate: string; // 등락률
+    trading_volume: string; // 거래량
+    trading_value: string; // 거래대금
+  }>;
+}
+
 export class KiwoomService {
   private api: AxiosInstance;
   private accessToken: string | null = null;
@@ -345,6 +423,254 @@ export class KiwoomService {
       return response.data;
     } catch (error) {
       console.error('Failed to get stock chart:', error);
+      throw error;
+    }
+  }
+
+  // ==================== Condition Search APIs (조건검색) ====================
+
+  /**
+   * Get list of user's saved condition formulas from Kiwoom HTS
+   * @returns List of condition formulas with name and index
+   */
+  async getConditionList(): Promise<ConditionListResponse> {
+    try {
+      const response = await this.api.get<ConditionListResponse>(
+        '/uapi/domestic-stock/v1/quotations/inquire-condition-list',
+        {
+          headers: {
+            tr_id: 'OPT10075',
+          },
+        }
+      );
+      console.log('Condition list response:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('Failed to get condition list:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get stocks matching a specific condition formula
+   * @param conditionName - Name of the condition formula
+   * @param conditionIndex - Index of the condition formula
+   * @returns List of stocks matching the condition
+   */
+  async getConditionSearchResults(
+    conditionName: string,
+    conditionIndex: number
+  ): Promise<ConditionSearchResultsResponse> {
+    try {
+      const response = await this.api.get<ConditionSearchResultsResponse>(
+        '/uapi/domestic-stock/v1/quotations/inquire-condition-search',
+        {
+          params: {
+            FID_COND_NM: conditionName,
+            FID_COND_IDX: conditionIndex.toString(),
+            FID_COND_SCR_DIV_CD: '0',
+          },
+          headers: {
+            tr_id: 'OPT10076',
+          },
+        }
+      );
+      console.log('Condition search results:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('Failed to get condition search results:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Start real-time monitoring for a condition formula
+   * NOTE: This requires WebSocket connection for real-time updates
+   * @param conditionName - Name of the condition formula
+   * @param conditionIndex - Index of the condition formula
+   * @returns Registration result
+   */
+  async startConditionMonitoring(
+    conditionName: string,
+    conditionIndex: number
+  ): Promise<any> {
+    try {
+      const response = await this.api.post(
+        '/uapi/domestic-stock/v1/quotations/register-condition-realtime',
+        {
+          FID_COND_NM: conditionName,
+          FID_COND_IDX: conditionIndex.toString(),
+          FID_COND_SCR_DIV_CD: '1',
+        },
+        {
+          headers: {
+            tr_id: 'OPT10077',
+          },
+        }
+      );
+      console.log('Condition monitoring started:', response.data);
+      console.log('NOTE: Real-time updates require WebSocket connection');
+      return response.data;
+    } catch (error) {
+      console.error('Failed to start condition monitoring:', error);
+      throw error;
+    }
+  }
+
+  // ==================== Financial Statement APIs (재무제표) ====================
+
+  /**
+   * Get financial statements for a stock (3-year data)
+   * Returns revenue, profit, assets, liabilities, and other financial data
+   * @param stockCode - Stock code (e.g., "005930" for Samsung Electronics)
+   * @returns 3 years of financial statement data
+   */
+  async getFinancialStatements(stockCode: string): Promise<FinancialStatementsResponse> {
+    try {
+      const response = await this.api.get<FinancialStatementsResponse>(
+        '/uapi/domestic-stock/v1/finance/financial-statements',
+        {
+          params: {
+            FID_COND_MRKT_DIV_CODE: 'J',
+            FID_INPUT_ISCD: stockCode,
+            FID_DIV_CLS_CODE: '0',
+          },
+          headers: {
+            tr_id: 'FHKST03030100',
+          },
+        }
+      );
+      console.log('Financial statements response:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('Failed to get financial statements:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get detailed financial ratios for a stock
+   * Returns ROE, ROA, debt ratio, EPS, PER, BPS, PBR, etc.
+   * @param stockCode - Stock code (e.g., "005930" for Samsung Electronics)
+   * @returns Financial ratios and indicators
+   */
+  async getFinancialRatios(stockCode: string): Promise<FinancialRatiosResponse> {
+    try {
+      const response = await this.api.get<FinancialRatiosResponse>(
+        '/uapi/domestic-stock/v1/finance/financial-ratios',
+        {
+          params: {
+            FID_COND_MRKT_DIV_CODE: 'J',
+            FID_INPUT_ISCD: stockCode,
+          },
+          headers: {
+            tr_id: 'FHKST03140100',
+          },
+        }
+      );
+      console.log('Financial ratios response:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('Failed to get financial ratios:', error);
+      throw error;
+    }
+  }
+
+  // ==================== Market Issue APIs (시장이슈종목) ====================
+
+  /**
+   * Get today's market issue stocks
+   * Returns stocks that are in focus due to market events, news, or themes
+   * @returns List of market issue stocks with issue type and details
+   */
+  async getMarketIssues(): Promise<MarketIssuesResponse> {
+    try {
+      const response = await this.api.get<MarketIssuesResponse>(
+        '/uapi/domestic-stock/v1/quotations/market-issues',
+        {
+          params: {
+            FID_COND_MRKT_DIV_CODE: 'J',
+            FID_ISSUE_DIV_CODE: '0',
+          },
+          headers: {
+            tr_id: 'FHKST01020400',
+          },
+        }
+      );
+      console.log('Market issues response:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('Failed to get market issues:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get stocks in a specific theme or sector
+   * @param themeCode - Theme code (e.g., "001" for semiconductor, "002" for battery)
+   * @returns List of stocks in the specified theme
+   */
+  async getThemeStocks(themeCode: string): Promise<ThemeStocksResponse> {
+    try {
+      const response = await this.api.get<ThemeStocksResponse>(
+        '/uapi/domestic-stock/v1/quotations/theme-stocks',
+        {
+          params: {
+            FID_COND_MRKT_DIV_CODE: 'J',
+            FID_THEME_CLS_CODE: themeCode,
+          },
+          headers: {
+            tr_id: 'FHKST01020300',
+          },
+        }
+      );
+      console.log('Theme stocks response:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('Failed to get theme stocks:', error);
+      throw error;
+    }
+  }
+
+  // ==================== Liquidity/Volume APIs (유동성) ====================
+
+  /**
+   * Get stocks with high trading volume
+   * Returns top 100 stocks by trading volume for the specified market
+   * @param market - Market filter: 'ALL' (전체), 'KOSPI' (코스피), 'KOSDAQ' (코스닥)
+   * @returns Top 100 stocks sorted by trading volume
+   */
+  async getHighVolumeStocks(
+    market: 'ALL' | 'KOSPI' | 'KOSDAQ' = 'ALL'
+  ): Promise<HighVolumeStocksResponse> {
+    const marketCode = market === 'KOSPI' ? '0' : market === 'KOSDAQ' ? '1' : '';
+    
+    try {
+      const response = await this.api.get<HighVolumeStocksResponse>(
+        '/uapi/domestic-stock/v1/quotations/high-volume-stocks',
+        {
+          params: {
+            FID_COND_MRKT_DIV_CODE: marketCode || 'J',
+            FID_COND_SCR_DIV_CODE: '20171',
+            FID_INPUT_ISCD: '0000',
+            FID_DIV_CLS_CODE: '0',
+            FID_BLNG_CLS_CODE: marketCode,
+            FID_TRGT_CLS_CODE: '111111111',
+            FID_TRGT_EXLS_CLS_CODE: '000000',
+            FID_INPUT_PRICE_1: '',
+            FID_INPUT_PRICE_2: '',
+            FID_VOL_CNT: '',
+            FID_INPUT_DATE_1: '',
+          },
+          headers: {
+            tr_id: 'FHKST01020900',
+          },
+        }
+      );
+      console.log('High volume stocks response:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('Failed to get high volume stocks:', error);
       throw error;
     }
   }
