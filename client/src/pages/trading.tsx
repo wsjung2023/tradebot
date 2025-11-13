@@ -11,6 +11,8 @@ import { TrendingUp, TrendingDown, DollarSign, Wifi, WifiOff } from "lucide-reac
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useMarketStream } from "@/hooks/use-market-stream";
+import { ConnectionStatus } from "@/components/connection-status";
+import type { KiwoomAccount } from "@shared/schema";
 
 export default function Trading() {
   const { toast } = useToast();
@@ -20,8 +22,8 @@ export default function Trading() {
   const [quantity, setQuantity] = useState("");
   const [price, setPrice] = useState("");
 
-  // WebSocket real-time data
-  const { prices, orderbooks, connected } = useMarketStream([stockCode], ["price", "orderbook"]);
+  // WebSocket real-time data with enhanced resilience
+  const { prices, orderbooks, connectionStatus, errorMessage, retryCount, forceReconnect } = useMarketStream([stockCode], ["price", "orderbook"]);
   
   const stockPrice = prices[stockCode];
   const orderbook = orderbooks[stockCode];
@@ -32,7 +34,7 @@ export default function Trading() {
     enabled: !!stockCode,
   });
 
-  const { data: accounts } = useQuery({
+  const { data: accounts = [] } = useQuery<KiwoomAccount[]>({
     queryKey: ['/api/accounts'],
   });
 
@@ -112,28 +114,23 @@ export default function Trading() {
         <p className="text-muted-foreground">실시간 매매 및 차트 분석</p>
       </div>
 
-      <div className="flex items-center gap-4">
-        <Label>종목 코드:</Label>
-        <Input
-          placeholder="종목코드 입력 (예: 005930)"
-          value={stockCode}
-          onChange={(e) => setStockCode(e.target.value)}
-          className="w-64"
-          data-testid="input-stock-code"
-        />
-        <div className="flex items-center gap-2">
-          {connected ? (
-            <>
-              <Wifi className="h-4 w-4 text-green-600" />
-              <span className="text-sm text-green-600">실시간 연결됨</span>
-            </>
-          ) : (
-            <>
-              <WifiOff className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">연결 중...</span>
-            </>
-          )}
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-4">
+          <Label>종목 코드:</Label>
+          <Input
+            placeholder="종목코드 입력 (예: 005930)"
+            value={stockCode}
+            onChange={(e) => setStockCode(e.target.value)}
+            className="w-64"
+            data-testid="input-stock-code"
+          />
         </div>
+        <ConnectionStatus
+          status={connectionStatus}
+          errorMessage={errorMessage}
+          retryCount={retryCount}
+          onReconnect={forceReconnect}
+        />
       </div>
 
       {stockPrice && (
