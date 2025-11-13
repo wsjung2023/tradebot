@@ -30,7 +30,8 @@ import {
   insertChartFormulaSchema,
   insertWatchlistSignalSchema,
   insertFinancialSnapshotSchema,
-  insertMarketIssueSchema
+  insertMarketIssueSchema,
+  type InsertConditionFormula
 } from "@shared/schema";
 import { MarketDataHub } from "./market-data-hub";
 import { z } from "zod";
@@ -555,9 +556,30 @@ export async function registerRoutes(app: Express, sessionMiddleware: any): Prom
   app.post("/api/conditions", isAuthenticated, async (req, res) => {
     try {
       const user = getCurrentUser(req);
+      
+      // Parse rawFormula to generate formulaAst (required)
+      let formulaAst;
+      try {
+        formulaAst = req.body.rawFormula 
+          ? parseFormula(req.body.rawFormula)
+          : { type: 'empty', body: [] }; // Empty AST for conditions without formula
+      } catch (parseError: any) {
+        return res.status(400).json({ 
+          error: 'Invalid formula syntax', 
+          details: parseError.message 
+        });
+      }
+      
+      // Validate against schema
       const data = insertConditionFormulaSchema.parse({
-        ...req.body,
+        conditionName: req.body.conditionName,
+        description: req.body.description,
+        marketType: req.body.marketType || 'ALL',
+        rawFormula: req.body.rawFormula,
+        isActive: req.body.isActive !== undefined ? req.body.isActive : false,
+        isRealTimeMonitoring: req.body.isRealTimeMonitoring !== undefined ? req.body.isRealTimeMonitoring : false,
         userId: user!.id,
+        formulaAst,
       });
       
       const condition = await storage.createConditionFormula(data);
@@ -605,7 +627,35 @@ export async function registerRoutes(app: Express, sessionMiddleware: any): Prom
         return res.status(403).json({ error: "Not authorized to update this condition formula" });
       }
       
-      const condition = await storage.updateConditionFormula(conditionId, req.body);
+      // Build validated update payload
+      const updatePayload: Partial<InsertConditionFormula> = {};
+      
+      if (req.body.conditionName !== undefined) updatePayload.conditionName = req.body.conditionName;
+      if (req.body.description !== undefined) updatePayload.description = req.body.description;
+      if (req.body.marketType !== undefined) updatePayload.marketType = req.body.marketType;
+      if (req.body.isActive !== undefined) updatePayload.isActive = req.body.isActive;
+      if (req.body.isRealTimeMonitoring !== undefined) updatePayload.isRealTimeMonitoring = req.body.isRealTimeMonitoring;
+      
+      // Re-parse rawFormula if it's being updated
+      if (req.body.rawFormula !== undefined) {
+        updatePayload.rawFormula = req.body.rawFormula;
+        try {
+          updatePayload.formulaAst = req.body.rawFormula 
+            ? parseFormula(req.body.rawFormula)
+            : { type: 'empty', body: [] };
+        } catch (parseError: any) {
+          return res.status(400).json({ 
+            error: 'Invalid formula syntax', 
+            details: parseError.message 
+          });
+        }
+      }
+      
+      // Validate partial update with Zod
+      const partialSchema = insertConditionFormulaSchema.partial();
+      const validatedUpdate = partialSchema.parse(updatePayload);
+      
+      const condition = await storage.updateConditionFormula(conditionId, validatedUpdate);
       res.json(condition);
     } catch (error: any) {
       if (error instanceof z.ZodError) {

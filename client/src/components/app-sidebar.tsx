@@ -10,6 +10,7 @@ import {
   Activity,
   ScrollText,
   BookOpen,
+  Search,
 } from "lucide-react";
 import {
   Sidebar,
@@ -67,6 +68,11 @@ const menuItems = [
     title: "관심종목",
     url: "/watchlist",
     icon: Activity,
+  },
+  {
+    title: "조건검색",
+    url: "/condition-formulas",
+    icon: Search,
   },
   {
     title: "설정",
