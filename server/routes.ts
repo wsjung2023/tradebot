@@ -46,10 +46,12 @@ export async function registerRoutes(app: Express, sessionMiddleware: any): Prom
   // Register with email/password
   app.post("/api/auth/register", async (req, res) => {
     try {
+      console.log('[REGISTER] Starting registration for:', req.body.email);
       const { email, password, name } = insertUserSchema.parse(req.body);
 
       const existingUser = await storage.getUserByEmail(email);
       if (existingUser) {
+        console.log('[REGISTER] ❌ Email already registered:', email);
         return res.status(400).json({ error: "Email already registered" });
       }
 
@@ -60,6 +62,7 @@ export async function registerRoutes(app: Express, sessionMiddleware: any): Prom
         name,
         authProvider: 'local',
       });
+      console.log('[REGISTER] ✅ User created:', user.id, user.email);
 
       // Create default settings
       await storage.createUserSettings({
@@ -69,10 +72,22 @@ export async function registerRoutes(app: Express, sessionMiddleware: any): Prom
       });
 
       req.login(user, (err) => {
-        if (err) return res.status(500).json({ error: "Login failed" });
-        res.json({ user: { id: user.id, email: user.email, name: user.name } });
+        if (err) {
+          console.log('[REGISTER] ❌ req.login() failed:', err);
+          return res.status(500).json({ error: "Login failed" });
+        }
+        console.log('[REGISTER] ✅ req.login() succeeded, sessionID:', req.sessionID, 'user.id:', user.id);
+        req.session.save((saveErr) => {
+          if (saveErr) {
+            console.log('[REGISTER] ❌ session.save() failed:', saveErr);
+            return res.status(500).json({ error: "Session save failed" });
+          }
+          console.log('[REGISTER] ✅ Session saved successfully');
+          res.json({ user: { id: user.id, email: user.email, name: user.name } });
+        });
       });
     } catch (error: any) {
+      console.log('[REGISTER] ❌ Error:', error.message);
       res.status(400).json({ error: error.message });
     }
   });

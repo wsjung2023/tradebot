@@ -44,7 +44,7 @@ export default function AIAnalysis() {
   const [analysis, setAnalysis] = useState<StockAnalysis | null>(null);
   const [portfolioAnalysis, setPortfolioAnalysis] = useState<PortfolioAnalysis | null>(null);
 
-  const { data: accountsData } = useQuery({
+  const { data: accountsData } = useQuery<any[]>({
     queryKey: ['/api/accounts'],
   });
 

@@ -12,14 +12,20 @@ passport.serializeUser((user: any, done) => {
 });
 
 // Deserialize user from session
-passport.deserializeUser(async (id: string, done) => {
+passport.deserializeUser(async (id: string | number, done) => {
   try {
-    const user = await storage.getUser(id);
+    // user.id is varchar (UUID), use it directly as string
+    const userId = String(id);
+    console.log(`[DESERIALIZE] Looking up user with ID: ${userId}`);
+    const user = await storage.getUser(userId);
     if (!user) {
+      console.log(`[DESERIALIZE] ❌ User not found: ${userId}`);
       return done(null, false);
     }
+    console.log(`[DESERIALIZE] ✅ User found: ${user.id} (${user.email})`);
     done(null, user);
   } catch (error) {
+    console.error(`[DESERIALIZE] ❌ Error:`, error);
     done(null, false);
   }
 });
@@ -142,9 +148,12 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
 
 // Middleware to check if user is authenticated
 export function isAuthenticated(req: any, res: any, next: any) {
-  if (req.isAuthenticated()) {
+  const isAuth = req.isAuthenticated();
+  console.log(`[AUTH] ${req.method} ${req.path} - isAuthenticated: ${isAuth}, sessionID: ${req.sessionID}, user: ${req.user ? req.user.id : 'none'}`);
+  if (isAuth) {
     return next();
   }
+  console.log(`[AUTH] ❌ 401 Unauthorized for ${req.method} ${req.path}`);
   res.status(401).json({ error: 'Unauthorized' });
 }
 

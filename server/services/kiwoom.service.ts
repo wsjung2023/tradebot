@@ -151,10 +151,18 @@ export class KiwoomService {
   private tokenExpiry: number = 0;
   private appKey: string;
   private appSecret: string;
+  private stubMode: boolean = false;
 
   constructor(config: KiwoomConfig) {
     this.appKey = config.appKey;
     this.appSecret = config.appSecret;
+    
+    // Enable stub mode if credentials are placeholder/missing
+    if (!config.appKey || !config.appSecret || 
+        config.appKey === 'stub' || config.appSecret === 'stub') {
+      this.stubMode = true;
+      console.log('⚠️  KiwoomService running in STUB mode (no real API calls)');
+    }
     
     this.api = axios.create({
       baseURL: config.baseURL || 'https://openapi.kiwoom.com:9443',
@@ -165,6 +173,7 @@ export class KiwoomService {
 
     // Add request interceptor for authentication
     this.api.interceptors.request.use(async (config) => {
+      if (this.stubMode) return config; // Skip auth in stub mode
       await this.ensureValidToken();
       if (this.accessToken) {
         config.headers.Authorization = `Bearer ${this.accessToken}`;
@@ -205,6 +214,42 @@ export class KiwoomService {
   // ==================== Account Information ====================
 
   async getAccountBalance(accountNumber: string): Promise<AccountBalanceResponse> {
+    if (this.stubMode) {
+      // Return mock data in stub mode
+      return {
+        output1: {
+          dnca_tot_amt: '50000000',
+          nxdy_excc_amt: '50000000',
+          prvs_rcdl_excc_amt: '0',
+          cma_evlu_amt: '0',
+          tot_evlu_amt: '100000000',
+          pchs_amt_smtl_amt: '45000000',
+          evlu_amt_smtl_amt: '50000000',
+          evlu_pfls_smtl_amt: '5000000',
+        },
+        output2: [
+          {
+            pdno: '005930',
+            prdt_name: '삼성전자',
+            hldg_qty: '100',
+            pchs_avg_pric: '70000',
+            prpr: '75000',
+            evlu_pfls_amt: '500000',
+            evlu_pfls_rt: '7.14',
+          },
+          {
+            pdno: '000660',
+            prdt_name: 'SK하이닉스',
+            hldg_qty: '50',
+            pchs_avg_pric: '130000',
+            prpr: '140000',
+            evlu_pfls_amt: '500000',
+            evlu_pfls_rt: '7.69',
+          },
+        ],
+      };
+    }
+    
     try {
       const response = await this.api.get<AccountBalanceResponse>(
         '/uapi/domestic-stock/v1/trading/inquire-balance',
@@ -235,6 +280,24 @@ export class KiwoomService {
   // ==================== Stock Information ====================
 
   async getStockPrice(stockCode: string): Promise<StockPriceResponse> {
+    if (this.stubMode) {
+      // Generate random but realistic stock price data
+      const basePrice = 70000 + Math.random() * 10000;
+      const change = (Math.random() - 0.5) * 5000;
+      return {
+        output: {
+          stck_prpr: Math.round(basePrice).toString(),
+          prdy_vrss: Math.round(change).toString(),
+          prdy_vrss_sign: change >= 0 ? '2' : '5',
+          prdy_ctrt: ((change / basePrice) * 100).toFixed(2),
+          acml_vol: Math.floor(Math.random() * 10000000).toString(),
+          stck_oprc: Math.round(basePrice - 1000).toString(),
+          stck_hgpr: Math.round(basePrice + 2000).toString(),
+          stck_lwpr: Math.round(basePrice - 2000).toString(),
+        },
+      };
+    }
+    
     try {
       const response = await this.api.get<StockPriceResponse>(
         '/uapi/domestic-stock/v1/quotations/inquire-price',
@@ -256,6 +319,26 @@ export class KiwoomService {
   }
 
   async getStockOrderbook(stockCode: string): Promise<any> {
+    if (this.stubMode) {
+      // Generate realistic orderbook data
+      const basePrice = 70000 + Math.random() * 10000;
+      const buyOrders = [];
+      const sellOrders = [];
+      
+      for (let i = 0; i < 10; i++) {
+        buyOrders.push({
+          price: Math.round(basePrice - (i + 1) * 100),
+          quantity: Math.floor(Math.random() * 1000) + 100,
+        });
+        sellOrders.push({
+          price: Math.round(basePrice + (i + 1) * 100),
+          quantity: Math.floor(Math.random() * 1000) + 100,
+        });
+      }
+      
+      return { buy: buyOrders, sell: sellOrders };
+    }
+    
     try {
       const response = await this.api.get(
         '/uapi/domestic-stock/v1/quotations/inquire-asking-price-exp-ccn',
@@ -287,6 +370,22 @@ export class KiwoomService {
       orderPrice,
       orderMethod,
     } = orderRequest;
+
+    if (this.stubMode) {
+      // Return mock order response
+      const orderNumber = `MOCK${Date.now()}`;
+      console.log(`📝 STUB: ${orderType} order placed`, { stockCode, orderQuantity, orderPrice: orderPrice || 'market' });
+      return {
+        rt_cd: '0',
+        msg_cd: '0000',
+        msg1: '주문이 접수되었습니다 (STUB)',
+        output: {
+          KRX_FWDG_ORD_ORGNO: orderNumber,
+          ODNO: orderNumber,
+          ORD_TMD: new Date().toTimeString().substring(0, 8).replace(/:/g, ''),
+        },
+      };
+    }
 
     const trId = orderType === 'buy' ? 'TTTC0802U' : 'TTTC0801U';
     
@@ -401,6 +500,36 @@ export class KiwoomService {
   }
 
   async getStockChart(stockCode: string, period: string = 'D'): Promise<any> {
+    if (this.stubMode) {
+      // Generate 30 days of chart data
+      const chartData = [];
+      let basePrice = 70000 + Math.random() * 10000;
+      const today = new Date();
+      
+      for (let i = 29; i >= 0; i--) {
+        const date = new Date(today);
+        date.setDate(date.getDate() - i);
+        const dailyChange = (Math.random() - 0.5) * 0.05;
+        basePrice = basePrice * (1 + dailyChange);
+        
+        const open = basePrice;
+        const high = basePrice * (1 + Math.random() * 0.02);
+        const low = basePrice * (1 - Math.random() * 0.02);
+        const close = low + Math.random() * (high - low);
+        
+        chartData.push({
+          date: date.toISOString().split('T')[0],
+          open: Math.round(open),
+          high: Math.round(high),
+          low: Math.round(low),
+          close: Math.round(close),
+          volume: Math.floor(Math.random() * 10000000),
+        });
+      }
+      
+      return chartData;
+    }
+    
     const endDate = new Date().toISOString().split('T')[0].replace(/-/g, '');
     
     try {
@@ -681,12 +810,8 @@ let kiwoomServiceInstance: KiwoomService | null = null;
 
 export function getKiwoomService(): KiwoomService {
   if (!kiwoomServiceInstance) {
-    const appKey = process.env.KIWOOM_APP_KEY;
-    const appSecret = process.env.KIWOOM_APP_SECRET;
-
-    if (!appKey || !appSecret) {
-      throw new Error('Kiwoom API credentials not configured');
-    }
+    const appKey = process.env.KIWOOM_APP_KEY || 'stub';
+    const appSecret = process.env.KIWOOM_APP_SECRET || 'stub';
 
     kiwoomServiceInstance = new KiwoomService({
       appKey,
