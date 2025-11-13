@@ -29,7 +29,7 @@ export default function Trading() {
   const orderbook = orderbooks[stockCode];
 
   // Fallback to REST for chart data
-  const { data: chartData } = useQuery({
+  const { data: chartData = [] } = useQuery<any[]>({
     queryKey: ['/api/stocks', stockCode, 'chart'],
     enabled: !!stockCode,
   });

@@ -60,7 +60,7 @@ export function ConnectionStatus({ status, errorMessage, retryCount, onReconnect
         className={`${config.bgColor} ${config.borderColor} ${config.color} gap-1.5`}
         data-testid="connection-status-badge"
       >
-        <Icon className={`w-3 h-3 ${status === 'connecting' ? 'animate-spin' : 'animate-pulse-glow'}`} />
+        <Icon className="w-3 h-3 animate-pulse-glow" />
         {config.label}
       </Badge>
     );
