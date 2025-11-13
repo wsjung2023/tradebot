@@ -140,6 +140,10 @@ export const userSettings = pgTable("user_settings", {
   riskLevel: text("risk_level").notNull().default('medium'), // 'low', 'medium', 'high'
   maxDailyLoss: decimal("max_daily_loss", { precision: 12, scale: 2 }),
   notificationSettings: jsonb("notification_settings"),
+  kiwoomAppKey: text("kiwoom_app_key"), // Encrypted
+  kiwoomAppSecret: text("kiwoom_app_secret"), // Encrypted
+  priceAlertEnabled: boolean("price_alert_enabled").notNull().default(true),
+  tradeAlertEnabled: boolean("trade_alert_enabled").notNull().default(true),
   theme: text("theme").notNull().default('light'),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

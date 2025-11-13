@@ -401,7 +401,20 @@ export class MemStorage implements IStorage {
 
   async createUserSettings(insertSettings: InsertUserSettings): Promise<UserSettings> {
     const settings: UserSettings = {
-      ...insertSettings,
+      id: this.nextLogId++,
+      userId: insertSettings.userId,
+      defaultAccountId: insertSettings.defaultAccountId || null,
+      tradingMode: insertSettings.tradingMode || 'mock',
+      autoTradingEnabled: insertSettings.autoTradingEnabled || false,
+      riskLevel: insertSettings.riskLevel || 'medium',
+      maxDailyLoss: insertSettings.maxDailyLoss || null,
+      notificationSettings: insertSettings.notificationSettings || null,
+      kiwoomAppKey: insertSettings.kiwoomAppKey || null,
+      kiwoomAppSecret: insertSettings.kiwoomAppSecret || null,
+      priceAlertEnabled: insertSettings.priceAlertEnabled !== undefined ? insertSettings.priceAlertEnabled : true,
+      tradeAlertEnabled: insertSettings.tradeAlertEnabled !== undefined ? insertSettings.tradeAlertEnabled : true,
+      theme: insertSettings.theme || 'light',
+      updatedAt: new Date().toISOString(),
     };
     this.settings.set(insertSettings.userId, settings);
     return settings;
@@ -411,7 +424,7 @@ export class MemStorage implements IStorage {
     const current = this.settings.get(userId);
     if (!current) return undefined;
     
-    const updated = { ...current, ...updates };
+    const updated = { ...current, ...updates, updatedAt: new Date().toISOString() };
     this.settings.set(userId, updated);
     return updated;
   }
