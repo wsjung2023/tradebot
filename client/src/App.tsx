@@ -13,6 +13,7 @@ import Trading from "@/pages/trading";
 import AIAnalysis from "@/pages/ai-analysis";
 import AutoTrading from "@/pages/auto-trading";
 import Portfolio from "@/pages/portfolio";
+import TradeHistory from "@/pages/trade-history";
 import Watchlist from "@/pages/watchlist";
 import Settings from "@/pages/settings";
 
@@ -72,6 +73,7 @@ function AuthenticatedRouter() {
               <Route path="/ai-analysis" component={AIAnalysis} />
               <Route path="/auto-trading" component={AutoTrading} />
               <Route path="/portfolio" component={Portfolio} />
+              <Route path="/trade-history" component={TradeHistory} />
               <Route path="/watchlist" component={Watchlist} />
               <Route path="/settings" component={Settings} />
               <Route component={NotFound} />

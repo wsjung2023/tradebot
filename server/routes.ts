@@ -474,6 +474,54 @@ export async function registerRoutes(app: Express, sessionMiddleware: any): Prom
     }
   });
 
+  // ==================== Trading History Routes ====================
+
+  app.get("/api/trading-logs", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const accounts = await storage.getKiwoomAccounts(user!.id);
+      
+      if (accounts.length === 0) {
+        return res.json([]);
+      }
+      
+      // Get logs from all user accounts
+      const allLogs = await Promise.all(
+        accounts.map(account => storage.getTradingLogs(account.id))
+      );
+      const logs = allLogs.flat().sort((a, b) => 
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+      
+      res.json(logs);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/all-orders", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const accounts = await storage.getKiwoomAccounts(user!.id);
+      
+      if (accounts.length === 0) {
+        return res.json([]);
+      }
+      
+      // Get orders from all user accounts
+      const allOrders = await Promise.all(
+        accounts.map(account => storage.getOrders(account.id))
+      );
+      const orders = allOrders.flat().sort((a, b) => 
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+      
+      res.json(orders);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   const httpServer = createServer(app);
 
   // WebSocket server for real-time market data

@@ -264,6 +264,14 @@ export class MemStorage implements IStorage {
     const order: Order = {
       id,
       ...insertOrder,
+      createdAt: new Date().toISOString(),
+      executedQuantity: insertOrder.executedQuantity || 0,
+      orderStatus: insertOrder.orderStatus || 'pending',
+      executedAt: insertOrder.executedAt || null,
+      executedPrice: insertOrder.executedPrice || null,
+      orderNumber: insertOrder.orderNumber || null,
+      isAutoTrading: insertOrder.isAutoTrading || false,
+      aiModelId: insertOrder.aiModelId || null,
     };
     this.orders.set(id, order);
     return order;
@@ -437,7 +445,8 @@ export class MemStorage implements IStorage {
     const log: TradingLog = {
       id,
       ...insertLog,
-      timestamp: insertLog.timestamp || new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+      errorMessage: insertLog.errorMessage || null,
     };
     this.logs.set(id, log);
     return log;

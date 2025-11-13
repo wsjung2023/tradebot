@@ -8,6 +8,7 @@ import {
   Settings,
   LogOut,
   Activity,
+  ScrollText,
 } from "lucide-react";
 import {
   Sidebar,
@@ -50,6 +51,11 @@ const menuItems = [
     title: "포트폴리오",
     url: "/portfolio",
     icon: Briefcase,
+  },
+  {
+    title: "거래 내역",
+    url: "/trade-history",
+    icon: ScrollText,
   },
   {
     title: "관심종목",

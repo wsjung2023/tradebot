@@ -51,9 +51,11 @@
 ### API 엔드포인트
 - `/api/auth/*` - 인증 (회원가입, 로그인, 로그아웃, OAuth)
 - `/api/accounts/*` - 키움 계좌 관리
-- `/api/orders/*` - 주문 관리
+- `/api/orders/*` - 주문 관리 (POST /api/orders)
+- `/api/all-orders` - 전체 주문 내역 조회 (GET)
+- `/api/trading-logs` - 거래 로그 조회 (GET)
 - `/api/stocks/*` - 주식 정보 조회
-- `/api/ai/*` - AI 분석 및 모델 관리
+- `/api/ai/*` - AI 분석 및 모델 관리 (GPT-4 분석, 포트폴리오 최적화, 모델 CRUD)
 - `/api/watchlist/*` - 관심종목
 - `/api/alerts/*` - 알림 설정
 - `/api/settings/*` - 사용자 설정
@@ -73,13 +75,17 @@
 10. 키움증권 API 서비스 (stub - 실제 API 키 필요)
 11. OpenAI AI 서비스 (stub - GPT-4 분석 준비)
 
+### ✅ 완료 (계속)
+12. AI 분석 대시보드 (Task #5: GPT-4 종목 분석, 포트폴리오 최적화, 신뢰도 점수)
+13. 자동매매 시스템 (Task #6: AI 모델 CRUD, 활성화/비활성화, 추천 생성)
+14. 거래 내역 및 로그 (Task #7: 주문/체결 내역, 거래 로그, 통계 대시보드)
+
 ### 🚧 진행 중
-1. AI 분석 대시보드 (GPT-4 종목 분석, 매매 신호)
-2. 자동매매 시스템 (AI 모델 설정, 백테스팅)
-3. 거래 내역 및 로그
-4. 관심종목 및 알림
-5. PWA 설정 (Service Worker, 오프라인 모드)
-6. 보안 강화 (API 키 암호화, rate limiting)
+1. 관심종목 및 알림 (Task #8)
+2. PWA 설정 (Task #9: Service Worker, 오프라인 모드)
+3. 보안 강화 (Task #10: API 키 암호화, rate limiting)
+4. 전체 시스템 테스트 (Task #11)
+5. 최종 배포 준비 (Task #12)
 
 ## 개발 가이드
 
