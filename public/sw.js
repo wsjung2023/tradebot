@@ -2,12 +2,19 @@
 const CACHE_VERSION = 'v1';
 const CACHE_NAME = `kiwoom-ai-trading-${CACHE_VERSION}`;
 
-// Static assets to precache
+// Static assets to precache (Vite build assets will be added dynamically)
 const STATIC_CACHE_URLS = [
   '/',
   '/manifest.json',
   '/icon-192.png',
   '/icon-512.png',
+];
+
+// Vite asset patterns to cache
+const ASSET_PATTERNS = [
+  /\/assets\/.*\.(js|css)$/,
+  /\.(png|jpg|jpeg|svg|gif|webp|ico)$/,
+  /\.(woff|woff2|ttf|eot)$/,
 ];
 
 // Install event - precache static assets
@@ -101,39 +108,80 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Static assets: Cache first, network fallback
-  event.respondWith(
-    caches.match(request).then((cachedResponse) => {
-      if (cachedResponse) {
-        console.log('[SW] Serving from cache:', url.pathname);
-        return cachedResponse;
-      }
+  // Check if it's a static asset (Vite build outputs)
+  const isAsset = ASSET_PATTERNS.some(pattern => pattern.test(url.pathname));
+  
+  if (isAsset) {
+    // Assets: Cache first, network fallback
+    event.respondWith(
+      caches.match(request).then((cachedResponse) => {
+        if (cachedResponse) {
+          return cachedResponse;
+        }
 
-      // Not in cache, fetch from network
-      return fetch(request).then((response) => {
-        // Clone for caching
-        const responseClone = response.clone();
-        
-        // Cache successful responses
+        return fetch(request).then((response) => {
+          if (response.status === 200) {
+            const responseClone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(request, responseClone);
+            });
+          }
+          return response;
+        }).catch(() => {
+          return new Response('오프라인', { status: 503 });
+        });
+      })
+    );
+    return;
+  }
+
+  // Navigation requests (HTML pages)
+  if (request.destination === 'document') {
+    event.respondWith(
+      fetch(request).then((response) => {
+        // Cache successful navigation
         if (response.status === 200) {
+          const responseClone = response.clone();
           caches.open(CACHE_NAME).then((cache) => {
             cache.put(request, responseClone);
           });
         }
-        
         return response;
       }).catch(() => {
-        // Network failed and not in cache
-        if (request.destination === 'document') {
-          // Return offline page for navigation requests
-          return caches.match('/').then((response) => {
-            return response || new Response('오프라인 상태입니다', {
+        // Offline: try cached version first, then fallback to root
+        return caches.match(request).then((cachedResponse) => {
+          if (cachedResponse) {
+            return cachedResponse;
+          }
+          // Deep link fallback: serve root SPA
+          return caches.match('/').then((rootResponse) => {
+            return rootResponse || new Response('오프라인 상태입니다', {
               status: 503,
               headers: { 'Content-Type': 'text/html; charset=utf-8' }
             });
           });
+        });
+      })
+    );
+    return;
+  }
+
+  // Other static resources: cache first
+  event.respondWith(
+    caches.match(request).then((cachedResponse) => {
+      if (cachedResponse) {
+        return cachedResponse;
+      }
+
+      return fetch(request).then((response) => {
+        if (response.status === 200) {
+          const responseClone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(request, responseClone);
+          });
         }
-        
+        return response;
+      }).catch(() => {
         return new Response('오프라인', { status: 503 });
       });
     })

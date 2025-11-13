@@ -239,7 +239,35 @@ npm run db:push
 - **접근성**: 로그인/회원가입 페이지에 가이드 링크, 사이드바 메뉴 추가
 - **Neo-Fintech 디자인**: 애니메이션 배경, 단계별 색상 구분, 경고/팁 표시
 
+### ✅ 필수 기능 완료 (2025-11-13 저녁)
+
+**WebSocket 안정화 (WS-2, WS-3)**
+- 클라이언트 resilience: exponential backoff with jitter, max 10 retries, navigator.onLine 감지
+- ConnectionStatus UI 컴포넌트 (5가지 상태)
+- 서버 heartbeat: 30초마다 ws.ping(), 90초 idle timeout
+- lastActivity 추적, pong 이벤트 자동 갱신
+
+**PWA 구축 (PWA-1, PWA-2)**
+- manifest.json: 512x512/192x192 아이콘, 테마 컬러, shortcuts
+- Service Worker: Vite 에셋 패턴 캐싱 (/assets/*.js, CSS, 폰트, 이미지)
+- 캐싱 전략:
+  * API: Network-first, cache fallback
+  * Static assets: Cache-first
+  * Navigation: Network-first, 오프라인 시 SPA root fallback (deep link 지원)
+- 자동 업데이트 감지 및 알림
+
+**보안 강화 (SEC-1, SEC-2, SEC-3)**
+- API 키 암호화: AES-256-GCM, PBKDF2 (100k iterations), salt/IV/tag 분리
+- Rate Limiting:
+  * API 전체: 15분 100회/IP
+  * 인증: 15분 5회/IP (skipSuccessfulRequests)
+- Security Headers (helmet.js):
+  * CSP: 프로덕션 strict policy (개발 환경 Vite HMR용 비활성화)
+  * XSS, clickjacking 방어
+  * HTTPS 강제
+
 ### 다음 단계
-- Task UI-4: 동적 데이터 시각화 (AI 자동매매 큐, 반응형 배지)
-- Task UI-5: 마이크로 인터랙션 (Framer Motion, 메트릭 델타 애니메이션)
-- Task UI-6: QA & 폴리시 (접근성 감사, 성능 최적화)
+- 조건검색 프론트엔드 완성 (차트수식 에디터)
+- Task UI-4: 동적 데이터 시각화
+- Task UI-5: 마이크로 인터랙션
+- 최종 QA 및 배포 준비
