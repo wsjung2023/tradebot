@@ -98,7 +98,8 @@ class AutoTradingWorker {
         appSecret: decrypt(userSettings.kiwoomAppSecret),
       });
 
-      const aiService = new AIService();
+      const aiKey = process.env.OPENAI_API_KEY || '';
+      const aiService = new AIService(aiKey);
 
       // 2. Get model settings
       const settings = await storage.getAutoTradingSettings(model.id);
@@ -138,15 +139,27 @@ class AutoTradingWorker {
 
     try {
       // 1. Execute condition search via Kiwoom API
+      // Note: Using formula id as conditionIndex since schema doesn't store separate index
       const results = await kiwoomService.getConditionSearchResults(
         condition.conditionName,
-        condition.marketType as any
+        condition.id
       );
 
-      console.log(`  📊 Found ${results.length} stocks matching condition`);
+      if (!results || !results.output || results.output.length === 0) {
+        console.log(`  ⚠️  No stocks found for ${condition.conditionName}`);
+        return;
+      }
+
+      console.log(`  📊 Found ${results.output.length} stocks matching condition`);
 
       // 2. Process each candidate stock
-      for (const stock of results.slice(0, 10)) { // Limit to top 10 per cycle
+      for (const stockData of results.output.slice(0, 10)) { // Limit to top 10 per cycle
+        const stock = {
+          code: stockData.stock_code,
+          name: stockData.stock_name,
+          price: parseFloat(stockData.current_price),
+          volume: 0, // Volume not provided in condition search response
+        };
         await this.evaluateStock(model, settings, stock, kiwoomService, aiService);
       }
 
@@ -217,15 +230,27 @@ class AutoTradingWorker {
     institutionalScore: number;
   }> {
     // Get financial data
-    const financials = await kiwoomService.getFinancialStatements(stock.code, 3);
-    const hasGoodFinancials = financials.length >= 3 && financials.every((f: any) => f.isHealthy);
+    const financials = await kiwoomService.getFinancialStatements(stock.code);
+    const hasGoodFinancials = financials.output && financials.output.length >= 3;
 
-    // Get market data
-    const marketData = await kiwoomService.getStockInfo(stock.code);
-    const hasHighLiquidity = marketData.volume > 100000; // Simple check
+    // Get market price data
+    const priceData = await kiwoomService.getStockPrice(stock.code);
+    const volume = parseFloat(priceData.output.acml_vol);
+    const hasHighLiquidity = volume > 100000;
 
-    // AI analysis via GPT-4
-    const analysis = await aiService.analyzeStock(stock.code);
+    // Get 2 years chart data for rainbow chart
+    const chartData = await kiwoomService.getStockChart(stock.code, 'D');
+    // Mock OHLCV data since real API stub doesn't provide it
+    const ohlcv = chartData.output || [];
+    const rainbowChart = RainbowChartAnalyzer.analyze(stock.code, ohlcv);
+
+    // AI analysis via GPT-4 with full context
+    const analysis = await aiService.analyzeStock({
+      stockCode: stock.code,
+      stockName: stock.name,
+      currentPrice: stock.price,
+      rainbowChart,
+    });
 
     // Calculate weighted confidence
     const weights = {
@@ -237,11 +262,11 @@ class AutoTradingWorker {
     };
 
     const scores = {
-      themeScore: analysis.themeRelevance || 50,
-      newsScore: analysis.newsImpact || 50,
+      themeScore: analysis.confidence, // Use AI confidence as theme score
+      newsScore: analysis.confidence, // Use AI confidence as news score
       financialsScore: hasGoodFinancials ? 80 : 30,
       liquidityScore: hasHighLiquidity ? 80 : 30,
-      institutionalScore: marketData.institutionalOwnership || 50,
+      institutionalScore: 50, // Default value (institutional data not available)
     };
 
     const confidence = (
@@ -265,8 +290,9 @@ class AutoTradingWorker {
     settings: AutoTradingSettings,
     kiwoomService: KiwoomService
   ): Promise<{ currentLine: number; action: 'buy' | 'sell' | 'hold'; weight: number; confidence: number }> {
-    // Get 2 years of data
-    const ohlcv = await kiwoomService.getOHLCV(stock.code, 730);
+    // Get 2 years of chart data
+    const chartData = await kiwoomService.getStockChart(stock.code, 'D');
+    const ohlcv = chartData.output || [];
     
     // Use RainbowChartAnalyzer
     const result = RainbowChartAnalyzer.analyze(stock.code, ohlcv);
@@ -306,7 +332,7 @@ class AutoTradingWorker {
     model: AiModel,
     settings: AutoTradingSettings,
     stock: { code: string; name: string; price: number },
-    rainbow: RainbowLineEvaluation,
+    rainbow: { currentLine: number; action: 'buy' | 'sell' | 'hold'; weight: number; confidence: number },
     aiAnalysis: any,
     kiwoomService: KiwoomService
   ) {
@@ -391,7 +417,7 @@ class AutoTradingWorker {
     model: AiModel,
     settings: AutoTradingSettings,
     stock: { code: string; name: string; price: number },
-    rainbow: RainbowLineEvaluation,
+    rainbow: { currentLine: number; action: 'buy' | 'sell' | 'hold'; weight: number; confidence: number },
     kiwoomService: KiwoomService
   ) {
     console.log(`    💵 SELL SIGNAL: ${stock.name} at ${rainbow.currentLine}% line`);
