@@ -8,10 +8,18 @@ import {
   decimal, 
   boolean, 
   jsonb,
+  json,
   serial
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+
+// Session table - managed by express-session (connect-pg-simple)
+export const session = pgTable("session", {
+  sid: varchar("sid").primaryKey(),
+  sess: json("sess").notNull(),
+  expire: timestamp("expire", { precision: 6, mode: 'date' }).notNull(),
+});
 
 // Users table - supports multiple auth providers
 export const users = pgTable("users", {

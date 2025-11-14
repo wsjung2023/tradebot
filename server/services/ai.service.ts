@@ -57,9 +57,35 @@ export class AIService {
     this.openai = new OpenAI({ apiKey });
   }
 
+  // ==================== Helper Methods ====================
+
+  private async createJsonCompletion(
+    messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
+    options: {
+      model?: string;
+      temperature?: number;
+    } = {}
+  ): Promise<any> {
+    const { model = 'gpt-4', temperature = 0.3 } = options;
+
+    try {
+      const completion = await this.openai.chat.completions.create({
+        model,
+        messages,
+        temperature,
+        response_format: { type: 'json_object' },
+      });
+
+      return JSON.parse(completion.choices[0].message.content || '{}');
+    } catch (error) {
+      console.error(`AI completion failed (model: ${model}):`, error);
+      throw new Error(`AI service error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
   // ==================== Stock Analysis ====================
 
-  async analyzeStock(request: StockAnalysisRequest): Promise<StockAnalysisResponse> {
+  async analyzeStock(request: StockAnalysisRequest, model: string = 'gpt-4'): Promise<StockAnalysisResponse> {
     const prompt = `You are a professional stock trading analyst. Analyze the following stock and provide actionable trading recommendations.
 
 Stock Information:
@@ -69,13 +95,15 @@ Stock Information:
 ${request.priceHistory ? `- Recent Price Data: ${JSON.stringify(request.priceHistory.slice(0, 30))}` : ''}
 ${request.technicalIndicators ? `- Technical Indicators: ${JSON.stringify(request.technicalIndicators)}` : ''}
 ${request.rainbowChart ? `
-10-Line Rainbow Chart Analysis (2-Year Range):
-- 2Y High: ₩${request.rainbowChart.high2Y.toLocaleString()}
-- 2Y Low: ₩${request.rainbowChart.low2Y.toLocaleString()}
+Rainbow Chart Analysis (240-Day Range):
+- 240-Day High: ₩${request.rainbowChart.highest.toLocaleString()}
+- 240-Day Low: ₩${request.rainbowChart.lowest.toLocaleString()}
+- Current Position: ${request.rainbowChart.currentPosition.toFixed(1)}%
 - Current Zone: ${request.rainbowChart.currentZone}
 - Chart Recommendation: ${request.rainbowChart.recommendation.toUpperCase()}
-- Line 5 (50% retracement - PRIMARY BUY): ₩${request.rainbowChart.lines[5].price.toLocaleString()}
-- Current vs 50% Line: ${((request.currentPrice / request.rainbowChart.lines[5].price - 1) * 100).toFixed(2)}%
+- CL (50% Green Line): ₩${request.rainbowChart.CL.toLocaleString()}
+- CL Width: ${request.rainbowChart.clWidth.toFixed(1)}%
+- Current vs CL: ${((request.currentPrice / request.rainbowChart.CL - 1) * 100).toFixed(2)}%
 ` : ''}
 
 Based on technical analysis, market trends, and trading patterns, provide:
@@ -99,41 +127,32 @@ Format your response as JSON:
   }
 }`;
 
-    try {
-      const completion = await this.openai.chat.completions.create({
-        model: 'gpt-4',
-        messages: [
-          {
-            role: 'system',
-            content: 'You are an expert stock trading analyst with deep knowledge of Korean stock market (KOSPI/KOSDAQ). Provide precise, actionable trading advice based on technical analysis.',
-          },
-          {
-            role: 'user',
-            content: prompt,
-          },
-        ],
-        temperature: 0.3,
-        response_format: { type: 'json_object' },
-      });
-
-      const response = JSON.parse(completion.choices[0].message.content || '{}');
-      
-      return {
-        action: response.action || 'hold',
-        confidence: response.confidence || 50,
-        targetPrice: response.targetPrice || null,
-        reasoning: response.reasoning || 'Analysis pending',
-        indicators: response.indicators || {},
-      };
-    } catch (error) {
-      console.error('AI stock analysis failed:', error);
-      throw new Error('Failed to analyze stock');
-    }
+    const response = await this.createJsonCompletion(
+      [
+        {
+          role: 'system',
+          content: 'You are an expert stock trading analyst with deep knowledge of Korean stock market (KOSPI/KOSDAQ). Provide precise, actionable trading advice based on technical analysis.',
+        },
+        {
+          role: 'user',
+          content: prompt,
+        },
+      ],
+      { model, temperature: 0.3 }
+    );
+    
+    return {
+      action: response.action || 'hold',
+      confidence: response.confidence || 50,
+      targetPrice: response.targetPrice || null,
+      reasoning: response.reasoning || 'Analysis pending',
+      indicators: response.indicators || {},
+    };
   }
 
   // ==================== Portfolio Analysis ====================
 
-  async analyzePortfolio(request: PortfolioAnalysisRequest): Promise<PortfolioAnalysisResponse> {
+  async analyzePortfolio(request: PortfolioAnalysisRequest, model: string = 'gpt-4'): Promise<PortfolioAnalysisResponse> {
     const portfolioSummary = request.holdings.map(h => ({
       code: h.stockCode,
       name: h.stockName,
@@ -173,39 +192,30 @@ Format as JSON:
   "riskAssessment": "risk analysis"
 }`;
 
-    try {
-      const completion = await this.openai.chat.completions.create({
-        model: 'gpt-4',
-        messages: [
-          {
-            role: 'system',
-            content: 'You are an expert portfolio manager specializing in Korean stock market investments. Provide comprehensive portfolio analysis and optimization strategies.',
-          },
-          {
-            role: 'user',
-            content: prompt,
-          },
-        ],
-        temperature: 0.4,
-        response_format: { type: 'json_object' },
-      });
-
-      const response = JSON.parse(completion.choices[0].message.content || '{}');
-      
-      return {
-        recommendations: response.recommendations || [],
-        overallStrategy: response.overallStrategy || '',
-        riskAssessment: response.riskAssessment || '',
-      };
-    } catch (error) {
-      console.error('AI portfolio analysis failed:', error);
-      throw new Error('Failed to analyze portfolio');
-    }
+    const response = await this.createJsonCompletion(
+      [
+        {
+          role: 'system',
+          content: 'You are an expert portfolio manager specializing in Korean stock market investments. Provide comprehensive portfolio analysis and optimization strategies.',
+        },
+        {
+          role: 'user',
+          content: prompt,
+        },
+      ],
+      { model, temperature: 0.4 }
+    );
+    
+    return {
+      recommendations: response.recommendations || [],
+      overallStrategy: response.overallStrategy || '',
+      riskAssessment: response.riskAssessment || '',
+    };
   }
 
   // ==================== Trading Strategy Generation ====================
 
-  async generateTradingStrategy(request: TradingStrategyRequest): Promise<TradingStrategyResponse> {
+  async generateTradingStrategy(request: TradingStrategyRequest, model: string = 'gpt-4'): Promise<TradingStrategyResponse> {
     const prompt = `You are an algorithmic trading expert. Create a detailed trading strategy.
 
 Strategy Type: ${request.modelType}
@@ -232,41 +242,32 @@ Format as JSON:
   }
 }`;
 
-    try {
-      const completion = await this.openai.chat.completions.create({
-        model: 'gpt-4',
-        messages: [
-          {
-            role: 'system',
-            content: 'You are an expert in algorithmic trading and quantitative strategies. Create robust, profitable trading systems.',
-          },
-          {
-            role: 'user',
-            content: prompt,
-          },
-        ],
-        temperature: 0.5,
-        response_format: { type: 'json_object' },
-      });
-
-      const response = JSON.parse(completion.choices[0].message.content || '{}');
-      
-      return {
-        strategy: response.strategy || '',
-        entryConditions: response.entryConditions || [],
-        exitConditions: response.exitConditions || [],
-        riskManagement: response.riskManagement || '',
-        expectedPerformance: response.expectedPerformance || {},
-      };
-    } catch (error) {
-      console.error('AI strategy generation failed:', error);
-      throw new Error('Failed to generate trading strategy');
-    }
+    const response = await this.createJsonCompletion(
+      [
+        {
+          role: 'system',
+          content: 'You are an expert in algorithmic trading and quantitative strategies. Create robust, profitable trading systems.',
+        },
+        {
+          role: 'user',
+          content: prompt,
+        },
+      ],
+      { model, temperature: 0.5 }
+    );
+    
+    return {
+      strategy: response.strategy || '',
+      entryConditions: response.entryConditions || [],
+      exitConditions: response.exitConditions || [],
+      riskManagement: response.riskManagement || '',
+      expectedPerformance: response.expectedPerformance || {},
+    };
   }
 
   // ==================== Market Sentiment Analysis ====================
 
-  async analyzeMarketSentiment(marketData: any): Promise<any> {
+  async analyzeMarketSentiment(marketData: any, model: string = 'gpt-4'): Promise<any> {
     const prompt = `Analyze the current market sentiment based on the following data:
 
 ${JSON.stringify(marketData, null, 2)}
@@ -279,35 +280,27 @@ Provide:
 
 Format as JSON.`;
 
-    try {
-      const completion = await this.openai.chat.completions.create({
-        model: 'gpt-4',
-        messages: [
-          {
-            role: 'system',
-            content: 'You are a market sentiment analyst with expertise in Korean stock markets.',
-          },
-          {
-            role: 'user',
-            content: prompt,
-          },
-        ],
-        temperature: 0.4,
-        response_format: { type: 'json_object' },
-      });
-
-      return JSON.parse(completion.choices[0].message.content || '{}');
-    } catch (error) {
-      console.error('Market sentiment analysis failed:', error);
-      throw new Error('Failed to analyze market sentiment');
-    }
+    return await this.createJsonCompletion(
+      [
+        {
+          role: 'system',
+          content: 'You are a market sentiment analyst with expertise in Korean stock markets.',
+        },
+        {
+          role: 'user',
+          content: prompt,
+        },
+      ],
+      { model, temperature: 0.4 }
+    );
   }
 
   // ==================== Trading Signal Generation ====================
 
   async generateTradingSignals(
     aiModel: AiModel,
-    marketData: any[]
+    marketData: any[],
+    model: string = 'gpt-4'
   ): Promise<Array<{ stockCode: string; stockName: string; action: string; confidence: number; reasoning: string }>> {
     const prompt = `You are an AI trading model: ${aiModel.modelName}
 Model Type: ${aiModel.modelType}
@@ -325,34 +318,26 @@ Generate trading signals for stocks that meet your criteria. For each signal, pr
 
 Return as JSON array of signals.`;
 
-    try {
-      const completion = await this.openai.chat.completions.create({
-        model: 'gpt-4',
-        messages: [
-          {
-            role: 'system',
-            content: 'You are an automated trading signal generator. Identify high-probability trading opportunities.',
-          },
-          {
-            role: 'user',
-            content: prompt,
-          },
-        ],
-        temperature: 0.3,
-        response_format: { type: 'json_object' },
-      });
-
-      const response = JSON.parse(completion.choices[0].message.content || '{}');
-      return response.signals || [];
-    } catch (error) {
-      console.error('Trading signal generation failed:', error);
-      return [];
-    }
+    const response = await this.createJsonCompletion(
+      [
+        {
+          role: 'system',
+          content: 'You are an automated trading signal generator. Identify high-probability trading opportunities.',
+        },
+        {
+          role: 'user',
+          content: prompt,
+        },
+      ],
+      { model, temperature: 0.3 }
+    );
+    
+    return response.signals || [];
   }
 
   // ==================== Backtesting Analysis ====================
 
-  async analyzeBacktest(backtestResults: any): Promise<any> {
+  async analyzeBacktest(backtestResults: any, model: string = 'gpt-4'): Promise<any> {
     const prompt = `Analyze these backtesting results and provide insights:
 
 ${JSON.stringify(backtestResults, null, 2)}
@@ -365,28 +350,19 @@ Provide:
 
 Format as JSON.`;
 
-    try {
-      const completion = await this.openai.chat.completions.create({
-        model: 'gpt-4',
-        messages: [
-          {
-            role: 'system',
-            content: 'You are a quantitative analyst expert in strategy backtesting and optimization.',
-          },
-          {
-            role: 'user',
-            content: prompt,
-          },
-        ],
-        temperature: 0.4,
-        response_format: { type: 'json_object' },
-      });
-
-      return JSON.parse(completion.choices[0].message.content || '{}');
-    } catch (error) {
-      console.error('Backtest analysis failed:', error);
-      throw new Error('Failed to analyze backtest results');
-    }
+    return await this.createJsonCompletion(
+      [
+        {
+          role: 'system',
+          content: 'You are a quantitative analyst expert in strategy backtesting and optimization.',
+        },
+        {
+          role: 'user',
+          content: prompt,
+        },
+      ],
+      { model, temperature: 0.4 }
+    );
   }
 }
 
