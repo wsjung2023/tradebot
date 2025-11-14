@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Key, Save, Shield, Bell, Plus, Trash2 } from "lucide-react";
+import { Key, Save, Shield, Bell, Plus, Trash2, Brain } from "lucide-react";
 import type { InsertAlert } from "@shared/schema";
 
 interface Alert {
@@ -300,6 +300,59 @@ export default function Settings() {
             <p className="text-sm text-amber-800 dark:text-amber-200">
               ⚠️ 실계좌 모드에서는 실제 자금이 거래됩니다. 신중하게 사용하세요.
             </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Brain className="h-5 w-5" />
+            AI 모델 설정
+          </CardTitle>
+          <CardDescription>
+            AI 분석에 사용할 OpenAI 모델을 선택하세요
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="ai-model">AI 모델</Label>
+            <Select
+              value={settings?.aiModel || 'gpt-4'}
+              onValueChange={(value) => {
+                updateSettingsMutation.mutate({ aiModel: value });
+              }}
+              disabled={updateSettingsMutation.isPending}
+            >
+              <SelectTrigger id="ai-model" data-testid="select-ai-model">
+                <SelectValue placeholder="AI 모델 선택" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="gpt-4">
+                  <div className="flex flex-col">
+                    <span className="font-medium">GPT-4</span>
+                    <span className="text-xs text-muted-foreground">균형잡힌 분석 (기본)</span>
+                  </div>
+                </SelectItem>
+                <SelectItem value="gpt-4o">
+                  <div className="flex flex-col">
+                    <span className="font-medium">GPT-4o</span>
+                    <span className="text-xs text-muted-foreground">빠른 응답 속도</span>
+                  </div>
+                </SelectItem>
+                <SelectItem value="o1-preview">
+                  <div className="flex flex-col">
+                    <span className="font-medium">O1-Preview</span>
+                    <span className="text-xs text-muted-foreground">고급 추론 능력</span>
+                  </div>
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="text-sm text-muted-foreground space-y-1">
+            <p>• <strong>GPT-4</strong>: 균형잡힌 성능과 정확도를 제공하는 기본 모델</p>
+            <p>• <strong>GPT-4o</strong>: 빠른 응답 속도가 필요할 때 추천</p>
+            <p>• <strong>O1-Preview</strong>: 복잡한 분석과 고급 추론이 필요할 때 사용</p>
           </div>
         </CardContent>
       </Card>
