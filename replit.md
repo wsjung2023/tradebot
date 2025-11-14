@@ -79,6 +79,17 @@ AI 모델의 CRUD 작업, 활성화/비활성화, 추천 생성, 10선 레인보
 
 ## 최근 업데이트 (2025-11-14)
 
+### 레인보우 차트 시스템 구현 완료 ✅
+- **BackAttackLine.md 문서 작성**: HTS 수식 완전 해석, 11개 라인 수식, 뒷차기2 조건 분석
+- **RainbowChartAnalyzer 클래스**: CL 동적 계산, 11개 라인 생성, CL폭 계산, 투자 신호 생성
+- **API 엔드포인트**:
+  - POST /api/rainbow/analyze - 종목 코드로 레인보우 차트 분석
+  - GET /api/rainbow/:stockCode - 간편 조회
+- **뒷차기2 자동 스캔 API**:
+  - POST /api/auto-trading/backattack-scan
+  - HTS 조건식 자동 실행 → 종목 검색 → 레인보우 차트 분석 → 추천 생성
+  - 필터링: 40-60% 구간(주력 매수), CL폭 10%+, 추천 buy 이상
+
 ### PostgreSQL Storage 완전 전환 ✅
 - **MemStorage → PostgreSQLStorage 마이그레이션 완료**
   - 500+ 라인의 PostgreSQLStorage 클래스 구현
