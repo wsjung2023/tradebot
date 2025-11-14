@@ -150,6 +150,13 @@ export interface IStorage {
   
   // Helper methods for auto trading
   getActiveAiModels(): Promise<AiModel[]>;
+
+  // Data cleanup methods
+  deleteConditionResultsOlderThan(cutoffDate: Date): Promise<number>;
+  deleteTradingLogsOlderThan(cutoffDate: Date): Promise<number>;
+  deleteMarketIssuesOlderThan(cutoffDate: Date): Promise<number>;
+  deleteFinancialSnapshotsOlderThan(cutoffDate: Date): Promise<number>;
+  deleteTriggeredAlertsOlderThan(cutoffDate: Date): Promise<number>;
 }
 
 export class MemStorage implements IStorage {
@@ -888,6 +895,78 @@ export class MemStorage implements IStorage {
 
   async getActiveAiModels(): Promise<AiModel[]> {
     return Array.from(this.aiModels.values()).filter(m => m.isActive);
+  }
+
+  // ==================== Data Cleanup Methods ====================
+
+  async deleteConditionResultsOlderThan(cutoffDate: Date): Promise<number> {
+    const results = Array.from(this.conditionResults.values());
+    let deletedCount = 0;
+    
+    for (const result of results) {
+      if (result.createdAt && result.createdAt < cutoffDate) {
+        this.conditionResults.delete(result.id);
+        deletedCount++;
+      }
+    }
+    
+    return deletedCount;
+  }
+
+  async deleteTradingLogsOlderThan(cutoffDate: Date): Promise<number> {
+    const logs = Array.from(this.logs.values());
+    let deletedCount = 0;
+    
+    for (const log of logs) {
+      if (log.createdAt && log.createdAt < cutoffDate) {
+        this.logs.delete(log.id);
+        deletedCount++;
+      }
+    }
+    
+    return deletedCount;
+  }
+
+  async deleteMarketIssuesOlderThan(cutoffDate: Date): Promise<number> {
+    const issues = Array.from(this.marketIssues.values());
+    let deletedCount = 0;
+    
+    for (const issue of issues) {
+      if (issue.createdAt && issue.createdAt < cutoffDate) {
+        this.marketIssues.delete(issue.id);
+        deletedCount++;
+      }
+    }
+    
+    return deletedCount;
+  }
+
+  async deleteFinancialSnapshotsOlderThan(cutoffDate: Date): Promise<number> {
+    const snapshots = Array.from(this.financialSnapshots.values());
+    let deletedCount = 0;
+    
+    for (const snapshot of snapshots) {
+      if (snapshot.createdAt && snapshot.createdAt < cutoffDate) {
+        this.financialSnapshots.delete(snapshot.id);
+        deletedCount++;
+      }
+    }
+    
+    return deletedCount;
+  }
+
+  async deleteTriggeredAlertsOlderThan(cutoffDate: Date): Promise<number> {
+    const alerts = Array.from(this.alertsMap.values());
+    let deletedCount = 0;
+    
+    for (const alert of alerts) {
+      if (alert.isTriggered && alert.triggeredAt && alert.triggeredAt < cutoffDate) {
+        this.alertsMap.delete(alert.id);
+        deletedCount++;
+      }
+    }
+    
+    return deletedCount;
   }
 }
 

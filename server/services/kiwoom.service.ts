@@ -75,11 +75,17 @@ interface ConditionListResponse {
 }
 
 interface ConditionSearchResultsResponse {
-  output: Array<{
-    stock_code: string; // 종목코드
-    stock_name: string; // 종목명
-    current_price: string; // 현재가
-    change_rate: string; // 등락률
+  output1?: Array<{
+    stck_cd: string; // 종목코드
+    stck_nm: string; // 종목명
+    stck_prpr: string; // 현재가
+    prdy_ctrt: string; // 등락률
+  }>;
+  output?: Array<{
+    stock_code: string; // 종목코드 (alternative format)
+    stock_name: string; // 종목명 (alternative format)
+    current_price: string; // 현재가 (alternative format)
+    change_rate: string; // 등락률 (alternative format)
   }>;
 }
 

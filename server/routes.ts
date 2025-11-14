@@ -748,26 +748,29 @@ export async function registerRoutes(app: Express, sessionMiddleware: any): Prom
         0 // conditionIndex - using 0 as default, should be stored with formula
       );
       
-      // Extract results from response (output1 contains the stock list)
-      const results = searchResponse?.output1 || [];
+      // Extract results from response (output1 contains the stock list from Kiwoom API)
+      const results = searchResponse?.output1 || searchResponse?.output || [];
       
       // Store results in database (skip entries without valid stock code)
       for (const result of results) {
-        if (!result.stck_cd || !result.stck_nm) {
+        // Handle both old (stck_cd) and new (stock_code) field names
+        const stockCode = (result as any).stock_code || (result as any).stck_cd;
+        const stockName = (result as any).stock_name || (result as any).stck_nm;
+        const currentPrice = (result as any).current_price || (result as any).stck_prpr;
+        const changeRate = (result as any).change_rate || (result as any).prdy_ctrt;
+        
+        if (!stockCode || !stockName) {
           continue; // Skip invalid entries
         }
         
         await storage.createConditionResult({
           conditionId,
-          stockCode: result.stck_cd,
-          stockName: result.stck_nm,
+          stockCode,
+          stockName,
           matchScore: null,
-          currentPrice: result.stck_prpr || null,
-          changeRate: result.prdy_ctrt || null,
-          volume: result.vol ? Number(result.vol) : null,
-          marketCap: null,
-          per: null,
-          pbr: null,
+          currentPrice: currentPrice || null,
+          changeRate: changeRate || null,
+          volume: null,
           passedFilters: true,
           metadata: result as any,
         });
@@ -981,7 +984,7 @@ export async function registerRoutes(app: Express, sessionMiddleware: any): Prom
       const signalLine = {
         color: formula.color || 'green',
         name: formula.formulaName,
-        values: ohlcvData.map((d, i) => ({
+        values: ohlcvData.map((d: any, i: number) => ({
           date: d.date,
           value: results[i],
         })),

@@ -70,7 +70,7 @@ export class LearningService {
       ? (winTrades.length / completedTrades.length) * 100 
       : 0;
 
-    // Average profit/loss rates
+    // Average profit/loss rates (stored as %, convert to decimal)
     const avgProfitRate = winTrades.length > 0
       ? winTrades.reduce((sum: number, t: TradingPerformance) => sum + parseFloat(t.profitLossRate?.toString() || '0'), 0) / winTrades.length
       : 0;
@@ -85,16 +85,16 @@ export class LearningService {
       ? tradesWithDays.reduce((sum: number, t: TradingPerformance) => sum + (t.holdingDays || 0), 0) / tradesWithDays.length
       : 0;
 
-    // Total return
+    // Total return (sum of all profit/loss rates in %)
     const totalReturn = completedTrades.reduce((sum: number, t: TradingPerformance) => 
       sum + parseFloat(t.profitLossRate?.toString() || '0'), 0
     );
 
-    // Sharpe ratio (simplified: returns / volatility)
+    // Sharpe ratio (returns / volatility) - using sample std dev
     const returns = completedTrades.map((t: TradingPerformance) => parseFloat(t.profitLossRate?.toString() || '0'));
     const avgReturn = returns.length > 0 ? returns.reduce((a: number, b: number) => a + b, 0) / returns.length : 0;
-    const variance = returns.length > 0 
-      ? returns.reduce((sum: number, r: number) => sum + Math.pow(r - avgReturn, 2), 0) / returns.length 
+    const variance = returns.length > 1
+      ? returns.reduce((sum: number, r: number) => sum + Math.pow(r - avgReturn, 2), 0) / (returns.length - 1) 
       : 0;
     const stdDev = Math.sqrt(variance);
     const sharpeRatio = stdDev > 0 ? avgReturn / stdDev : 0;
@@ -304,37 +304,51 @@ export class LearningService {
       recommendations.push(`샤프지수 ${stats.sharpeRatio.toFixed(2)} - 변동성 대비 수익률 개선 필요`);
     }
 
-    // Auto-apply optimizations if enabled
+    // Auto-apply optimizations if enabled with safety checks
     let appliedChanges = false;
-    if (autoApply && stats.totalTrades >= 30) {
-      try {
-        const settings = await storage.getAutoTradingSettings(modelId);
-        if (settings) {
-          await storage.updateAutoTradingSettings(modelId, {
-            themeWeight: patterns.optimalWeights.theme.toFixed(2),
-            newsWeight: patterns.optimalWeights.news.toFixed(2),
-            financialsWeight: patterns.optimalWeights.financials.toFixed(2),
-            liquidityWeight: patterns.optimalWeights.liquidity.toFixed(2),
-            institutionalWeight: patterns.optimalWeights.institutional.toFixed(2),
-            minAiConfidence: patterns.optimalThresholds.minAiConfidence.toFixed(2),
-            requireGoodFinancials: patterns.optimalThresholds.requireGoodFinancials,
-            requireHighLiquidity: patterns.optimalThresholds.requireHighLiquidity,
-          });
+    if (autoApply && stats.totalTrades >= 50) { // Increased threshold from 30 to 50
+      // Safety checks before applying
+      const shouldApply = (
+        stats.winRate >= 45 && // Minimum 45% win rate
+        stats.totalReturn > 0 && // Positive total return
+        stats.maxDrawdown < 30 && // Max drawdown less than 30%
+        stats.totalTrades >= 50 // At least 50 trades for statistical significance
+      );
 
-          // Update model stats
-          await storage.updateAiModel(modelId, {
-            totalTrades: stats.totalTrades,
-            winRate: stats.winRate.toFixed(2),
-            totalReturn: stats.totalReturn.toFixed(4),
-          });
+      if (shouldApply) {
+        try {
+          const settings = await storage.getAutoTradingSettings(modelId);
+          if (settings) {
+            await storage.updateAutoTradingSettings(modelId, {
+              themeWeight: patterns.optimalWeights.theme.toFixed(2),
+              newsWeight: patterns.optimalWeights.news.toFixed(2),
+              financialsWeight: patterns.optimalWeights.financials.toFixed(2),
+              liquidityWeight: patterns.optimalWeights.liquidity.toFixed(2),
+              institutionalWeight: patterns.optimalWeights.institutional.toFixed(2),
+              minAiConfidence: patterns.optimalThresholds.minAiConfidence.toFixed(2),
+              requireGoodFinancials: patterns.optimalThresholds.requireGoodFinancials,
+              requireHighLiquidity: patterns.optimalThresholds.requireHighLiquidity,
+            });
 
-          appliedChanges = true;
-          recommendations.push('✅ 최적화 파라미터 자동 적용 완료');
+            // Update model stats
+            await storage.updateAiModel(modelId, {
+              totalTrades: stats.totalTrades,
+              winRate: stats.winRate.toFixed(2),
+              totalReturn: stats.totalReturn.toFixed(4),
+            });
+
+            appliedChanges = true;
+            recommendations.push('✅ 최적화 파라미터 자동 적용 완료');
+          }
+        } catch (error) {
+          console.error('Failed to apply optimizations:', error);
+          recommendations.push('❌ 최적화 적용 실패');
         }
-      } catch (error) {
-        console.error('Failed to apply optimizations:', error);
-        recommendations.push('❌ 최적화 적용 실패');
+      } else {
+        recommendations.push(`⚠️  자동 적용 조건 미충족 (승률≥45%, 수익>0, 낙폭<30%, 거래≥50건)`);
       }
+    } else if (autoApply && stats.totalTrades < 50) {
+      recommendations.push(`⚠️  자동 적용 최소 거래 수 미달 (현재 ${stats.totalTrades}건, 필요 50건)`);
     }
 
     return {
@@ -347,21 +361,35 @@ export class LearningService {
   }
 
   /**
-   * Calculate maximum drawdown
+   * Calculate maximum drawdown from cumulative compounded returns
    */
   private calculateMaxDrawdown(trades: TradingPerformance[]): number {
     if (trades.length === 0) return 0;
 
-    let peak = 0;
-    let maxDrawdown = 0;
-    let cumulative = 0;
+    // Sort trades by entry time to ensure chronological order
+    const sortedTrades = [...trades].sort((a, b) => {
+      const timeA = a.entryTime?.getTime() || 0;
+      const timeB = b.entryTime?.getTime() || 0;
+      return timeA - timeB;
+    });
 
-    for (const trade of trades) {
-      cumulative += parseFloat(trade.profitLossRate?.toString() || '0');
-      if (cumulative > peak) {
-        peak = cumulative;
+    let equity = 1.0; // Start with 1.0 (100%)
+    let peak = 1.0;
+    let maxDrawdown = 0;
+
+    for (const trade of sortedTrades) {
+      // Apply compounded return (profit/loss rate is stored as %, convert to decimal)
+      const returnPct = parseFloat(trade.profitLossRate?.toString() || '0');
+      const returnDecimal = returnPct / 100; // Convert percentage to decimal
+      equity = equity * (1 + returnDecimal);
+      
+      // Update peak
+      if (equity > peak) {
+        peak = equity;
       }
-      const drawdown = peak - cumulative;
+      
+      // Calculate drawdown from peak as percentage
+      const drawdown = ((peak - equity) / peak) * 100;
       if (drawdown > maxDrawdown) {
         maxDrawdown = drawdown;
       }
