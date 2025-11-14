@@ -1192,6 +1192,14 @@ export async function registerRoutes(app: Express, sessionMiddleware: any): Prom
   app.post("/api/auto-trading/backattack-scan", isAuthenticated, async (req, res) => {
     try {
       const user = getCurrentUser(req);
+      if (!user) {
+        return res.status(401).json({ error: "인증이 필요합니다" });
+      }
+      
+      // Get user settings for AI model
+      const userSettings = await storage.getUserSettings(user.id);
+      const aiModel = userSettings?.aiModel || 'gpt-4';
+      console.log(`[BackAttack2] Using AI model: ${aiModel}`);
       
       // Step 1: HTS에서 조건식 리스트 가져오기
       console.log('[BackAttack2] Fetching condition list from HTS...');
@@ -1334,6 +1342,36 @@ export async function registerRoutes(app: Express, sessionMiddleware: any): Prom
           const isBuyRecommendation = ['strong-buy', 'buy'].includes(recommendation);
           
           if (isInBuyZone && hasGoodCLWidth) {
+            // AI 분석 추가 (매수 구간 종목만)
+            let aiAnalysis = null;
+            try {
+              console.log(`[BackAttack2] Running AI analysis for ${stockName} using ${aiModel}...`);
+              
+              // 차트 데이터를 priceHistory 형식으로 변환
+              const priceHistory = chartData.slice(0, 30).map((bar: any) => ({
+                date: bar.stck_bsop_date || bar.date,
+                price: parseFloat(bar.stck_clpr || bar.close),
+                volume: parseFloat(bar.acml_vol || bar.volume)
+              }));
+              
+              // AI 분석 실행
+              aiAnalysis = await aiService.analyzeStock(
+                {
+                  stockCode,
+                  stockName,
+                  currentPrice: rainbowResult.current,
+                  priceHistory,
+                  rainbowChart: rainbowResult
+                },
+                aiModel
+              );
+              
+              console.log(`[BackAttack2] AI analysis complete for ${stockName} (confidence: ${aiAnalysis.confidence})`);
+            } catch (aiError: any) {
+              console.error(`[BackAttack2] AI analysis failed for ${stockCode}: ${aiError.message}`);
+              // AI 분석 실패해도 추천은 계속 진행
+            }
+            
             recommendations.push({
               stockCode,
               stockName,
@@ -1343,6 +1381,7 @@ export async function registerRoutes(app: Express, sessionMiddleware: any): Prom
               recommendation,
               signals,
               rainbowAnalysis: rainbowResult,
+              aiAnalysis, // AI 분석 결과 추가
               priority: isBuyRecommendation ? 'high' : 'medium',
             });
             console.log(`[BackAttack2] ✅ ${stockName} added to recommendations (position: ${currentPosition.toFixed(1)}%, CL폭: ${clWidth.toFixed(1)}%)`);
