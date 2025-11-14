@@ -303,16 +303,17 @@ class AutoTradingWorker {
     settings: AutoTradingSettings,
     kiwoomService: KiwoomService
   ): Promise<{ currentLine: number; action: 'buy' | 'sell' | 'hold'; weight: number; confidence: number }> {
-    // Get 2 years of chart data
-    const chartData = await kiwoomService.getStockChart(stock.code, 'D');
+    // Get 240-day chart data
+    const chartData = await kiwoomService.getStockChart(stock.code, 'D', 250);
     const ohlcv = chartData.output || [];
     
     // Use RainbowChartAnalyzer
-    const result = RainbowChartAnalyzer.analyze(stock.code, ohlcv);
+    const result = RainbowChartAnalyzer.analyze(stock.code, ohlcv, 240);
     const signalStrength = RainbowChartAnalyzer.getSignalStrength(result);
     
-    // Find current line number (0-9)
-    const currentPercent = ((stock.price - result.low2Y) / (result.high2Y - result.low2Y)) * 100;
+    // Find current line number (0-9) with zero-range guard
+    const range = result.highest - result.lowest;
+    const currentPercent = range > 0 ? ((stock.price - result.lowest) / range) * 100 : 50;
     const currentLine = Math.round((currentPercent / 100) * 9);
     
     // Map recommendation to action
