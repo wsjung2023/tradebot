@@ -1198,7 +1198,7 @@ export async function registerRoutes(app: Express, sessionMiddleware: any): Prom
       
       // Get user settings for AI model
       const userSettings = await storage.getUserSettings(user.id);
-      const aiModel = userSettings?.aiModel || 'gpt-4';
+      const aiModel = userSettings?.aiModel || 'gpt-5.1';
       console.log(`[BackAttack2] Using AI model: ${aiModel}`);
       
       // Step 1: HTS에서 조건식 리스트 가져오기
