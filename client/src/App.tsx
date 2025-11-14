@@ -22,6 +22,7 @@ import ConditionFormulas from "@/pages/condition-formulas";
 import ConditionScreening from "@/pages/condition-screening";
 import WatchlistSignals from "@/pages/watchlist-signals";
 import ChartFormulaEditor from "@/pages/chart-formula-editor";
+import BackAttackScan from "@/pages/backattack-scan";
 
 function ProtectedRoute({ component: Component, ...rest }: any) {
   const { data: user, isLoading, isError, error } = useQuery<{ user: any }>({
@@ -87,6 +88,7 @@ function AuthenticatedRouter() {
               <Route path="/condition-screening" component={ConditionScreening} />
               <Route path="/watchlist-signals" component={WatchlistSignals} />
               <Route path="/chart-formula-editor" component={ChartFormulaEditor} />
+              <Route path="/backattack-scan" component={BackAttackScan} />
               <Route path="/settings" component={Settings} />
               <Route component={NotFound} />
             </Switch>

@@ -14,6 +14,7 @@ import {
   ScanSearch,
   LineChart,
   Code2,
+  Rainbow,
 } from "lucide-react";
 import {
   Sidebar,
@@ -91,6 +92,11 @@ const menuItems = [
     title: "차트 수식",
     url: "/chart-formula-editor",
     icon: Code2,
+  },
+  {
+    title: "뒷차기2 스캔",
+    url: "/backattack-scan",
+    icon: Rainbow,
   },
   {
     title: "설정",
