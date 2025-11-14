@@ -153,7 +153,7 @@ export const userSettings = pgTable("user_settings", {
   priceAlertEnabled: boolean("price_alert_enabled").notNull().default(true),
   tradeAlertEnabled: boolean("trade_alert_enabled").notNull().default(true),
   theme: text("theme").notNull().default('light'),
-  aiModel: text("ai_model").notNull().default('gpt-4'), // 'gpt-4', 'gpt-4o', 'o1-preview'
+  aiModel: text("ai_model").notNull().default('gpt-5.1'), // 'gpt-5.1', 'gpt-5', 'gpt-5-mini', 'gpt-4.1', 'gpt-4o'
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
@@ -422,6 +422,7 @@ export const insertAlertSchema = createInsertSchema(alerts, {
 export const insertUserSettingsSchema = createInsertSchema(userSettings, {
   tradingMode: z.enum(['mock', 'real']),
   riskLevel: z.enum(['low', 'medium', 'high']),
+  aiModel: z.enum(['gpt-5.1', 'gpt-5', 'gpt-5-mini', 'gpt-4.1', 'gpt-4o']),
 }).omit({ id: true, updatedAt: true });
 
 export const insertTradingLogSchema = createInsertSchema(tradingLogs).omit({ 
