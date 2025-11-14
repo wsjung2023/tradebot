@@ -29,7 +29,7 @@ const RAINBOW_COLORS = {
   line7: '#3b82f6',   // 파랑 (Blue) - 70%
   line8: '#1e40af',   // 남색 (Navy) - 80%
   line9: '#52525b',   // 검정 (Dark Gray) - 90%
-  line10: '#0f172a',  // 검정 (Slate 900) - 100% 고가
+  line10: '#000000',  // 검정 (Black) - 100% 고가
 };
 
 const LINE_LABELS = {
