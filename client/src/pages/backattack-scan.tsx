@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Loader2, TrendingUp, AlertCircle, CheckCircle2, XCircle } from "lucide-react";
+import { Loader2, TrendingUp, AlertCircle, CheckCircle2, XCircle, Brain, Target } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { RainbowChart } from "@/components/rainbow-chart";
@@ -34,6 +34,13 @@ interface BackAttackRecommendation {
     signals: any;
     recommendation: string;
   };
+  aiAnalysis?: {
+    action: 'buy' | 'sell' | 'hold';
+    confidence: number;
+    targetPrice?: number;
+    reasoning: string;
+    keyIndicators: string[];
+  } | null;
   priority: 'high' | 'medium';
 }
 
@@ -245,20 +252,116 @@ export default function BackAttackScan() {
                 {selectedStock && getPriorityBadge(selectedStock.priority)}
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-6">
               {selectedStock ? (
-                <RainbowChart
-                  data={selectedStock.rainbowAnalysis.chartData}
-                  current={selectedStock.currentPrice}
-                  currentPosition={selectedStock.currentPosition}
-                  clWidth={selectedStock.clWidth}
-                  recommendation={selectedStock.recommendation}
-                  signals={selectedStock.signals}
-                  showMetrics={true}
-                />
+                <>
+                  {/* 레인보우 차트 */}
+                  <div>
+                    <h3 className="text-lg font-semibold mb-4">레인보우 차트</h3>
+                    <RainbowChart
+                      data={selectedStock.rainbowAnalysis.chartData}
+                      current={selectedStock.currentPrice}
+                      currentPosition={selectedStock.currentPosition}
+                      clWidth={selectedStock.clWidth}
+                      recommendation={selectedStock.recommendation}
+                      signals={selectedStock.signals}
+                      showMetrics={true}
+                    />
+                  </div>
+
+                  {/* AI 분석 결과 */}
+                  {selectedStock.aiAnalysis && (
+                    <div className="border-t pt-6">
+                      <div className="flex items-center gap-2 mb-4">
+                        <Brain className="h-5 w-5 text-primary" />
+                        <h3 className="text-lg font-semibold">AI 종합 분석</h3>
+                      </div>
+                      
+                      <div className="space-y-4">
+                        {/* 추천 액션 및 신뢰도 */}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div className="p-4 bg-muted/50 rounded-lg">
+                            <p className="text-sm text-muted-foreground mb-1">추천 액션</p>
+                            <div className="flex items-center gap-2">
+                              {selectedStock.aiAnalysis.action === 'buy' && (
+                                <Badge variant="default" className="bg-green-600">
+                                  <TrendingUp className="h-3 w-3 mr-1" />
+                                  BUY
+                                </Badge>
+                              )}
+                              {selectedStock.aiAnalysis.action === 'sell' && (
+                                <Badge variant="destructive">
+                                  <XCircle className="h-3 w-3 mr-1" />
+                                  SELL
+                                </Badge>
+                              )}
+                              {selectedStock.aiAnalysis.action === 'hold' && (
+                                <Badge variant="secondary">
+                                  <CheckCircle2 className="h-3 w-3 mr-1" />
+                                  HOLD
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                          
+                          <div className="p-4 bg-muted/50 rounded-lg">
+                            <p className="text-sm text-muted-foreground mb-1">신뢰도</p>
+                            <p className="text-2xl font-bold">{selectedStock.aiAnalysis.confidence}%</p>
+                          </div>
+                          
+                          {selectedStock.aiAnalysis.targetPrice && (
+                            <div className="p-4 bg-muted/50 rounded-lg">
+                              <p className="text-sm text-muted-foreground mb-1 flex items-center gap-1">
+                                <Target className="h-3 w-3" />
+                                목표가
+                              </p>
+                              <p className="text-xl font-bold font-mono">
+                                ₩{selectedStock.aiAnalysis.targetPrice.toLocaleString('ko-KR')}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* 분석 근거 */}
+                        <div>
+                          <p className="text-sm font-semibold mb-2">분석 근거</p>
+                          <p className="text-sm text-muted-foreground leading-relaxed">
+                            {selectedStock.aiAnalysis.reasoning}
+                          </p>
+                        </div>
+
+                        {/* 주요 지표 */}
+                        <div>
+                          <p className="text-sm font-semibold mb-2">주요 지표</p>
+                          <ul className="space-y-1">
+                            {selectedStock.aiAnalysis.keyIndicators.map((indicator, idx) => (
+                              <li key={idx} className="text-sm text-muted-foreground flex items-start gap-2">
+                                <CheckCircle2 className="h-4 w-4 text-primary mt-0.5 flex-shrink-0" />
+                                <span>{indicator}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* AI 분석 없음 표시 */}
+                  {!selectedStock.aiAnalysis && (
+                    <div className="border-t pt-6">
+                      <Alert>
+                        <Brain className="h-4 w-4" />
+                        <AlertTitle>AI 분석 없음</AlertTitle>
+                        <AlertDescription>
+                          이 종목은 AI 분석이 실행되지 않았거나 분석에 실패했습니다.
+                        </AlertDescription>
+                      </Alert>
+                    </div>
+                  )}
+                </>
               ) : (
                 <div className="text-center py-12 text-muted-foreground">
-                  왼쪽에서 종목을 선택하면 레인보우 차트가 표시됩니다.
+                  왼쪽에서 종목을 선택하면 레인보우 차트와 AI 분석이 표시됩니다.
                 </div>
               )}
             </CardContent>
