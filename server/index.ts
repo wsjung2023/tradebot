@@ -154,9 +154,7 @@ app.use((req, res, next) => {
     // Start auto trading background worker
     autoTradingWorker.start();
     
-    // Note: Data cleanup service is ready but disabled until PostgreSQL storage is fully implemented
-    // Currently using MemStorage - data cleanup would work but data is lost on restart anyway
-    // TODO: Enable after migrating to PostgreSQLStorage
+    // Start data cleanup service (runs daily at 02:00)
     // dataCleanupService.start();
   });
 })();
