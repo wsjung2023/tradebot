@@ -35,12 +35,14 @@ export class RainbowChartAnalyzer {
     const low2Y = Math.min(...ohlcvData.map(d => d.low));
     const current = ohlcvData[ohlcvData.length - 1].close;
     
-    // Calculate 10 lines (0=low, 5=50% retracement, 9=high)
+    // Calculate 10 lines (0=0%, 5=50%, 9=90%)
+    // Line percentages: 0%, 10%, 20%, 30%, 40%, 50%, 60%, 70%, 80%, 90%
     const range = high2Y - low2Y;
     const lines: RainbowLine[] = [];
     
     for (let i = 0; i <= 9; i++) {
-      const price = low2Y + (range * i / 9);
+      const percentage = i * 0.1; // 0.0, 0.1, 0.2, ..., 0.9
+      const price = low2Y + (range * percentage);
       let zone: 'scale-in' | 'primary-buy' | 'sell';
       let weight: number;
       
@@ -64,19 +66,19 @@ export class RainbowChartAnalyzer {
     
     const currentPercent = ((current - low2Y) / range) * 100;
     
-    if (currentPercent < 22.2) { // Below line 2
+    if (currentPercent < 20) { // Below line 2 (20%)
       currentZone = 'deep-value';
       recommendation = 'strong-buy';
-    } else if (currentPercent < 44.4) { // Lines 2-4
+    } else if (currentPercent < 40) { // Lines 2-3 (20-40%)
       currentZone = 'scale-in-zone';
       recommendation = 'buy';
-    } else if (currentPercent >= 44.4 && currentPercent <= 55.6) { // Line 5 (50%)
+    } else if (currentPercent >= 40 && currentPercent <= 60) { // Lines 4-6 (40-60%, centered at 50%)
       currentZone = 'primary-buy-zone';
       recommendation = 'buy';
-    } else if (currentPercent > 55.6 && currentPercent <= 77.8) { // Lines 6-7
+    } else if (currentPercent > 60 && currentPercent <= 80) { // Lines 7-8 (60-80%)
       currentZone = 'profit-taking-zone';
       recommendation = 'sell';
-    } else { // Above line 8
+    } else { // Above line 8 (>80%)
       currentZone = 'overbought';
       recommendation = 'strong-sell';
     }
