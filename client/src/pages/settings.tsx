@@ -318,7 +318,7 @@ export default function Settings() {
           <div className="space-y-2">
             <Label htmlFor="ai-model">AI 모델</Label>
             <Select
-              value={settings?.aiModel || 'gpt-4'}
+              value={settings?.aiModel || 'gpt-5.1'}
               onValueChange={(value) => {
                 updateSettingsMutation.mutate({ aiModel: value });
               }}
@@ -328,31 +328,48 @@ export default function Settings() {
                 <SelectValue placeholder="AI 모델 선택" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="gpt-4">
+                <SelectItem value="gpt-5.1">
                   <div className="flex flex-col">
-                    <span className="font-medium">GPT-4</span>
-                    <span className="text-xs text-muted-foreground">균형잡힌 분석 (기본)</span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">GPT-5.1</span>
+                      <Badge variant="default" className="text-xs">권장</Badge>
+                    </div>
+                    <span className="text-xs text-muted-foreground">최신 추론 모델, 환각 45% 감소</span>
+                  </div>
+                </SelectItem>
+                <SelectItem value="gpt-5.1-chat-latest">
+                  <div className="flex flex-col">
+                    <span className="font-medium">GPT-5.1 Instant</span>
+                    <span className="text-xs text-muted-foreground">빠른 대화형 분석, 실시간 스캔용</span>
+                  </div>
+                </SelectItem>
+                <SelectItem value="gpt-5-mini">
+                  <div className="flex flex-col">
+                    <span className="font-medium">GPT-5 Mini</span>
+                    <span className="text-xs text-muted-foreground">비용 효율적인 대량 분석</span>
+                  </div>
+                </SelectItem>
+                <SelectItem value="gpt-4.1">
+                  <div className="flex flex-col">
+                    <span className="font-medium">GPT-4.1</span>
+                    <span className="text-xs text-muted-foreground">멀티모달 (차트, PDF 분석)</span>
                   </div>
                 </SelectItem>
                 <SelectItem value="gpt-4o">
                   <div className="flex flex-col">
                     <span className="font-medium">GPT-4o</span>
-                    <span className="text-xs text-muted-foreground">빠른 응답 속도</span>
-                  </div>
-                </SelectItem>
-                <SelectItem value="o1-preview">
-                  <div className="flex flex-col">
-                    <span className="font-medium">O1-Preview</span>
-                    <span className="text-xs text-muted-foreground">고급 추론 능력</span>
+                    <span className="text-xs text-muted-foreground">레거시 (빠른 채팅)</span>
                   </div>
                 </SelectItem>
               </SelectContent>
             </Select>
           </div>
           <div className="text-sm text-muted-foreground space-y-1">
-            <p>• <strong>GPT-4</strong>: 균형잡힌 성능과 정확도를 제공하는 기본 모델</p>
-            <p>• <strong>GPT-4o</strong>: 빠른 응답 속도가 필요할 때 추천</p>
-            <p>• <strong>O1-Preview</strong>: 복잡한 분석과 고급 추론이 필요할 때 사용</p>
+            <p>• <strong>GPT-5.1 (권장)</strong>: 최신 추론 모델, 균형잡힌 성능, 환각 45% 감소</p>
+            <p>• <strong>GPT-5.1 Instant</strong>: 빠른 응답, 실시간 스캔 및 대화형 분석에 최적</p>
+            <p>• <strong>GPT-5 Mini</strong>: 비용 절감, 대량 분석 및 자동화된 스캔에 적합</p>
+            <p>• <strong>GPT-4.1</strong>: 멀티모달 지원, 차트/PDF/이미지 분석 필요시 사용</p>
+            <p>• <strong>GPT-4o</strong>: 레거시 모델, 빠른 채팅 전용 (곧 지원 종료 예정)</p>
           </div>
         </CardContent>
       </Card>
