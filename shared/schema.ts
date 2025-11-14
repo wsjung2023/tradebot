@@ -145,6 +145,7 @@ export const userSettings = pgTable("user_settings", {
   priceAlertEnabled: boolean("price_alert_enabled").notNull().default(true),
   tradeAlertEnabled: boolean("trade_alert_enabled").notNull().default(true),
   theme: text("theme").notNull().default('light'),
+  aiModel: text("ai_model").notNull().default('gpt-4'), // 'gpt-4', 'gpt-4o', 'o1-preview'
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
