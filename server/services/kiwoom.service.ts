@@ -505,16 +505,32 @@ export class KiwoomService {
     }
   }
 
-  async getStockChart(stockCode: string, period: string = 'D'): Promise<any> {
+  async getStockChart(stockCode: string, period: string = 'D', bars: number = 250): Promise<any> {
     if (this.stubMode) {
-      // Generate 30 days of chart data
+      // Generate chart data (default 250 bars for rainbow chart analysis)
       const chartData = [];
       let basePrice = 70000 + Math.random() * 10000;
       const today = new Date();
       
-      for (let i = 29; i >= 0; i--) {
+      // Simulate realistic price movements
+      for (let i = bars - 1; i >= 0; i--) {
         const date = new Date(today);
-        date.setDate(date.getDate() - i);
+        
+        // Adjust date based on period
+        if (period === 'D' || !period) {
+          // Daily: subtract days
+          date.setDate(date.getDate() - i);
+        } else if (period === 'W') {
+          // Weekly: subtract weeks (7 days each)
+          date.setDate(date.getDate() - (i * 7));
+        } else if (period === 'M') {
+          // Monthly: subtract months
+          date.setMonth(date.getMonth() - i);
+        } else if (period.match(/^\d+$/)) {
+          // Minute chart (e.g., '1', '3', '5', '10', '30', '60')
+          date.setMinutes(date.getMinutes() - (i * parseInt(period, 10)));
+        }
+        
         const dailyChange = (Math.random() - 0.5) * 0.05;
         basePrice = basePrice * (1 + dailyChange);
         

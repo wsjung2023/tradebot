@@ -55,25 +55,6 @@ interface CLSnapshot {
 }
 
 /**
- * valuewhen 함수 구현
- * HTS 수식: valuewhen(1, condition, value)
- * 
- * @param conditions 조건 배열 (true/false)
- * @param values 값 배열
- * @returns 가장 최근에 조건이 true였을 때의 값
- */
-function valuewhen(conditions: boolean[], values: any[]): any {
-  // 최근(오른쪽)부터 검색
-  for (let i = values.length - 1; i >= 0; i--) {
-    if (conditions[i]) {
-      return values[i];
-    }
-  }
-  // 조건이 한 번도 만족되지 않은 경우 가장 최근 값 반환
-  return values[values.length - 1];
-}
-
-/**
  * BackAttack Line (레인보우 차트) 분석기
  */
 export class RainbowChartAnalyzer {
@@ -94,12 +75,11 @@ export class RainbowChartAnalyzer {
       throw new Error(`Insufficient data. Need at least ${period} bars, got ${ohlcvData.length}`);
     }
 
-    // 최근 period개 데이터만 사용
-    const recentData = ohlcvData.slice(-period);
-    const current = recentData[recentData.length - 1].close;
+    // 전체 데이터 사용 (rolling window를 위해)
+    const current = ohlcvData[ohlcvData.length - 1].close;
 
-    // Step 1: CL 스냅샷 계산 (최고점 갱신 시의 highest/lowest 포함)
-    const clSnapshot = this.calculateCLSnapshot(recentData, period);
+    // Step 1: CL 스냅샷 계산 (전체 데이터 전달!)
+    const clSnapshot = this.calculateCLSnapshot(ohlcvData, period);
 
     // Step 2: 11개 라인 계산 (고정된 snapshot 사용)
     const lines = this.calculateLines(clSnapshot);
@@ -110,7 +90,10 @@ export class RainbowChartAnalyzer {
     // Step 4: 현재가 위치 계산
     const lowest = lines.find(l => l.name === 'MIN')!.price;
     const highest = lines.find(l => l.name === 'MAX')!.price;
-    const currentPosition = ((current - lowest) / (highest - lowest)) * 100;
+    
+    // Zero-range 방어 (highest == lowest)
+    const range = highest - lowest;
+    const currentPosition = range > 0 ? ((current - lowest) / range) * 100 : 50;
 
     // Step 5: 추천 및 신호 생성
     const { recommendation, currentZone, signals } = this.generateSignals(
@@ -137,68 +120,59 @@ export class RainbowChartAnalyzer {
   }
 
   /**
-   * CL 스냅샷 계산 (최고점 갱신 시의 highest/lowest 포함)
+   * CL 스냅샷 계산 (HTS 정확한 로직)
    * 
-   * HTS 수식:
-   * CL = valuewhen(
-   *   highest(h(1), period) < highest(h, period),
-   *   (highest(high, Period) + lowest(low, Period)) / 2
-   * )
-   * 
-   * 핵심: 최고점 갱신 시의 highest/lowest도 함께 저장!
+   * HTS 로직:
+   * 1. 첫 period개로 초기 CL 설정
+   * 2. period+1번째부터 rolling 체크
+   * 3. 이전 최고 < 현재 최고이면 CL 업데이트
+   * 4. 그렇지 않으면 이전 CL 유지
    */
   private static calculateCLSnapshot(data: OHLCVData[], period: number): CLSnapshot {
-    const conditions: boolean[] = [];
-    const snapshots: CLSnapshot[] = [];
-
-    for (let i = 0; i < data.length; i++) {
-      // 이전까지의 최고가
-      const prevHighest = i === 0
-        ? 0
-        : Math.max(...data.slice(Math.max(0, i - period + 1), i).map(d => d.high));
-      
-      // 현재까지의 최고가/최저가
-      const currentHighest = Math.max(...data.slice(Math.max(0, i - period + 1), i + 1).map(d => d.high));
-      const currentLowest = Math.min(...data.slice(Math.max(0, i - period + 1), i + 1).map(d => d.low));
-      
-      // 최고점 갱신 조건
-      const isNewHigh = prevHighest < currentHighest;
-      conditions.push(isNewHigh);
-
-      // CL 스냅샷 (최고점 갱신 시 highest/lowest 함께 저장!)
-      const snapshot: CLSnapshot = {
-        CL: (currentHighest + currentLowest) / 2,
-        highest: currentHighest,
-        lowest: currentLowest,
-        updateDate: data[i].date,
-      };
-      snapshots.push(snapshot);
-    }
-
-    // valuewhen: 가장 최근에 최고점이 갱신되었을 때의 스냅샷
-    const latestSnapshot = valuewhen(conditions, snapshots);
+    // Step 1: 첫 period개 데이터로 초기 CL 설정
+    const initialWindow = data.slice(0, period);
+    const initialHigh = Math.max(...initialWindow.map(d => d.high));
+    const initialLow = Math.min(...initialWindow.map(d => d.low));
     
-    // 초기 데이터가 없을 경우 fallback
-    if (!latestSnapshot) {
-      const currentHighest = Math.max(...data.map(d => d.high));
-      const currentLowest = Math.min(...data.map(d => d.low));
-      return {
-        CL: (currentHighest + currentLowest) / 2,
-        highest: currentHighest,
-        lowest: currentLowest,
-        updateDate: data[data.length - 1].date,
-      };
+    let currentSnapshot: CLSnapshot = {
+      CL: (initialHigh + initialLow) / 2,
+      highest: initialHigh,
+      lowest: initialLow,
+      updateDate: data[period - 1].date,
+    };
+
+    // Step 2: period+1번째부터 rolling window 체크
+    // HTS: highest(h(1), period) < highest(h, period) → CL 업데이트
+    for (let i = period; i < data.length; i++) {
+      // 이전 window: [i-period ~ i-1]
+      const prevWindow = data.slice(i - period, i);
+      const prevHigh = Math.max(...prevWindow.map(d => d.high));
+      
+      // 현재 window: [i-period+1 ~ i]
+      const currentWindow = data.slice(i - period + 1, i + 1);
+      const currentHigh = Math.max(...currentWindow.map(d => d.high));
+      const currentLow = Math.min(...currentWindow.map(d => d.low));
+      
+      // 최고점 갱신 체크
+      if (prevHigh < currentHigh) {
+        // 새로운 최고점! CL 스냅샷 업데이트
+        currentSnapshot = {
+          CL: (currentHigh + currentLow) / 2,
+          highest: currentHigh,
+          lowest: currentLow,
+          updateDate: data[i].date,
+        };
+      }
+      // else: 최고점 갱신 없음 → currentSnapshot 유지 (이게 핵심!)
     }
 
-    return latestSnapshot;
+    return currentSnapshot;
   }
 
   /**
    * 11개 라인 계산 (고정된 CL 스냅샷 사용)
    * 
    * Line N = highest - (((highest - CL) / 5) * N)
-   * 
-   * 핵심: snapshot의 highest 사용 (현재 rolling high가 아님!)
    */
   private static calculateLines(snapshot: CLSnapshot): RainbowLine[] {
     const { highest, CL } = snapshot;
@@ -207,7 +181,6 @@ export class RainbowChartAnalyzer {
     // distance가 음수가 되면 안 됨 (safety check)
     if (distance < 0) {
       console.warn(`Warning: CL (${CL}) exceeds highest (${highest}). Using fallback.`);
-      // Fallback: CL을 highest로 clamp
       const safeDistance = 0;
       const safeCL = highest;
       
@@ -251,14 +224,13 @@ export class RainbowChartAnalyzer {
 
   /**
    * CL폭 계산
-   * 
-   * HTS 수식:
-   * CL = (Highest(H, Period) + Lowest(L, Period)) / 2
-   * CL1 = Highest(H, Period) - (Highest(H, Period) - CL) / 5 * 2
-   * CL폭 = (1 - (CL1 / Highest(H, Period))) * 100
    */
   private static calculateCLWidth(snapshot: CLSnapshot): number {
     const { highest, CL } = snapshot;
+    
+    // Zero-range 방어
+    if (highest === 0) return 0;
+    
     const CL1 = highest - ((highest - CL) / 5) * 2; // 20% 라인
     const clWidth = (1 - (CL1 / highest)) * 100;
     return Math.round(clWidth * 100) / 100; // 소수점 2자리
@@ -274,7 +246,7 @@ export class RainbowChartAnalyzer {
     currentPosition: number
   ) {
     // CL 근처 판단 (±3%)
-    const clDistance = Math.abs(current - CL) / CL;
+    const clDistance = CL > 0 ? Math.abs(current - CL) / CL : 0;
     const nearCL = clDistance < 0.03;
     const aboveCL = current > CL;
     const belowCL = current < CL;
@@ -315,17 +287,13 @@ export class RainbowChartAnalyzer {
 
   /**
    * 신호 강도 계산 (0-100)
-   * 
-   * 50% (CL) 기준:
-   * - CL 근처 = 높은 점수 (매수 기회)
-   * - CL에서 멀어질수록 낮은 점수
    */
   static getSignalStrength(result: RainbowChartResult): number {
     const { currentPosition, signals } = result;
 
     // CL(50%) 근처일수록 높은 점수
     const distanceFromCL = Math.abs(currentPosition - 50);
-    let score = 100 - (distanceFromCL * 2); // 0-50% 범위에서 100-0점
+    let score = 100 - (distanceFromCL * 2);
 
     // CL 근처 보너스
     if (signals.nearCL) {

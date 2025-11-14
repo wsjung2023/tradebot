@@ -20,8 +20,8 @@ rainbowRouter.post('/analyze', isAuthenticated, async (req, res) => {
   try {
     const kiwoomService = getKiwoomService();
     
-    // getStockChart 호출 (기본 period는 'D' = 일봉)
-    const rawChartData = await kiwoomService.getStockChart(stockCode, period);
+    // getStockChart 호출 - 240개 이상 데이터 요청 (레인보우 차트용)
+    const rawChartData = await kiwoomService.getStockChart(stockCode, period, 250);
     
     // 데이터 변환: API 응답 → OHLCVData[]
     let ohlcvData: OHLCVData[];
@@ -79,7 +79,8 @@ rainbowRouter.get('/:stockCode', isAuthenticated, async (req, res) => {
   
   try {
     const kiwoomService = getKiwoomService();
-    const rawChartData = await kiwoomService.getStockChart(stockCode, period as string);
+    // Request 250 bars for rainbow chart analysis (minimum 240 required)
+    const rawChartData = await kiwoomService.getStockChart(stockCode, period as string, 250);
     
     let ohlcvData: OHLCVData[];
     
