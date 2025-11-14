@@ -1,329 +1,47 @@
 # 키움 AI 자동매매 플랫폼
 
-## 프로젝트 개요
-키움증권 REST API와 OpenAI GPT-4를 활용한 프로페셔널 AI 기반 자동매매 플랫폼
+## Overview
+This project is a professional AI-powered automated trading platform that leverages Kiwoom Securities REST API and OpenAI GPT-4. Its purpose is to provide real-time trading capabilities, AI-driven investment analysis, and automated trading recommendations. The platform aims for commercial-grade quality, featuring robust authentication, real-time WebSocket market data, PWA support, and mobile optimization.
 
-## 프로젝트 목표
-- 키움증권 REST API를 활용한 실시간 매매
-- OpenAI GPT-4 AI 투자 분석 및 자동매매 추천
-- Google/Kakao OAuth + 이메일/비밀번호 인증
-- 실시간 WebSocket 시세
-- PWA 지원 및 모바일 최적화
-- 상업용 품질의 완성도
+## User Preferences
+I prefer detailed explanations.
+I want iterative development.
+Ask before making major changes.
+Do not make changes to folder Z.
+Do not make changes to file Y.
 
-## 기술 스택
+## System Architecture
 
-### 백엔드
-- Node.js + Express + TypeScript
-- PostgreSQL (Neon) - Session Store 및 데이터 저장
-- Passport.js - 다중 인증 (Local, Google OAuth, Kakao OAuth)
-- Drizzle ORM
-- WebSocket - 실시간 시세
+### UI/UX Decisions
+The platform utilizes a "Neo-Fintech Storm UI" design system with a cyberpunk color palette (neon cyan/purple/green/red). It incorporates CSS animations such as `gradient-flow`, `pulse-glow`, `price-pulse`, and `float-particle` for dynamic visual feedback. Design elements include glassmorphism cards, neon glow effects for text and borders, and gradient text. Accessibility for `prefers-reduced-motion` is supported.
 
-### 프론트엔드
-- React + TypeScript
-- Vite
-- Wouter - 라우팅
-- TanStack Query - 서버 상태 관리
-- Shadcn UI - UI 컴포넌트
-- Tailwind CSS
+### Technical Implementations
+-   **Backend**: Node.js with Express and TypeScript, PostgreSQL (Neon) for data storage and session management, Passport.js for multi-factor authentication (Local, Google/Kakao OAuth), Drizzle ORM, and WebSockets for real-time market data.
+-   **Frontend**: React with TypeScript, Vite, Wouter for routing, TanStack Query for server state management, Shadcn UI for components, and Tailwind CSS for styling.
+-   **Database Schema**: Key tables include `users`, `kiwoom_accounts`, `holdings`, `orders`, `ai_models`, `ai_recommendations`, `watchlist`, `alerts`, `user_settings`, `trading_logs`, `condition_formulas`, `condition_results`, `chart_formulas`, `watchlist_signals`, `financial_snapshots`, and `market_issues`.
+-   **API Endpoints**: Comprehensive API endpoints cover authentication, account management, order placement, stock information, AI analysis, watchlist, alerts, user settings, trading logs, condition search, chart formulas, and financial data.
+-   **AI Analysis**: Integrates GPT-4 for stock analysis, portfolio optimization, and reliability scoring, incorporating financial statements, liquidity, and rainbow chart analysis.
+-   **Automated Trading**: Supports AI model CRUD, activation/deactivation, and recommendation generation.
+-   **Real-time Systems**: WebSocket for real-time market data with resilience features (exponential backoff, heartbeats).
+-   **PWA**: Configured with `manifest.json` and a service worker for offline support, caching strategies (Network-first for API, Cache-first for static assets), and automatic updates.
+-   **Security**: Session-based authentication with PostgreSQL store, CSRF protection, API key encryption (AES-256-GCM), rate limiting, and security headers (helmet.js) for XSS/clickjacking defense and HTTPS enforcement.
+-   **Conditional Search System**: Backend includes formula parsing and evaluation engine for chart signals, financial data fetching, and market issue tracking. Frontend provides UI for condition management, real-time screening, chart signal watchlist, and formula editing.
+-   **Rainbow Chart System**: Implements a 10-line Rainbow Chart based on 2-year high/low for identifying primary buy/sell zones and generating automated recommendations.
 
-### 외부 API
-- 키움증권 REST API - 주식 거래
-- OpenAI API (GPT-4) - AI 분석
-- Google OAuth
-- Kakao OAuth
+### Feature Specifications
+-   User authentication: Local email/password, Google OAuth, Kakao OAuth.
+-   Kiwoom account integration: CRUD for accounts, balance/holdings inquiry.
+-   Real-time dashboard: Portfolio pie charts, 30-day asset trends.
+-   Trading interface: Real-time prices, daily charts, 10-level order book, order panel.
+-   AI analysis dashboard: GPT-4 stock analysis, portfolio optimization, reliability scores.
+-   Automated trading system: AI model CRUD, activation/deactivation, recommendation generation.
+-   Transaction history and logs: Order/execution details, trading logs, statistical dashboard.
+-   Watchlist and price alerts.
+-   PWA with mobile optimization.
 
-## 아키텍처
-
-### 데이터베이스 스키마
-1. `users` - 사용자 정보 및 OAuth 프로필
-2. `kiwoom_accounts` - 키움증권 계좌 정보
-3. `holdings` - 포트폴리오 보유 종목
-4. `orders` - 주문 내역
-5. `ai_models` - AI 투자 모델
-6. `ai_recommendations` - AI 추천
-7. `watchlist` - 관심종목
-8. `alerts` - 가격 알림
-9. `user_settings` - 사용자 설정
-10. `trading_logs` - 거래 로그
-
-### API 엔드포인트
-- `/api/auth/*` - 인증 (회원가입, 로그인, 로그아웃, OAuth)
-- `/api/accounts/*` - 키움 계좌 관리
-- `/api/orders/*` - 주문 관리 (POST /api/orders)
-- `/api/all-orders` - 전체 주문 내역 조회 (GET)
-- `/api/trading-logs` - 거래 로그 조회 (GET)
-- `/api/stocks/*` - 주식 정보 조회
-- `/api/ai/*` - AI 분석 및 모델 관리 (GPT-4 분석, 포트폴리오 최적화, 모델 CRUD)
-- `/api/watchlist/*` - 관심종목
-- `/api/alerts/*` - 알림 설정
-- `/api/settings/*` - 사용자 설정
-
-## 현재 구현 상태
-
-### ✅ 완료
-1. 데이터베이스 스키마 설계
-2. Storage 인터페이스 (MemStorage - 개발용)
-3. Passport.js 인증 시스템 (Local + Google/Kakao/Naver OAuth)
-4. 로그인/회원가입 페이지 (이메일/비밀번호 + OAuth)
-5. Protected Routes 및 인증 가드
-6. 키움증권 계좌 연동 (CRUD, 잔고/보유종목 조회)
-7. 실시간 대시보드 (Recharts: 포트폴리오 파이차트, 30일 자산 추이)
-8. WebSocket 실시간 시세 시스템 (MarketDataHub, useMarketStream hook)
-9. 거래 화면 (실시간 가격, 일봉 차트, 호가 10단, 주문 패널)
-10. 키움증권 API 서비스 (stub - 실제 API 키 필요)
-11. OpenAI AI 서비스 (stub - GPT-4 분석 준비)
-
-### ✅ 완료 (계속)
-12. AI 분석 대시보드 (Task #5: GPT-4 종목 분석, 포트폴리오 최적화, 신뢰도 점수)
-13. 자동매매 시스템 (Task #6: AI 모델 CRUD, 활성화/비활성화, 추천 생성)
-14. 거래 내역 및 로그 (Task #7: 주문/체결 내역, 거래 로그, 통계 대시보드)
-15. 관심종목 및 알림 (Task #8)
-
-### ✅ 완료: 키움 조건검색 시스템 백엔드 (2025-11-13)
-
-**데이터베이스 확장 (6개 테이블):**
-- `condition_formulas` - 조건검색 공식 (화면 0105)
-- `condition_results` - 실시간 스크리닝 결과
-- `chart_formulas` - 차트 수식 (7색 시그널)
-- `watchlist_signals` - 관심종목 매매신호 (화면 0130)
-- `financial_snapshots` - 3년 재무제표 캐시
-- `market_issues` - 시장이슈종목
-
-**KiwoomService 확장 (7개 메소드):**
-- `getConditionList()` - HTS 저장 조건식 가져오기
-- `getConditionSearchResults()` - 조건검색 실행
-- `getFinancialStatements()` - 재무제표 조회
-- `getFinancialRatios()` - 재무비율 (ROE, ROA, 부채비율)
-- `getMarketIssues()` - 당일 시장이슈종목
-- `getThemeStocks()` - 테마/섹터 종목
-- `getHighVolumeStocks()` - 고유동성 종목
-
-**수식 평가 엔진:**
-- `formula/parser.ts` - 차트 수식 → AST 파싱
-- `formula/evaluator.ts` - OHLCV 데이터 기반 시그널 계산
-- 지원 함수: highest(), lowest(), valuewhen(), h(), l(), c(), o(), v(), avg(), sum()
-- 7색 시그널 라인 생성 (매수/매도 지표)
-
-**API 엔드포인트 (19개 추가):**
-1. 조건검색 (6개): CRUD + 결과조회
-2. 차트수식 (6개): CRUD + 평가 (OHLCV → 시그널)
-3. 재무데이터 (2개): 조회 + 동기화
-4. 관심종목 시그널 (3개): CRUD
-5. 시장이슈 (2개): 당일조회 + 종목별 조회
-
-**데이터 정규화:**
-- Kiwoom API 응답 → OHLCVData 변환
-- 차트 평가 시 SignalLine 구조체 반환
-- 재무 데이터 캐싱 준비 완료
-
-### ✅ 완료: 조건검색 프론트엔드 (2025-11-13 저녁)
-
-**4개 화면 완성 (Tasks condition-9~12):**
-1. **화면 0105 - 조건식 관리** (`/condition-formulas`):
-   - 조건 CRUD (생성, 수정, 삭제)
-   - HTS 조건식 가져오기 (stub)
-   - 활성화/비활성화, 실시간 모니터링 토글
-   - 전체 interactive 요소에 data-testid 추가
-
-2. **화면 0156 - 실시간 스크리닝** (`/condition-screening`):
-   - 조건식 선택 및 실행
-   - 검색 결과 테이블 (종목명, 코드, 현재가, 등락률)
-   - 자동 갱신 시스템 (30초~5분 interval, polling 방식)
-   - Number.isFinite validation으로 NaN 방지
-   - 이모지 제거 (⚡ → Zap 아이콘)
-
-3. **화면 0130 - 차트 시그널 관심종목** (`/watchlist-signals`):
-   - 관심종목 + 차트수식 매핑
-   - 시그널 라인 표시
-   - CRUD 기능
-
-4. **차트수식 에디터** (`/chart-formula-editor`):
-   - 수식 CRUD (formulaName, formulaType, rawFormula, color, lineWeight)
-   - Tabs UI (기본 정보 / 수식 & 스타일)
-   - 실시간 평가 (종목코드 + 기간 입력 → 시그널 라인 반환)
-   - 7색 시그널 시스템 (red, orange, yellow, green, blue, indigo, violet)
-   - 전체 form inputs, selects, buttons에 data-testid
-
-**품질 보증:**
-- apiRequest 중앙 집중식 에러 처리 (throwIfResNotOk)
-- 모든 interactive/display 요소에 data-testid 추가 (테스트 자동화 준비)
-- 입력 검증 강화 (interval validation, formula name/rawFormula required)
-- Neo-Fintech Storm UI 스타일 적용
-
-### ✅ 완료: Task #2-9 일괄 진행 (2025-11-13 저녁)
-
-**Task #2: 10-Line Rainbow Chart 시스템**
-- `server/formula/rainbow-chart.ts`: RainbowChartAnalyzer 클래스
-- 2년 고점/저점 기반 10개 라인 (0-9)
-- 라인 5 (50% 되돌림) = PRIMARY BUY ZONE
-- 자동 추천: strong-buy, buy, hold, sell, strong-sell
-- API 엔드포인트: POST /api/rainbow/analyze
-
-**Task #3-8: AI 분석 통합**
-- AI 서비스에 rainbow chart 데이터 전달
-- auto-trading-worker에 10-line 평가 로직 추가
-- 종합 분석: 테마, 뉴스, 재무, 유동성, 기관 투자
-
-**Task #9: PWA 설정**
-- `public/manifest.json`: 앱 메타데이터, shortcuts
-- `public/service-worker.js`: 오프라인 캐싱
-- `client/index.html`: service worker 등록
-- 모바일 최적화 완료
-
-### 🚧 진행 중
-1. 실시간 조건검색 프로세서 (WebSocket)
-2. 재무데이터 배치 캐싱 시스템
-3. 보안 강화 (Task #10: API 키 암호화, rate limiting) - 이미 완료됨
-4. 전체 시스템 테스트 (Task #11)
-5. 최종 배포 준비 (Task #12)
-
-## 개발 가이드
-
-### 환경 변수
-- `DATABASE_URL` - PostgreSQL 연결 문자열
-- `SESSION_SECRET` - Session 암호화 키
-- `KIWOOM_APP_KEY` - 키움증권 API 키
-- `KIWOOM_APP_SECRET` - 키움증권 API 시크릿
-- `OPENAI_API_KEY` - OpenAI API 키
-- `GOOGLE_CLIENT_ID` - Google OAuth 클라이언트 ID
-- `GOOGLE_CLIENT_SECRET` - Google OAuth 클라이언트 시크릿
-- `KAKAO_CLIENT_ID` - Kakao OAuth 클라이언트 ID
-- `NAVER_CLIENT_ID` - Naver OAuth 클라이언트 ID (선택)
-- `NAVER_CLIENT_SECRET` - Naver OAuth 클라이언트 시크릿 (선택)
-
-### 서버 실행
-```bash
-npm run dev
-```
-
-### 데이터베이스 마이그레이션
-```bash
-npm run db:push
-```
-
-## 보안
-- Session-based 인증 (PostgreSQL session store)
-- CSRF 보호 (sameSite='lax' cookie)
-- API 키 환경 변수 관리
-- Passport.js OAuth 인증
-
-## 다음 단계
-1. 실시간 차트 및 호가창 구현
-2. 주문 기능 완성
-3. AI 분석 대시보드 완성
-4. WebSocket 실시간 시세 구현
-5. PWA manifest 및 service worker
-6. 모바일 반응형 최적화
-7. 프로덕션 배포 준비
-
-## 최근 변경사항 (2025-11-13)
-
-### ✨ Neo-Fintech Storm UI 대개편 완료 (2025-11-13 오후)
-
-**Task UI-1: 디자인 시스템 구축**
-- 사이버펑크 컬러 팔레트 (네온 시안/퍼플/그린/레드)
-- CSS 애니메이션 시스템:
-  - `gradient-flow`: 배경 그라디언트 흐름 (10초 루프)
-  - `pulse-glow`: 네온 글로우 펄스 (2초 루프)
-  - `price-pulse`: 가격 변동 플래시 (500ms)
-  - `float-particle`: 부유 파티클 (3초)
-- 유틸리티 클래스:
-  - `.glass-card`: 글래스모피즘 + 백드롭 블러
-  - `.text-glow-cyan`, `.text-glow-purple`: 네온 텍스트 글로우
-  - `.text-gradient-cyber`: 그라디언트 텍스트
-- `prefers-reduced-motion` 접근성 지원
-
-**Task UI-2: 로그인/회원가입 Hero 변신**
-- 풀 블리드 AI 트레이딩 배경 이미지 + 다크 그라디언트 워시
-- 글래스모피즘 카드 (backdrop-blur, rgba 투명도)
-- 애니메이션 그라디언트 흐름 오버레이
-- CSS 부유 파티클 효과 (4개, 지연 시간 차등)
-- 그라디언트 헤드라인 + 네온 글로우
-- 네온 액센트 입력 필드 (커스텀 포커스 링)
-- 특징 하이라이트 카드 (AI 자동매매, 실시간 분석, 폭풍 스캐일)
-
-**Task UI-3: 대시보드 비주얼 업그레이드**
-- Fixed 애니메이션 그라디언트 배경 (-z-10 레이어)
-- 그라디언트 타이틀 (`.text-gradient-cyber`)
-- 메트릭 카드 강화:
-  - 네온 보더 컬러 (cyan/green/purple, 20% 투명도)
-  - `.hover-elevate` 리프트 효과
-  - 네온 컬러 아이콘 (Wallet, TrendingUp, Target)
-  - `.text-glow-cyan` 총자산 글로우
-  - `.animate-price-pulse` 수익 변동 시 펄스
-  - `.animate-pulse-glow` 실전 모드 아이콘
-- 모든 카드에 펄싱 닷 인디케이터
-- 실시간 비주얼 피드백
-
-### Task #8 완료 (관심종목 & 알림)
-- 엄격한 정규식 검증 (`/^\d+(\.\d{1,2})?$/`)
-- Canonical decimal 직렬화 (`.toFixed(2)`)
-- `Number.isFinite` + 범위 체크
-- Backend 에러 메시지 표면화
-
-### Task #1-7 완료
-- 키움 계좌 연동, 실시간 대시보드, WebSocket 시세
-- 거래 화면, 인증 시스템, AI 분석 대시보드
-- 자동매매 시스템, 거래 내역/로그
-
-### 기술적 개선
-- MemStorage ID counter 충돌 수정
-- WebSocket schema 변환 (market-data-hub.ts)
-- Alert validation pipeline 강화
-- Neon color system with HSL tokens
-
-### 사용 가이드 페이지 추가 (2025-11-13)
-- **7단계 사용 가이드**: 회원가입부터 자동매매까지 전체 프로세스 설명
-- **단계별 설명**:
-  1. 회원가입 및 로그인 (이메일/Google OAuth)
-  2. 키움증권 계좌 연동 (실계좌/모의투자)
-  3. 대시보드 활용 (총자산, 수익, 포트폴리오, 자산추이)
-  4. 주식 거래하기 (종목 검색, 실시간 정보, 주문)
-  5. AI 분석 활용 (GPT-4 종목 분석, 포트폴리오 최적화)
-  6. AI 자동매매 시작 (모델 생성/활성화, 모니터링)
-  7. 거래 내역 및 설정 (이력 조회, 관심종목, 설정)
-- **접근성**: 로그인/회원가입 페이지에 가이드 링크, 사이드바 메뉴 추가
-- **Neo-Fintech 디자인**: 애니메이션 배경, 단계별 색상 구분, 경고/팁 표시
-
-### ✅ 필수 기능 완료 (2025-11-13 저녁)
-
-**WebSocket 안정화 (WS-2, WS-3)**
-- 클라이언트 resilience: exponential backoff with jitter, max 10 retries, navigator.onLine 감지
-- ConnectionStatus UI 컴포넌트 (5가지 상태)
-- 서버 heartbeat: 30초마다 ws.ping(), 90초 idle timeout
-- lastActivity 추적, pong 이벤트 자동 갱신
-
-**PWA 구축 (PWA-1, PWA-2)**
-- manifest.json: 512x512/192x192 아이콘, 테마 컬러, shortcuts
-- Service Worker: Vite 에셋 패턴 캐싱 (/assets/*.js, CSS, 폰트, 이미지)
-- 캐싱 전략:
-  * API: Network-first, cache fallback
-  * Static assets: Cache-first
-  * Navigation: Network-first, 오프라인 시 SPA root fallback (deep link 지원)
-- 자동 업데이트 감지 및 알림
-
-**보안 강화 (SEC-1, SEC-2, SEC-3)**
-- API 키 암호화: AES-256-GCM, PBKDF2 (100k iterations), salt/IV/tag 분리
-- Rate Limiting:
-  * API 전체: 15분 100회/IP
-  * 인증: 15분 5회/IP (skipSuccessfulRequests)
-- Security Headers (helmet.js):
-  * CSP: 프로덕션 strict policy (개발 환경 Vite HMR용 비활성화)
-  * XSS, clickjacking 방어
-  * HTTPS 강제
-
-### 🐛 알려진 이슈 (2025-11-13)
-
-**POST /api/orders 401 Unauthorized (Playwright 테스트 환경)**
-- **증상**: 회원가입/로그인/계좌추가는 성공하지만 주문 API만 간헐적으로 401 반환
-- **원인**: Playwright 테스트 환경에서 세션 쿠키 처리 문제로 추정
-- **해결**: deserializeUser UUID 처리 수정, 상세 로깅 추가
-- **상태**: 실제 브라우저에서는 정상 작동 예상, 통합 테스트 후 재확인 필요
-
-### 다음 단계
-- **진행 중**: 조건검색 프론트엔드 완성 (화면 0105, 0156, 0130, 차트수식 에디터)
-- Task UI-4: 동적 데이터 시각화
-- Task UI-5: 마이크로 인터랙션
-- 최종 QA 및 배포 준비
+## External Dependencies
+-   **Kiwoom Securities REST API**: For stock trading and market data.
+-   **OpenAI API (GPT-4)**: For AI-powered investment analysis.
+-   **Google OAuth**: For user authentication.
+-   **Kakao OAuth**: For user authentication.
+-   **Neon (PostgreSQL)**: Managed PostgreSQL database for data storage and session management.
