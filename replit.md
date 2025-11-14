@@ -1,47 +1,78 @@
 # 키움 AI 자동매매 플랫폼
 
 ## Overview
-This project is a professional AI-powered automated trading platform that leverages Kiwoom Securities REST API and OpenAI GPT-4. Its purpose is to provide real-time trading capabilities, AI-driven investment analysis, and automated trading recommendations. The platform aims for commercial-grade quality, featuring robust authentication, real-time WebSocket market data, PWA support, and mobile optimization.
+The Kiwoom AI Automatic Trading Platform is a professional-grade, AI-powered automated trading platform leveraging Kiwoom Securities REST API and OpenAI GPT-4. It offers real-time trading, AI-driven investment analysis, and automated trading recommendations. The platform targets commercial quality, featuring robust authentication, real-time WebSocket market data, PWA support, and mobile optimization. Its core purpose is to provide an advanced, AI-driven solution for automated stock trading and investment analysis, aiming for high reliability and user experience.
 
 ## User Preferences
-I prefer detailed explanations.
-I want iterative development.
-Ask before making major changes.
-Do not make changes to folder Z.
-Do not make changes to file Y.
+- 자세한 설명을 선호합니다
+- 반복적 개발을 원합니다
+- 주요 변경 전 확인 필요
+- 폴더 Z 변경 금지
+- 파일 Y 변경 금지
 
 ## System Architecture
 
 ### UI/UX Decisions
-The platform utilizes a "Neo-Fintech Storm UI" design system with a cyberpunk color palette (neon cyan/purple/green/red). It incorporates CSS animations such as `gradient-flow`, `pulse-glow`, `price-pulse`, and `float-particle` for dynamic visual feedback. Design elements include glassmorphism cards, neon glow effects for text and borders, and gradient text. Accessibility for `prefers-reduced-motion` is supported.
+The platform utilizes the "Neo-Fintech Storm UI" design system with a cyberpunk color palette (neon cyan/purple/green/red). It incorporates dynamic visual feedback through CSS animations like `gradient-flow`, `pulse-glow`, `price-pulse`, and `float-particle`. Design elements include glassmorphism cards, neon glow effects for text and borders, and gradient texts. Accessibility for `prefers-reduced-motion` is also supported.
 
 ### Technical Implementations
--   **Backend**: Node.js with Express and TypeScript, PostgreSQL (Neon) for data storage and session management, Passport.js for multi-factor authentication (Local, Google/Kakao OAuth), Drizzle ORM, and WebSockets for real-time market data.
--   **Frontend**: React with TypeScript, Vite, Wouter for routing, TanStack Query for server state management, Shadcn UI for components, and Tailwind CSS for styling.
--   **Database Schema**: Key tables include `users`, `kiwoom_accounts`, `holdings`, `orders`, `ai_models`, `ai_recommendations`, `watchlist`, `alerts`, `user_settings`, `trading_logs`, `condition_formulas`, `condition_results`, `chart_formulas`, `watchlist_signals`, `financial_snapshots`, and `market_issues`.
--   **API Endpoints**: Comprehensive API endpoints cover authentication, account management, order placement, stock information, AI analysis, watchlist, alerts, user settings, trading logs, condition search, chart formulas, and financial data.
--   **AI Analysis**: Integrates GPT-4 for stock analysis, portfolio optimization, and reliability scoring, incorporating financial statements, liquidity, and rainbow chart analysis.
--   **Automated Trading**: Supports AI model CRUD, activation/deactivation, and recommendation generation.
--   **Real-time Systems**: WebSocket for real-time market data with resilience features (exponential backoff, heartbeats).
--   **PWA**: Configured with `manifest.json` and a service worker for offline support, caching strategies (Network-first for API, Cache-first for static assets), and automatic updates.
--   **Security**: Session-based authentication with PostgreSQL store, CSRF protection, API key encryption (AES-256-GCM), rate limiting, and security headers (helmet.js) for XSS/clickjacking defense and HTTPS enforcement.
--   **Conditional Search System**: Backend includes formula parsing and evaluation engine for chart signals, financial data fetching, and market issue tracking. Frontend provides UI for condition management, real-time screening, chart signal watchlist, and formula editing.
--   **Rainbow Chart System**: Implements a 10-line Rainbow Chart based on 2-year high/low for identifying primary buy/sell zones and generating automated recommendations.
+
+#### Backend
+- **Framework**: Node.js + Express + TypeScript
+- **Database**: PostgreSQL (Neon) for data storage and session management
+- **Authentication**: Passport.js (Local, Google/Kakao OAuth)
+- **ORM**: Drizzle ORM
+- **Real-time**: WebSocket for market data
+
+#### Frontend
+- **Framework**: React + TypeScript + Vite
+- **Routing**: Wouter
+- **State Management**: TanStack Query (server state)
+- **UI Components**: Shadcn UI
+- **Styling**: Tailwind CSS
+
+#### Database Schema
+Key tables include `users`, `kiwoom_accounts`, `holdings`, `orders`, `ai_models`, `ai_recommendations`, `watchlist`, `alerts`, `user_settings`, `trading_logs`, `condition_formulas`, `condition_results`, `chart_formulas`, `watchlist_signals`, `financial_snapshots`, `market_issues`, `auto_trading_settings`, `trading_performance`.
+
+#### API Endpoints
+Endpoints cover authentication, account management, order execution, stock information (real-time quotes, charts, financials), AI analysis, watchlist management, user settings, trading logs, and condition search functionalities.
+
+#### AI Analysis
+GPT-4 is used for stock analysis, portfolio optimization, and reliability scoring, integrating financial statements, liquidity, Rainbow Chart analysis, theme analysis, news analysis, and institutional investor tracking.
+
+#### Automated Trading
+Supports CRUD operations for AI models, activation/deactivation, recommendation generation, and automated execution based on 10-line Rainbow Chart strategies. A learning system analyzes trading performance, learns successful/failed patterns, and auto-optimizes AI model parameters daily.
+
+#### Real-time System
+Utilizes WebSockets for real-time market data with resilience features like exponential backoff and heartbeats.
+
+#### PWA
+`manifest.json` and service workers enable offline support, caching strategies (Network-first for API, Cache-first for static assets), and automatic updates.
+
+#### Security
+Session-based authentication (PostgreSQL storage), CSRF protection, AES-256-GCM encryption for API keys, rate limiting, and security headers (helmet.js) for XSS/clickjacking defense and HTTPS enforcement are implemented.
+
+#### Conditional Search System
+**Backend**: Features a formula parsing and evaluation engine, chart signal generation, financial data fetching, and market issue tracking.
+**Frontend**: Provides a UI for managing conditions, real-time screening, a chart signal watchlist, and a condition editor.
+
+#### Rainbow Chart System
+Implements a 10-line Rainbow Chart based on 2-year high/low prices. Line 5 represents the exact 50% retracement (PRIMARY BUY ZONE). The system identifies primary buy/sell zones and generates automated recommendations (strong-buy, buy, sell, strong-sell).
 
 ### Feature Specifications
--   User authentication: Local email/password, Google OAuth, Kakao OAuth.
--   Kiwoom account integration: CRUD for accounts, balance/holdings inquiry.
--   Real-time dashboard: Portfolio pie charts, 30-day asset trends.
--   Trading interface: Real-time prices, daily charts, 10-level order book, order panel.
--   AI analysis dashboard: GPT-4 stock analysis, portfolio optimization, reliability scores.
--   Automated trading system: AI model CRUD, activation/deactivation, recommendation generation.
--   Transaction history and logs: Order/execution details, trading logs, statistical dashboard.
--   Watchlist and price alerts.
--   PWA with mobile optimization.
+- **User Authentication**: Local email/password, Google OAuth, Kakao OAuth.
+- **Kiwoom Account Integration**: CRUD operations, balance/holdings inquiry.
+- **Real-time Dashboard**: Portfolio pie chart, 30-day asset trend.
+- **Trading Interface**: Real-time quotes, daily charts, 10-level order book, order panel.
+- **AI Analysis Dashboard**: GPT-4 stock analysis, portfolio optimization, reliability score.
+- **Automated Trading System**: AI model CRUD, activation/deactivation, recommendation generation, learning system.
+- **Trade History & Logs**: Order/execution details, trading logs, statistical dashboard.
+- **Watchlist & Price Alerts**.
+- **PWA Mobile Optimization**.
 
 ## External Dependencies
--   **Kiwoom Securities REST API**: For stock trading and market data.
--   **OpenAI API (GPT-4)**: For AI-powered investment analysis.
--   **Google OAuth**: For user authentication.
--   **Kakao OAuth**: For user authentication.
--   **Neon (PostgreSQL)**: Managed PostgreSQL database for data storage and session management.
+- **Kiwoom Securities REST API**: Stock trading and market data.
+- **OpenAI API (GPT-4)**: AI-based investment analysis.
+- **Google OAuth**: User authentication.
+- **Kakao OAuth**: User authentication.
+- **Neon (PostgreSQL)**: Managed PostgreSQL database.

@@ -417,6 +417,30 @@ export async function registerRoutes(app: Express, sessionMiddleware: any): Prom
     }
   });
 
+  // Get learning statistics for a model
+  app.get("/api/ai/models/:id/learning-stats", isAuthenticated, async (req, res) => {
+    try {
+      const { LearningService } = await import('./services/learning.service');
+      const learningService = new LearningService();
+      const user = getCurrentUser(req);
+      const modelId = parseInt(req.params.id);
+      
+      // Check ownership
+      const model = await storage.getAiModel(modelId);
+      if (!model) {
+        return res.status(404).json({ error: "Model not found" });
+      }
+      if (model.userId !== user!.id) {
+        return res.status(403).json({ error: "Not authorized to view this model" });
+      }
+      
+      const result = await learningService.optimizeModel(modelId, false);
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // ==================== Watchlist Routes ====================
 
   app.get("/api/watchlist", isAuthenticated, async (req, res) => {

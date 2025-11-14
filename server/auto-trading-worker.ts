@@ -2,6 +2,7 @@ import * as cron from 'node-cron';
 import { storage } from './storage';
 import { KiwoomService } from './services/kiwoom.service';
 import { AIService } from './services/ai.service';
+import { LearningService } from './services/learning.service';
 import { AiModel, AutoTradingSettings, ConditionFormula } from '@shared/schema';
 import { decrypt } from './utils/crypto';
 import { RainbowChartAnalyzer } from './formula/rainbow-chart';
@@ -9,22 +10,34 @@ import { RainbowChartAnalyzer } from './formula/rainbow-chart';
 class AutoTradingWorker {
   private isRunning = false;
   private cronJob: cron.ScheduledTask | null = null;
+  private learningJob: cron.ScheduledTask | null = null;
+  private learningService = new LearningService();
 
   async start() {
     console.log('🤖 Auto Trading Worker starting...');
     
-    // Run every 1 minute
+    // Run trading every 1 minute
     this.cronJob = cron.schedule('* * * * *', async () => {
       await this.executeTradingCycle();
     });
 
+    // Run learning optimization at 16:00 daily (after market close)
+    this.learningJob = cron.schedule('0 16 * * *', async () => {
+      await this.executeLearningCycle();
+    });
+
     console.log('✅ Auto Trading Worker started (runs every 1 minute)');
+    console.log('🎓 Learning System started (runs daily at 16:00)');
   }
 
   stop() {
     if (this.cronJob) {
       this.cronJob.stop();
       console.log('⏹️  Auto Trading Worker stopped');
+    }
+    if (this.learningJob) {
+      this.learningJob.stop();
+      console.log('⏹️  Learning System stopped');
     }
   }
 
@@ -511,6 +524,84 @@ class AutoTradingWorker {
       modelId,
       rainbowLineSettings: defaultRainbowSettings,
     });
+  }
+
+  /**
+   * Learning cycle: analyze performance and optimize parameters
+   * Runs daily at 16:00 after market close
+   */
+  private async executeLearningCycle() {
+    console.log('\n🎓 Starting learning optimization cycle...');
+
+    try {
+      // Get all active AI models
+      const activeModels = await storage.getActiveAiModels();
+      
+      if (activeModels.length === 0) {
+        console.log('📭 No active AI models found');
+        return;
+      }
+
+      console.log(`📊 Analyzing ${activeModels.length} active model(s)...`);
+
+      for (const model of activeModels) {
+        await this.optimizeModel(model);
+      }
+
+      console.log('✅ Learning optimization cycle completed\n');
+    } catch (error) {
+      console.error('❌ Error in learning cycle:', error);
+    }
+  }
+
+  private async optimizeModel(model: AiModel) {
+    console.log(`\n🧠 Learning from model: ${model.modelName} (ID: ${model.id})`);
+
+    try {
+      // Auto-apply optimizations if there are 30+ trades
+      const result = await this.learningService.optimizeModel(model.id, true);
+
+      console.log(`  📈 Statistics:`);
+      console.log(`    - Total trades: ${result.stats.totalTrades}`);
+      console.log(`    - Win rate: ${result.stats.winRate.toFixed(1)}%`);
+      console.log(`    - Win trades: ${result.stats.winTrades}`);
+      console.log(`    - Loss trades: ${result.stats.lossTrades}`);
+      console.log(`    - Avg profit: ${result.stats.avgProfitRate.toFixed(2)}%`);
+      console.log(`    - Avg loss: ${result.stats.avgLossRate.toFixed(2)}%`);
+      console.log(`    - Total return: ${result.stats.totalReturn.toFixed(2)}%`);
+      console.log(`    - Sharpe ratio: ${result.stats.sharpeRatio.toFixed(2)}`);
+      console.log(`    - Max drawdown: ${result.stats.maxDrawdown.toFixed(2)}%`);
+
+      if (result.stats.totalTrades >= 10) {
+        console.log(`  🎯 Best entry lines:`);
+        result.patterns.bestEntryLines.slice(0, 3).forEach(line => {
+          console.log(`    - Line ${line.line}%: ${line.winRate.toFixed(1)}% win rate, ${line.avgReturn.toFixed(2)}% avg return`);
+        });
+
+        console.log(`  📤 Best exit lines:`);
+        result.patterns.bestExitLines.slice(0, 3).forEach(line => {
+          console.log(`    - Line ${line.line}%: ${line.winRate.toFixed(1)}% win rate, ${line.avgReturn.toFixed(2)}% avg return`);
+        });
+      }
+
+      console.log(`  💡 Recommendations:`);
+      result.recommendations.forEach(rec => {
+        console.log(`    - ${rec}`);
+      });
+
+      if (result.appliedChanges) {
+        console.log(`  ✅ Optimized parameters applied automatically`);
+        console.log(`    - Theme: ${result.patterns.optimalWeights.theme.toFixed(1)}%`);
+        console.log(`    - News: ${result.patterns.optimalWeights.news.toFixed(1)}%`);
+        console.log(`    - Financials: ${result.patterns.optimalWeights.financials.toFixed(1)}%`);
+        console.log(`    - Liquidity: ${result.patterns.optimalWeights.liquidity.toFixed(1)}%`);
+        console.log(`    - Institutional: ${result.patterns.optimalWeights.institutional.toFixed(1)}%`);
+        console.log(`    - Min AI confidence: ${result.patterns.optimalThresholds.minAiConfidence}%`);
+      }
+
+    } catch (error) {
+      console.error(`  ❌ Error optimizing model ${model.id}:`, error);
+    }
   }
 }
 
