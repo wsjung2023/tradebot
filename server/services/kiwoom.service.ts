@@ -172,6 +172,7 @@ export class KiwoomService {
     
     this.api = axios.create({
       baseURL: config.baseURL || 'https://openapi.kiwoom.com:9443',
+      timeout: 10000, // 10 seconds timeout
       headers: {
         'Content-Type': 'application/json; charset=utf-8',
       },
@@ -585,6 +586,29 @@ export class KiwoomService {
    * @returns List of condition formulas with name and index
    */
   async getConditionList(): Promise<ConditionListResponse> {
+    if (this.stubMode) {
+      // Return mock condition list including "뒷차기2"
+      return {
+        rt_cd: '0',
+        msg_cd: '0000',
+        msg1: 'OK',
+        output: [
+          {
+            condition_name: '뒷차기2',
+            condition_index: 0,
+          },
+          {
+            condition_name: '급등주',
+            condition_index: 1,
+          },
+          {
+            condition_name: '저점 매수',
+            condition_index: 2,
+          },
+        ],
+      } as any;
+    }
+    
     try {
       const response = await this.api.get<ConditionListResponse>(
         '/uapi/domestic-stock/v1/quotations/inquire-condition-list',
@@ -612,6 +636,26 @@ export class KiwoomService {
     conditionName: string,
     conditionIndex: number
   ): Promise<ConditionSearchResultsResponse> {
+    if (this.stubMode) {
+      // Return mock stocks matching the condition
+      // Include some Korean stocks that typically fit the "뒷차기2" pattern
+      return {
+        rt_cd: '0',
+        msg_cd: '0000',
+        msg1: 'OK',
+        output1: [
+          { stock_code: '005930', stock_name: '삼성전자' },
+          { stock_code: '035720', stock_name: '카카오' },
+          { stock_code: '051910', stock_name: 'LG화학' },
+          { stock_code: '035420', stock_name: 'NAVER' },
+          { stock_code: '068270', stock_name: '셀트리온' },
+          { stock_code: '207940', stock_name: '삼성바이오로직스' },
+          { stock_code: '005380', stock_name: '현대차' },
+          { stock_code: '000660', stock_name: 'SK하이닉스' },
+        ],
+      } as any;
+    }
+    
     try {
       const response = await this.api.get<ConditionSearchResultsResponse>(
         '/uapi/domestic-stock/v1/quotations/inquire-condition-search',
@@ -832,8 +876,10 @@ let kiwoomServiceInstance: KiwoomService | null = null;
 
 export function getKiwoomService(): KiwoomService {
   if (!kiwoomServiceInstance) {
-    const appKey = process.env.KIWOOM_APP_KEY || 'stub';
-    const appSecret = process.env.KIWOOM_APP_SECRET || 'stub';
+    // In development, always use stub mode for safety and testing
+    const isDevelopment = process.env.NODE_ENV === 'development';
+    const appKey = isDevelopment ? 'stub' : (process.env.KIWOOM_APP_KEY || 'stub');
+    const appSecret = isDevelopment ? 'stub' : (process.env.KIWOOM_APP_SECRET || 'stub');
 
     kiwoomServiceInstance = new KiwoomService({
       appKey,
