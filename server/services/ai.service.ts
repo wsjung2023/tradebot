@@ -66,7 +66,7 @@ export class AIService {
       temperature?: number;
     } = {}
   ): Promise<any> {
-    const { model = 'gpt-4', temperature = 0.3 } = options;
+    const { model = 'gpt-5.1', temperature = 0.3 } = options;
 
     try {
       const completion = await this.openai.chat.completions.create({
@@ -85,7 +85,7 @@ export class AIService {
 
   // ==================== Stock Analysis ====================
 
-  async analyzeStock(request: StockAnalysisRequest, model: string = 'gpt-4'): Promise<StockAnalysisResponse> {
+  async analyzeStock(request: StockAnalysisRequest, model: string = 'gpt-5.1'): Promise<StockAnalysisResponse> {
     const prompt = `You are a professional stock trading analyst. Analyze the following stock and provide actionable trading recommendations.
 
 Stock Information:
@@ -152,7 +152,7 @@ Format your response as JSON:
 
   // ==================== Portfolio Analysis ====================
 
-  async analyzePortfolio(request: PortfolioAnalysisRequest, model: string = 'gpt-4'): Promise<PortfolioAnalysisResponse> {
+  async analyzePortfolio(request: PortfolioAnalysisRequest, model: string = 'gpt-5.1'): Promise<PortfolioAnalysisResponse> {
     const portfolioSummary = request.holdings.map(h => ({
       code: h.stockCode,
       name: h.stockName,
@@ -215,7 +215,7 @@ Format as JSON:
 
   // ==================== Trading Strategy Generation ====================
 
-  async generateTradingStrategy(request: TradingStrategyRequest, model: string = 'gpt-4'): Promise<TradingStrategyResponse> {
+  async generateTradingStrategy(request: TradingStrategyRequest, model: string = 'gpt-5.1'): Promise<TradingStrategyResponse> {
     const prompt = `You are an algorithmic trading expert. Create a detailed trading strategy.
 
 Strategy Type: ${request.modelType}
@@ -267,7 +267,7 @@ Format as JSON:
 
   // ==================== Market Sentiment Analysis ====================
 
-  async analyzeMarketSentiment(marketData: any, model: string = 'gpt-4'): Promise<any> {
+  async analyzeMarketSentiment(marketData: any, model: string = 'gpt-5.1'): Promise<any> {
     const prompt = `Analyze the current market sentiment based on the following data:
 
 ${JSON.stringify(marketData, null, 2)}
@@ -300,7 +300,7 @@ Format as JSON.`;
   async generateTradingSignals(
     aiModel: AiModel,
     marketData: any[],
-    model: string = 'gpt-4'
+    model: string = 'gpt-5.1'
   ): Promise<Array<{ stockCode: string; stockName: string; action: string; confidence: number; reasoning: string }>> {
     const prompt = `You are an AI trading model: ${aiModel.modelName}
 Model Type: ${aiModel.modelType}
@@ -337,7 +337,7 @@ Return as JSON array of signals.`;
 
   // ==================== Backtesting Analysis ====================
 
-  async analyzeBacktest(backtestResults: any, model: string = 'gpt-4'): Promise<any> {
+  async analyzeBacktest(backtestResults: any, model: string = 'gpt-5.1'): Promise<any> {
     const prompt = `Analyze these backtesting results and provide insights:
 
 ${JSON.stringify(backtestResults, null, 2)}
