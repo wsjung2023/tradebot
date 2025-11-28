@@ -370,6 +370,9 @@ export const insertOrderSchema = createInsertSchema(orders, {
   orderType: z.enum(['buy', 'sell']),
   orderMethod: z.enum(['market', 'limit', 'conditional']),
   orderQuantity: z.number().int().positive(),
+  orderPrice: z.union([z.string(), z.number()]).optional().transform(val => 
+    val !== undefined && val !== null ? String(val) : undefined
+  ),
 }).omit({ 
   id: true, 
   createdAt: true, 
