@@ -85,6 +85,12 @@ const pgStore = new PgSession({
   }
 });
 
+// Cookie security: 
+// - In production: always secure (HTTPS only)
+// - In Replit dev: "auto" - let express-session decide based on request protocol
+// This allows cookies to work over both HTTP (curl) and HTTPS (browser)
+const cookieSecure = isProduction ? true : 'auto';
+
 const sessionMiddleware = session({
   store: pgStore,
   secret: sessionSecret,
@@ -92,28 +98,33 @@ const sessionMiddleware = session({
   saveUninitialized: false,
   name: 'connect.sid', // explicit cookie name
   rolling: true, // Reset cookie on each request to keep session alive
+  proxy: true, // Trust proxy for secure cookie detection
   cookie: {
     maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-    secure: isReplit || isProduction, // HTTPS in Replit or production
+    secure: cookieSecure, // Auto-detect in dev, always true in production
     httpOnly: true,
-    sameSite: 'lax', // CSRF protection, works well with Replit
+    sameSite: 'lax', // CSRF protection
   },
 });
 
 app.use(sessionMiddleware);
 
-// Middleware to clear invalid session cookies
-// If the session ID in cookie doesn't match server session, clear the cookie
-app.use((req, res, next) => {
+// Middleware to handle stale session cookies
+// If the session ID in cookie doesn't match server session, clear the stale cookie
+app.use((req: any, res, next) => {
   const rawCookies = req.headers.cookie || '';
   const cookieMatch = rawCookies.match(/connect\.sid=s%3A([^.]+)\./);
   const cookieSessionId = cookieMatch ? cookieMatch[1] : null;
   
   // If there's a cookie but it doesn't match the current session, it's stale
   if (cookieSessionId && cookieSessionId !== req.sessionID) {
-    // Session signature verification failed, clear the old cookie
-    res.clearCookie('connect.sid');
-    console.log(`[SESSION] Cleared stale cookie. Cookie had: ${cookieSessionId}, Server created: ${req.sessionID}`);
+    console.log(`[SESSION] Stale cookie detected. Cookie: ${cookieSessionId.substring(0, 8)}..., Server: ${req.sessionID.substring(0, 8)}...`);
+    // Clear the old cookie
+    res.clearCookie('connect.sid', {
+      path: '/',
+      httpOnly: true,
+      sameSite: 'lax'
+    });
   }
   next();
 });

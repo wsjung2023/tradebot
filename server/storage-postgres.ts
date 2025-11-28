@@ -143,7 +143,14 @@ export class PostgreSQLStorage implements IStorage {
   }
 
   async createOrder(order: InsertOrder): Promise<Order> {
-    const result = await db.insert(schema.orders).values([order]).returning();
+    // Set default values for required fields
+    const orderWithDefaults = {
+      ...order,
+      orderStatus: order.orderStatus || 'pending',
+      executedQuantity: order.executedQuantity ?? 0,
+      isAutoTrading: order.isAutoTrading ?? false,
+    };
+    const result = await db.insert(schema.orders).values([orderWithDefaults]).returning();
     return result[0];
   }
 
