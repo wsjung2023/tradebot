@@ -86,7 +86,7 @@ export const aiModels = pgTable("ai_models", {
   modelName: text("model_name").notNull(),
   modelType: text("model_type").notNull(), // 'momentum', 'value', 'technical', 'custom'
   description: text("description"),
-  config: jsonb("config").notNull(), // AI model parameters
+  config: jsonb("config").notNull().default({}), // AI model parameters
   isActive: boolean("is_active").notNull().default(false),
   performance: jsonb("performance"), // backtesting results
   totalTrades: integer("total_trades").notNull().default(0),
@@ -176,7 +176,7 @@ export const conditionFormulas = pgTable("condition_formulas", {
   userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
   conditionName: text("condition_name").notNull(),
   description: text("description"),
-  formulaAst: jsonb("formula_ast").notNull(), // Parsed formula AST: (A and B) or (C and D) and E...
+  formulaAst: jsonb("formula_ast").notNull().default({}), // Parsed formula AST: (A and B) or (C and D) and E...
   rawFormula: text("raw_formula"), // Original formula text
   marketType: text("market_type").notNull().default('ALL'), // 'ALL', 'KOSPI', 'KOSDAQ', 'KONEX'
   isActive: boolean("is_active").notNull().default(false),
@@ -212,7 +212,7 @@ export const chartFormulas = pgTable("chart_formulas", {
   formulaName: text("formula_name").notNull(),
   formulaType: text("formula_type").notNull(), // 'indicator', 'signal', 'condition'
   description: text("description"),
-  formulaAst: jsonb("formula_ast").notNull(), // Parsed formula AST
+  formulaAst: jsonb("formula_ast").notNull().default({}), // Parsed formula AST
   rawFormula: text("raw_formula").notNull(), // e.g., "CL=valuewhen((highest(h(1).period)<highest(h.period))..."
   outputType: text("output_type").notNull().default('line'), // 'line', 'bar', 'signal'
   color: text("color"), // For 7-color system: red, orange, yellow, green, blue, indigo, violet
@@ -227,7 +227,7 @@ export const watchlistSignals = pgTable("watchlist_signals", {
   id: serial("id").primaryKey(),
   watchlistId: integer("watchlist_id").notNull().references(() => watchlist.id, { onDelete: 'cascade' }),
   chartFormulaId: integer("chart_formula_id").references(() => chartFormulas.id),
-  signalData: jsonb("signal_data").notNull(), // Time-series data for 7 signal lines
+  signalData: jsonb("signal_data").notNull().default({}), // Time-series data for 7 signal lines
   currentSignal: text("current_signal"), // Current buy/sell signal
   signalStrength: decimal("signal_strength", { precision: 5, scale: 2 }), // 0-100
   lastCalculatedAt: timestamp("last_calculated_at").notNull().defaultNow(),
@@ -280,7 +280,7 @@ export const autoTradingSettings = pgTable("auto_trading_settings", {
   maxDailyTrades: integer("max_daily_trades").notNull().default(5),
   
   // 10-line rainbow chart settings (10% intervals from peak)
-  rainbowLineSettings: jsonb("rainbow_line_settings").notNull(), // Array of 10 objects: { line: 10-100, buyWeight: 0-100, sellWeight: 0-100 }
+  rainbowLineSettings: jsonb("rainbow_line_settings").notNull().default([]), // Array of 10 objects: { line: 10-100, buyWeight: 0-100, sellWeight: 0-100 }
   centerBuyLine: integer("center_buy_line").notNull().default(50), // 50% = primary buy zone
   
   // Entry/Exit conditions

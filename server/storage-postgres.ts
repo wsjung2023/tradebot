@@ -143,11 +143,11 @@ export class PostgreSQLStorage implements IStorage {
   }
 
   async createOrder(order: InsertOrder): Promise<Order> {
-    // Set default values for required fields
+    // Set default values for required database fields that are omitted from InsertOrder schema
     const orderWithDefaults = {
       ...order,
-      orderStatus: order.orderStatus || 'pending',
-      executedQuantity: order.executedQuantity ?? 0,
+      orderStatus: 'pending' as const,
+      executedQuantity: 0,
       isAutoTrading: order.isAutoTrading ?? false,
     };
     const result = await db.insert(schema.orders).values([orderWithDefaults]).returning();
@@ -204,7 +204,14 @@ export class PostgreSQLStorage implements IStorage {
   }
 
   async createAiRecommendation(recommendation: InsertAiRecommendation): Promise<AiRecommendation> {
-    const result = await db.insert(schema.aiRecommendations).values([recommendation]).returning();
+    // Ensure confidence is a string for database decimal type
+    const recWithNormalized = {
+      ...recommendation,
+      confidence: typeof recommendation.confidence === 'number' 
+        ? String(recommendation.confidence) 
+        : recommendation.confidence,
+    };
+    const result = await db.insert(schema.aiRecommendations).values([recWithNormalized]).returning();
     return result[0];
   }
 
