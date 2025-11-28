@@ -159,16 +159,21 @@ export function isAuthenticated(req: any, res: any, next: any) {
     } : null
   }) : 'no session';
   
+  // Parse cookie to extract session ID for comparison
+  const rawCookies = req.headers.cookie || '';
+  const cookieMatch = rawCookies.match(/connect\.sid=s%3A([^.]+)\./);
+  const cookieSessionId = cookieMatch ? cookieMatch[1] : 'not found';
+  
   // Log cookies for debugging
-  const cookies = req.headers.cookie || 'no cookies';
   const origin = req.headers.origin || 'no origin';
   const referer = req.headers.referer || 'no referer';
   
   console.log(`[AUTH] ${req.method} ${req.path}`);
   console.log(`  - isAuthenticated: ${isAuth}`);
-  console.log(`  - sessionID: ${req.sessionID}`);
+  console.log(`  - sessionID (server): ${req.sessionID}`);
+  console.log(`  - sessionID (cookie): ${cookieSessionId}`);
+  console.log(`  - MATCH: ${req.sessionID === cookieSessionId ? '✅' : '❌ MISMATCH'}`);
   console.log(`  - user: ${req.user ? `${req.user.id} (${req.user.email})` : 'none'}`);
-  console.log(`  - cookies: ${cookies.substring(0, 100)}...`);
   console.log(`  - origin: ${origin}, referer: ${referer}`);
   console.log(`  - session: ${sessionData}`);
   

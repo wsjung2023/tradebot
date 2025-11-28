@@ -91,15 +91,32 @@ const sessionMiddleware = session({
   resave: false,
   saveUninitialized: false,
   name: 'connect.sid', // explicit cookie name
+  rolling: true, // Reset cookie on each request to keep session alive
   cookie: {
     maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-    secure: true, // Always true in Replit (HTTPS)
+    secure: isReplit || isProduction, // HTTPS in Replit or production
     httpOnly: true,
-    sameSite: 'none', // Allow cross-origin requests (needed for some Replit setups)
+    sameSite: 'lax', // CSRF protection, works well with Replit
   },
 });
 
 app.use(sessionMiddleware);
+
+// Middleware to clear invalid session cookies
+// If the session ID in cookie doesn't match server session, clear the cookie
+app.use((req, res, next) => {
+  const rawCookies = req.headers.cookie || '';
+  const cookieMatch = rawCookies.match(/connect\.sid=s%3A([^.]+)\./);
+  const cookieSessionId = cookieMatch ? cookieMatch[1] : null;
+  
+  // If there's a cookie but it doesn't match the current session, it's stale
+  if (cookieSessionId && cookieSessionId !== req.sessionID) {
+    // Session signature verification failed, clear the old cookie
+    res.clearCookie('connect.sid');
+    console.log(`[SESSION] Cleared stale cookie. Cookie had: ${cookieSessionId}, Server created: ${req.sessionID}`);
+  }
+  next();
+});
 
 // Setup Passport authentication
 setupAuth(app);
