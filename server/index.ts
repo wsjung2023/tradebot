@@ -86,48 +86,27 @@ const pgStore = new PgSession({
 });
 
 // Cookie security: 
-// - In production: always secure (HTTPS only)
-// - In Replit dev: "auto" - let express-session decide based on request protocol
-// This allows cookies to work over both HTTP (curl) and HTTPS (browser)
-const cookieSecure = isProduction ? true : 'auto';
+// - In Replit: always use secure cookies (HTTPS environment)
+// - Locally: auto-detect based on protocol
+const cookieSecure = isReplit || isProduction;
 
 const sessionMiddleware = session({
   store: pgStore,
   secret: sessionSecret,
   resave: false,
   saveUninitialized: false,
-  name: 'connect.sid', // explicit cookie name
-  rolling: true, // Reset cookie on each request to keep session alive
-  proxy: true, // Trust proxy for secure cookie detection
+  name: 'connect.sid',
+  rolling: true,
+  proxy: true, // Trust proxy for secure cookie detection in Replit
   cookie: {
     maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-    secure: cookieSecure, // Auto-detect in dev, always true in production
+    secure: cookieSecure,
     httpOnly: true,
-    sameSite: 'lax', // CSRF protection
+    sameSite: 'lax', // Standard CSRF protection, works for same-site requests
   },
 });
 
 app.use(sessionMiddleware);
-
-// Middleware to handle stale session cookies
-// If the session ID in cookie doesn't match server session, clear the stale cookie
-app.use((req: any, res, next) => {
-  const rawCookies = req.headers.cookie || '';
-  const cookieMatch = rawCookies.match(/connect\.sid=s%3A([^.]+)\./);
-  const cookieSessionId = cookieMatch ? cookieMatch[1] : null;
-  
-  // If there's a cookie but it doesn't match the current session, it's stale
-  if (cookieSessionId && cookieSessionId !== req.sessionID) {
-    console.log(`[SESSION] Stale cookie detected. Cookie: ${cookieSessionId.substring(0, 8)}..., Server: ${req.sessionID.substring(0, 8)}...`);
-    // Clear the old cookie
-    res.clearCookie('connect.sid', {
-      path: '/',
-      httpOnly: true,
-      sameSite: 'lax'
-    });
-  }
-  next();
-});
 
 // Setup Passport authentication
 setupAuth(app);
