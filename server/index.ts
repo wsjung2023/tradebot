@@ -22,6 +22,10 @@ const PgSession = ConnectPgSimple(session);
 // Trust proxy for Replit environment (needed for rate limiting)
 app.set('trust proxy', 1);
 
+// Debug: Log session secret status (first 4 chars only)
+const sessionSecret = process.env.SESSION_SECRET || 'kiwoom-ai-trading-secret-key-change-in-production';
+console.log('[SESSION] Secret configured:', sessionSecret.substring(0, 4) + '...' + sessionSecret.substring(sessionSecret.length - 4));
+
 // Security Headers
 app.use(helmet({
   contentSecurityPolicy: process.env.NODE_ENV === 'production' ? {
@@ -67,20 +71,31 @@ app.use(express.json({
 app.use(express.urlencoded({ extended: false }));
 
 // Session configuration
+// In Replit, we're always on HTTPS so secure should be true
+const isReplit = !!process.env.REPLIT_DOMAINS;
+const isProduction = process.env.NODE_ENV === 'production';
+
+// Create session store with error handling
+const pgStore = new PgSession({
+  pool,
+  tableName: 'session',
+  createTableIfMissing: true,
+  errorLog: (err) => {
+    console.error('[SESSION STORE ERROR]', err);
+  }
+});
+
 const sessionMiddleware = session({
-  store: new PgSession({
-    pool,
-    tableName: 'session',
-    createTableIfMissing: true,
-  }),
-  secret: process.env.SESSION_SECRET || 'kiwoom-ai-trading-secret-key-change-in-production',
+  store: pgStore,
+  secret: sessionSecret,
   resave: false,
   saveUninitialized: false,
+  name: 'connect.sid', // explicit cookie name
   cookie: {
     maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-    secure: process.env.NODE_ENV === 'production',
+    secure: true, // Always true in Replit (HTTPS)
     httpOnly: true,
-    sameSite: 'lax', // CSRF protection
+    sameSite: 'none', // Allow cross-origin requests (needed for some Replit setups)
   },
 });
 

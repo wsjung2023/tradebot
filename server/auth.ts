@@ -117,6 +117,7 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
                 userId: user!.id,
                 tradingMode: 'mock',
                 riskLevel: 'medium',
+                aiModel: 'gpt-5.1',
               });
             }
           }
@@ -149,7 +150,28 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
 // Middleware to check if user is authenticated
 export function isAuthenticated(req: any, res: any, next: any) {
   const isAuth = req.isAuthenticated();
-  console.log(`[AUTH] ${req.method} ${req.path} - isAuthenticated: ${isAuth}, sessionID: ${req.sessionID}, user: ${req.user ? req.user.id : 'none'}`);
+  const sessionData = req.session ? JSON.stringify({
+    id: req.sessionID,
+    passport: req.session.passport,
+    cookie: req.session.cookie ? { 
+      maxAge: req.session.cookie.maxAge,
+      secure: req.session.cookie.secure 
+    } : null
+  }) : 'no session';
+  
+  // Log cookies for debugging
+  const cookies = req.headers.cookie || 'no cookies';
+  const origin = req.headers.origin || 'no origin';
+  const referer = req.headers.referer || 'no referer';
+  
+  console.log(`[AUTH] ${req.method} ${req.path}`);
+  console.log(`  - isAuthenticated: ${isAuth}`);
+  console.log(`  - sessionID: ${req.sessionID}`);
+  console.log(`  - user: ${req.user ? `${req.user.id} (${req.user.email})` : 'none'}`);
+  console.log(`  - cookies: ${cookies.substring(0, 100)}...`);
+  console.log(`  - origin: ${origin}, referer: ${referer}`);
+  console.log(`  - session: ${sessionData}`);
+  
   if (isAuth) {
     return next();
   }
@@ -174,15 +196,31 @@ export const localAuth = (req: any, res: any, next: any) => {
     if (err) return next(err);
     if (!user) return res.status(401).json({ error: info?.message || "Invalid credentials" });
     req.login(user, (loginErr: any) => {
-      if (loginErr) return next(loginErr);
-      // Sanitize user object - never leak password hash
-      return res.json({ 
-        user: { 
-          id: user.id, 
-          email: user.email, 
-          name: user.name,
-          profileImage: user.profileImage 
-        } 
+      if (loginErr) {
+        console.log('[LOGIN] ❌ req.login() failed:', loginErr);
+        return next(loginErr);
+      }
+      console.log('[LOGIN] ✅ Login succeeded');
+      console.log(`  - sessionID: ${req.sessionID}`);
+      console.log(`  - user.id: ${user.id}`);
+      console.log(`  - session.passport: ${JSON.stringify(req.session?.passport)}`);
+      
+      // Explicitly save session before responding to ensure it's persisted
+      req.session.save((saveErr: any) => {
+        if (saveErr) {
+          console.log('[LOGIN] ❌ session.save() failed:', saveErr);
+          return next(saveErr);
+        }
+        console.log('[LOGIN] ✅ Session saved to database');
+        // Sanitize user object - never leak password hash
+        return res.json({ 
+          user: { 
+            id: user.id, 
+            email: user.email, 
+            name: user.name,
+            profileImage: user.profileImage 
+          } 
+        });
       });
     });
   })(req, res, next);

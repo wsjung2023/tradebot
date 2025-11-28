@@ -71,6 +71,7 @@ export async function registerRoutes(app: Express, sessionMiddleware: any): Prom
         userId: user.id,
         tradingMode: 'mock',
         riskLevel: 'medium',
+        aiModel: 'gpt-5.1',
       });
 
       req.login(user, (err) => {
