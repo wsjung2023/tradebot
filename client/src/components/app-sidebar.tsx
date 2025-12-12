@@ -15,6 +15,7 @@ import {
   LineChart,
   Code2,
   Rainbow,
+  GraduationCap,
 } from "lucide-react";
 import {
   Sidebar,
@@ -42,6 +43,11 @@ const menuItems = [
     title: "사용 가이드",
     url: "/guide",
     icon: BookOpen,
+  },
+  {
+    title: "튜토리얼",
+    url: "/tutorial",
+    icon: GraduationCap,
   },
   {
     title: "거래",

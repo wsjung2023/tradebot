@@ -17,6 +17,7 @@ import TradeHistory from "@/pages/trade-history";
 import Watchlist from "@/pages/watchlist";
 import Settings from "@/pages/settings";
 import Guide from "@/pages/guide";
+import Tutorial from "@/pages/tutorial";
 import Accounts from "@/pages/accounts";
 import ConditionFormulas from "@/pages/condition-formulas";
 import ConditionScreening from "@/pages/condition-screening";
@@ -77,6 +78,7 @@ function AuthenticatedRouter() {
             <Switch>
               <Route path="/" component={Dashboard} />
               <Route path="/guide" component={Guide} />
+              <Route path="/tutorial" component={Tutorial} />
               <Route path="/accounts" component={Accounts} />
               <Route path="/trading" component={Trading} />
               <Route path="/ai-analysis" component={AIAnalysis} />
