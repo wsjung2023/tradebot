@@ -203,19 +203,19 @@ export default function Settings() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-3 md:p-6 space-y-4 md:space-y-6">
       <div>
-        <h1 className="text-3xl font-bold" data-testid="text-settings-title">설정</h1>
-        <p className="text-muted-foreground">계정 및 거래 설정 관리</p>
+        <h1 className="text-2xl md:text-3xl font-bold" data-testid="text-settings-title">설정</h1>
+        <p className="text-sm md:text-base text-muted-foreground">계정 및 거래 설정 관리</p>
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Key className="h-5 w-5" />
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base md:text-lg">
+            <Key className="h-4 w-4 md:h-5 md:w-5" />
             키움증권 API 키 관리
           </CardTitle>
-          <CardDescription>
+          <CardDescription className="text-xs md:text-sm">
             키움증권 OpenAPI에 연결하려면 APP KEY와 APP SECRET이 필요합니다
           </CardDescription>
         </CardHeader>

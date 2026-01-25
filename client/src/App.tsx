@@ -62,8 +62,8 @@ function ProtectedRoute({ component: Component, ...rest }: any) {
 
 function AuthenticatedRouter() {
   const style = {
-    "--sidebar-width": "20rem",
-    "--sidebar-width-icon": "4rem",
+    "--sidebar-width": "16rem",
+    "--sidebar-width-icon": "3rem",
   };
 
   return (

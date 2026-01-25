@@ -207,15 +207,15 @@ export default function AutoTrading() {
   }
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="p-3 md:p-6 space-y-4 md:space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold" data-testid="text-auto-trading-title">자동매매</h1>
-          <p className="text-muted-foreground">AI 기반 자동매매 모델 관리</p>
+          <h1 className="text-2xl md:text-3xl font-bold" data-testid="text-auto-trading-title">자동매매</h1>
+          <p className="text-sm md:text-base text-muted-foreground">AI 기반 자동매매 모델 관리</p>
         </div>
         <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
           <DialogTrigger asChild>
-            <Button data-testid="button-create-model">
+            <Button data-testid="button-create-model" className="w-full sm:w-auto">
               <Plus className="mr-2 h-4 w-4" />
               새 모델 생성
             </Button>
@@ -329,21 +329,21 @@ export default function AutoTrading() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
           {models.map((model) => (
             <Card key={model.id} data-testid={`card-model-${model.id}`}>
-              <CardHeader>
-                <div className="flex items-start justify-between">
-                  <div className="space-y-1 flex-1">
-                    <div className="flex items-center gap-2">
-                      <CardTitle>{model.modelName}</CardTitle>
-                      <Badge variant="secondary">{getModelTypeLabel(model.modelType)}</Badge>
+              <CardHeader className="pb-3">
+                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                  <div className="space-y-1 flex-1 min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <CardTitle className="text-base md:text-lg truncate">{model.modelName}</CardTitle>
+                      <Badge variant="secondary" className="text-xs">{getModelTypeLabel(model.modelType)}</Badge>
                     </div>
                     {model.description && (
-                      <CardDescription>{model.description}</CardDescription>
+                      <CardDescription className="text-xs md:text-sm line-clamp-2">{model.description}</CardDescription>
                     )}
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 shrink-0">
                     <Switch
                       checked={model.isActive}
                       onCheckedChange={(checked) => {
@@ -363,20 +363,20 @@ export default function AutoTrading() {
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="rounded-md border bg-card p-4">
+                <div className="grid grid-cols-3 gap-2 md:gap-4">
+                  <div className="rounded-md border bg-card p-2 md:p-4">
                     <p className="text-xs text-muted-foreground">총 거래</p>
-                    <p className="text-lg font-bold">{model.totalTrades}</p>
+                    <p className="text-base md:text-lg font-bold">{model.totalTrades}</p>
                   </div>
-                  <div className="rounded-md border bg-card p-4">
+                  <div className="rounded-md border bg-card p-2 md:p-4">
                     <p className="text-xs text-muted-foreground">승률</p>
-                    <p className="text-lg font-bold">
+                    <p className="text-base md:text-lg font-bold">
                       {model.winRate ? `${parseFloat(model.winRate).toFixed(1)}%` : 'N/A'}
                     </p>
                   </div>
-                  <div className="rounded-md border bg-card p-4">
+                  <div className="rounded-md border bg-card p-2 md:p-4">
                     <p className="text-xs text-muted-foreground">수익률</p>
-                    <p className="text-lg font-bold">
+                    <p className="text-base md:text-lg font-bold">
                       {model.totalReturn ? `${parseFloat(model.totalReturn).toFixed(2)}%` : 'N/A'}
                     </p>
                   </div>

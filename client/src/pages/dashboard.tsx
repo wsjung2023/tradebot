@@ -105,11 +105,11 @@ export default function Dashboard() {
       {/* Animated gradient background */}
       <div className="fixed inset-0 bg-gradient-to-br from-[hsl(var(--background))] via-[hsl(var(--neon-cyan))]/5 to-[hsl(var(--neon-purple))]/5 animate-gradient-flow -z-10" />
       
-      <div className="p-6 space-y-6 relative z-0">
-        <div className="flex items-center justify-between">
+      <div className="p-3 md:p-6 space-y-4 md:space-y-6 relative z-0">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <h1 className="text-3xl font-bold text-gradient-cyber" data-testid="text-dashboard-title">대시보드</h1>
-            <p className="text-muted-foreground">AI 기반 자동매매 플랫폼</p>
+            <h1 className="text-2xl md:text-3xl font-bold text-gradient-cyber" data-testid="text-dashboard-title">대시보드</h1>
+            <p className="text-sm md:text-base text-muted-foreground">AI 기반 자동매매 플랫폼</p>
           </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
@@ -172,48 +172,50 @@ export default function Dashboard() {
       </div>
 
       {accounts && accounts.length > 0 && (
-        <div className="flex items-center gap-4">
-          <Label>계좌 선택:</Label>
-          <Select
-            value={selectedAccountId?.toString()}
-            onValueChange={(value) => setSelectedAccountId(parseInt(value))}
-          >
-            <SelectTrigger className="w-64" data-testid="select-account">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {accounts.map((acc: any) => (
-                <SelectItem key={acc.id} value={acc.id.toString()}>
-                  {acc.accountName || acc.accountNumber} ({acc.accountType === 'real' ? '실계좌' : '모의투자'})
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {selectedAccountId && (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => {
-                if (confirm("이 계좌를 삭제하시겠습니까?")) {
-                  deleteAccountMutation.mutate(selectedAccountId);
-                }
-              }}
-              data-testid="button-delete-account"
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+          <Label className="text-sm">계좌 선택:</Label>
+          <div className="flex items-center gap-2 flex-1">
+            <Select
+              value={selectedAccountId?.toString()}
+              onValueChange={(value) => setSelectedAccountId(parseInt(value))}
             >
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          )}
+              <SelectTrigger className="w-full sm:w-64" data-testid="select-account">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {accounts.map((acc: any) => (
+                  <SelectItem key={acc.id} value={acc.id.toString()}>
+                    {acc.accountName || acc.accountNumber} ({acc.accountType === 'real' ? '실계좌' : '모의투자'})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {selectedAccountId && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => {
+                  if (confirm("이 계좌를 삭제하시겠습니까?")) {
+                    deleteAccountMutation.mutate(selectedAccountId);
+                  }
+                }}
+                data-testid="button-delete-account"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
         </div>
       )}
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
         <Card className="hover-elevate transition-all duration-300 border-[hsl(var(--neon-cyan))]/20">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">총 자산</CardTitle>
-            <Wallet className="h-5 w-5 text-[hsl(var(--neon-cyan))]" />
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 gap-2">
+            <CardTitle className="text-xs md:text-sm font-medium">총 자산</CardTitle>
+            <Wallet className="h-4 w-4 md:h-5 md:w-5 text-[hsl(var(--neon-cyan))]" />
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold font-mono text-glow-cyan" data-testid="text-total-assets">
+          <CardContent className="pt-0">
+            <div className="text-lg md:text-2xl font-bold font-mono text-glow-cyan truncate" data-testid="text-total-assets">
               {formatCurrency(totalAssets)}
             </div>
             <p className="text-xs text-muted-foreground">
@@ -223,13 +225,13 @@ export default function Dashboard() {
         </Card>
 
         <Card className="hover-elevate transition-all duration-300 border-[hsl(var(--neon-green))]/20">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">오늘 수익</CardTitle>
-            <TrendingUp className="h-5 w-5 text-[hsl(var(--neon-green))]" />
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 gap-2">
+            <CardTitle className="text-xs md:text-sm font-medium">오늘 수익</CardTitle>
+            <TrendingUp className="h-4 w-4 md:h-5 md:w-5 text-[hsl(var(--neon-green))]" />
           </CardHeader>
-          <CardContent>
+          <CardContent className="pt-0">
             <div
-              className={`text-2xl font-bold font-mono ${todayProfit > 0 ? 'text-[hsl(var(--neon-green))] animate-price-pulse' : todayProfit < 0 ? 'text-[hsl(var(--neon-red))]' : ''}`}
+              className={`text-lg md:text-2xl font-bold font-mono truncate ${todayProfit > 0 ? 'text-[hsl(var(--neon-green))] animate-price-pulse' : todayProfit < 0 ? 'text-[hsl(var(--neon-red))]' : ''}`}
               data-testid="text-today-profit"
             >
               {formatCurrency(todayProfit)}
@@ -241,12 +243,12 @@ export default function Dashboard() {
         </Card>
 
         <Card className="hover-elevate transition-all duration-300 border-[hsl(var(--neon-purple))]/20">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">누적 수익률</CardTitle>
-            <Target className="h-5 w-5 text-[hsl(var(--neon-purple))]" />
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 gap-2">
+            <CardTitle className="text-xs md:text-sm font-medium">누적 수익률</CardTitle>
+            <Target className="h-4 w-4 md:h-5 md:w-5 text-[hsl(var(--neon-purple))]" />
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold font-mono" data-testid="text-total-return">
+          <CardContent className="pt-0">
+            <div className="text-lg md:text-2xl font-bold font-mono" data-testid="text-total-return">
               {formatPercent(balance?.totalReturn)}
             </div>
             <p className="text-xs text-muted-foreground">
@@ -256,12 +258,12 @@ export default function Dashboard() {
         </Card>
 
         <Card className="hover-elevate transition-all duration-300 border-primary/30">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">거래 모드</CardTitle>
-            <TrendingDown className={`h-5 w-5 ${settings?.tradingMode === 'real' ? 'text-[hsl(var(--neon-cyan))] animate-pulse-glow' : 'text-muted-foreground'}`} />
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 gap-2">
+            <CardTitle className="text-xs md:text-sm font-medium">거래 모드</CardTitle>
+            <TrendingDown className={`h-4 w-4 md:h-5 md:w-5 ${settings?.tradingMode === 'real' ? 'text-[hsl(var(--neon-cyan))] animate-pulse-glow' : 'text-muted-foreground'}`} />
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold" data-testid="text-trading-mode">
+          <CardContent className="pt-0">
+            <div className="text-lg md:text-2xl font-bold" data-testid="text-trading-mode">
               {settings?.tradingMode === 'real' ? '실전' : '모의'}
             </div>
             <p className="text-xs text-muted-foreground">
@@ -271,18 +273,18 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-3 md:gap-4 grid-cols-1 md:grid-cols-2">
         <Card className="hover-elevate">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base md:text-lg">
               포트폴리오 구성
               <div className="w-2 h-2 rounded-full bg-[hsl(var(--neon-cyan))] animate-pulse-glow" />
             </CardTitle>
-            <CardDescription>종목별 비중</CardDescription>
+            <CardDescription className="text-xs md:text-sm">종목별 비중</CardDescription>
           </CardHeader>
           <CardContent>
             {holdings && holdings.length > 0 ? (
-              <ResponsiveContainer width="100%" height={300}>
+              <ResponsiveContainer width="100%" height={200} className="md:!h-[300px]">
                 <PieChart>
                   <Pie
                     data={holdings.map((h: any) => ({

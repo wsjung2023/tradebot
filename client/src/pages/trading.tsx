@@ -108,20 +108,20 @@ export default function Trading() {
   };
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-3 md:p-6 space-y-4 md:space-y-6">
       <div>
-        <h1 className="text-3xl font-bold" data-testid="text-trading-title">거래</h1>
-        <p className="text-muted-foreground">실시간 매매 및 차트 분석</p>
+        <h1 className="text-2xl md:text-3xl font-bold" data-testid="text-trading-title">거래</h1>
+        <p className="text-sm md:text-base text-muted-foreground">실시간 매매 및 차트 분석</p>
       </div>
 
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <Label>종목 코드:</Label>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+          <Label className="text-sm">종목 코드:</Label>
           <Input
             placeholder="종목코드 입력 (예: 005930)"
             value={stockCode}
             onChange={(e) => setStockCode(e.target.value)}
-            className="w-64"
+            className="w-full sm:w-64"
             data-testid="input-stock-code"
           />
         </div>
@@ -134,14 +134,14 @@ export default function Trading() {
       </div>
 
       {stockPrice && (
-        <div className="grid gap-4 md:grid-cols-4">
+        <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">현재가</CardTitle>
-              <DollarSign className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-xs md:text-sm font-medium">현재가</CardTitle>
+              <DollarSign className="h-3 w-3 md:h-4 md:w-4 text-muted-foreground" />
             </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold font-mono" data-testid="text-current-price">
+            <CardContent className="pt-0">
+              <div className="text-lg md:text-2xl font-bold font-mono truncate" data-testid="text-current-price">
                 {formatCurrency(stockPrice.currentPrice)}
               </div>
               <p className={`text-xs ${stockPrice.changeRate > 0 ? 'text-green-600 dark:text-green-400' : stockPrice.changeRate < 0 ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground'}`}>
@@ -152,11 +152,11 @@ export default function Trading() {
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">전일 대비</CardTitle>
-              <TrendingUp className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-xs md:text-sm font-medium">전일 대비</CardTitle>
+              <TrendingUp className="h-3 w-3 md:h-4 md:w-4 text-muted-foreground" />
             </CardHeader>
-            <CardContent>
-              <div className={`text-2xl font-bold font-mono ${stockPrice.change > 0 ? 'text-green-600 dark:text-green-400' : stockPrice.change < 0 ? 'text-red-600 dark:text-red-400' : ''}`}>
+            <CardContent className="pt-0">
+              <div className={`text-lg md:text-2xl font-bold font-mono truncate ${stockPrice.change > 0 ? 'text-green-600 dark:text-green-400' : stockPrice.change < 0 ? 'text-red-600 dark:text-red-400' : ''}`}>
                 {stockPrice.change > 0 ? '+' : ''}{formatCurrency(stockPrice.change)}
               </div>
             </CardContent>
@@ -164,33 +164,33 @@ export default function Trading() {
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">시가</CardTitle>
+              <CardTitle className="text-xs md:text-sm font-medium">시가</CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold font-mono">{formatCurrency(stockPrice.openPrice)}</div>
+            <CardContent className="pt-0">
+              <div className="text-lg md:text-2xl font-bold font-mono truncate">{formatCurrency(stockPrice.openPrice)}</div>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">거래량</CardTitle>
+              <CardTitle className="text-xs md:text-sm font-medium">거래량</CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold font-mono">{stockPrice.volume?.toLocaleString()}</div>
+            <CardContent className="pt-0">
+              <div className="text-lg md:text-2xl font-bold font-mono truncate">{stockPrice.volume?.toLocaleString()}</div>
             </CardContent>
           </Card>
         </div>
       )}
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card className="md:col-span-2">
-          <CardHeader>
-            <CardTitle>{stockPrice?.stockName || stockCode} 차트</CardTitle>
-            <CardDescription>일봉 차트</CardDescription>
+      <div className="grid gap-3 md:gap-4 grid-cols-1 lg:grid-cols-3">
+        <Card className="lg:col-span-2">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base md:text-lg">{stockPrice?.stockName || stockCode} 차트</CardTitle>
+            <CardDescription className="text-xs md:text-sm">일봉 차트</CardDescription>
           </CardHeader>
           <CardContent>
             {chartData && chartData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={400}>
+              <ResponsiveContainer width="100%" height={250} className="md:!h-[400px]">
                 <LineChart data={chartData}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="date" />
