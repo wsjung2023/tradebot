@@ -1,6 +1,6 @@
-import { Router } from 'express';
+﻿import { Router } from 'express';
 import { RainbowChartAnalyzer, OHLCVData } from '../formula/rainbow-chart';
-import { getKiwoomService } from '../services/kiwoom.service';
+import { getKiwoomService } from '../services/kiwoom';
 import { isAuthenticated } from '../auth';
 
 export const rainbowRouter = Router();
@@ -122,3 +122,4 @@ rainbowRouter.get('/:stockCode', isAuthenticated, async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+

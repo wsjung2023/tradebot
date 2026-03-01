@@ -3,7 +3,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { WebSocketServer } from "ws";
 import { MarketDataHub } from "../market-data-hub";
-import { getKiwoomService } from "../services/kiwoom.service";
+import { getKiwoomService } from "../services/kiwoom";
 import { rainbowRouter } from "./rainbow";
 import { registerAuthRoutes } from "./auth.routes";
 import { registerAccountRoutes } from "./account.routes";
@@ -54,3 +54,4 @@ export async function registerRoutes(app: Express, sessionMiddleware: any): Prom
 
   return httpServer;
 }
+

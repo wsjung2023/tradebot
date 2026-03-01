@@ -3,7 +3,7 @@ import type { Router } from "express";
 import { storage } from "../storage";
 import { isAuthenticated, getCurrentUser } from "../auth";
 import { insertOrderSchema } from "@shared/schema";
-import { getKiwoomService } from "../services/kiwoom.service";
+import { getKiwoomService } from "../services/kiwoom";
 
 export function registerTradingRoutes(app: Router) {
   const kiwoomService = getKiwoomService();
@@ -118,3 +118,4 @@ export function registerTradingRoutes(app: Router) {
     }
   });
 }
+

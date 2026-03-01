@@ -10,7 +10,7 @@ import {
 } from "@shared/schema";
 import { parseFormula } from "../services/formula/parser";
 import { FormulaEvaluator } from "../services/formula/evaluator";
-import { getKiwoomService } from "../services/kiwoom.service";
+import { getKiwoomService } from "../services/kiwoom";
 import { z } from "zod";
 
 export function registerFormulaRoutes(app: Router) {
@@ -344,3 +344,4 @@ export function registerFormulaRoutes(app: Router) {
     }
   });
 }
+

@@ -2,7 +2,7 @@
 import type { Router } from "express";
 import { storage } from "../storage";
 import { isAuthenticated, getCurrentUser } from "../auth";
-import { getKiwoomService } from "../services/kiwoom.service";
+import { getKiwoomService } from "../services/kiwoom";
 import { getAIService } from "../services/ai.service";
 import { RainbowChartAnalyzer } from "../formula/rainbow-chart";
 
@@ -147,3 +147,4 @@ export function registerAutoTradingRoutes(app: Router) {
     }
   });
 }
+
