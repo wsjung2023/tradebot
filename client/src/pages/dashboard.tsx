@@ -27,12 +27,12 @@ export default function Dashboard() {
     queryKey: ['/api/settings'],
   });
 
-  const { data: balance } = useQuery({
+  const { data: balance, error: balanceError } = useQuery({
     queryKey: ['/api/accounts', selectedAccountId, 'balance'],
     enabled: !!selectedAccountId,
   });
 
-  const { data: holdings } = useQuery({
+  const { data: holdings, error: holdingsError } = useQuery({
     queryKey: ['/api/accounts', selectedAccountId, 'holdings'],
     enabled: !!selectedAccountId,
   });
@@ -159,7 +159,11 @@ export default function Dashboard() {
                 </Select>
               </div>
               <Button
-                onClick={() => addAccountMutation.mutate({ accountNumber, accountName, accountType })}
+                onClick={() => addAccountMutation.mutate({
+                  accountNumber: accountNumber.replace(/\D/g, ""),
+                  accountName,
+                  accountType,
+                })}
                 disabled={!accountNumber || addAccountMutation.isPending}
                 className="w-full"
                 data-testid="button-submit-account"
@@ -272,6 +276,16 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {(balanceError || holdingsError) && (
+        <Card className="border-destructive/40 bg-destructive/5">
+          <CardContent className="pt-6">
+            <p className="text-sm text-destructive">
+              계좌 데이터를 불러오지 못했습니다. 계좌번호 형식(숫자만 입력)과 API 설정을 확인해주세요.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid gap-3 md:gap-4 grid-cols-1 md:grid-cols-2">
         <Card className="hover-elevate">
