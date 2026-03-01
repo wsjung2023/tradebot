@@ -31,7 +31,9 @@ export class KiwoomService extends KiwoomBase {
   }
 
   // 계좌
-  getAccountBalance(accountNumber: string) { return this.account.getAccountBalance(accountNumber); }
+  getAccountBalance(accountNumber: string, accountType: "mock" | "real" = "real") {
+    return this.account.getAccountBalance(accountNumber, accountType);
+  }
 
   // 시세/차트/검색
   getStockPrice(stockCode: string) { return this.market.getStockPrice(stockCode); }
@@ -68,6 +70,10 @@ export function getKiwoomService(): KiwoomService {
     });
   }
   return kiwoomServiceInstance;
+}
+
+export function createKiwoomService(config: KiwoomConfig): KiwoomService {
+  return new KiwoomService(config);
 }
 
 export type {

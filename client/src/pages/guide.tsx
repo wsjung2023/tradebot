@@ -98,7 +98,7 @@ export default function Guide() {
               <div>
                 <p className="font-medium">계좌번호 입력</p>
                 <p className="text-sm text-muted-foreground">
-                  키움증권 계좌번호를 입력하세요 (예: 1234-56-789012)
+                  키움증권 계좌번호를 입력하세요 (하이픈 없이 숫자만 입력 권장)
                 </p>
               </div>
             </div>
