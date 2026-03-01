@@ -72,6 +72,10 @@ export function getKiwoomService(): KiwoomService {
   return kiwoomServiceInstance;
 }
 
+export function createKiwoomService(config: KiwoomConfig): KiwoomService {
+  return new KiwoomService(config);
+}
+
 export type {
   KiwoomConfig, AccountBalanceResponse, StockPriceResponse,
   OrderRequest, OrderResponse, ConditionListResponse,

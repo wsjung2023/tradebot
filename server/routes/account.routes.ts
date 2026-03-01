@@ -3,10 +3,17 @@ import type { Router } from "express";
 import { storage } from "../storage";
 import { isAuthenticated, getCurrentUser } from "../auth";
 import { insertKiwoomAccountSchema } from "@shared/schema";
-import { getKiwoomService } from "../services/kiwoom";
+import { createKiwoomService, getKiwoomService } from "../services/kiwoom";
+import { decrypt } from "../utils/crypto";
 
 export function registerAccountRoutes(app: Router) {
-  const kiwoomService = getKiwoomService();
+  const normalizeAccountNumber = (accountNumber: string) => accountNumber.replace(/\D/g, "");
+
+  const getAuthorizedAccount = async (userId: string, accountId: number) => {
+    const account = await storage.getKiwoomAccount(accountId);
+    if (!account || account.userId !== userId) return null;
+    return account;
+  };
 
   const normalizeAccountNumber = (accountNumber: string) => accountNumber.replace(/\D/g, "");
 
@@ -40,7 +47,12 @@ export function registerAccountRoutes(app: Router) {
   // 계좌 삭제
   app.delete("/api/accounts/:id", isAuthenticated, async (req, res) => {
     try {
-      await storage.deleteKiwoomAccount(parseInt(req.params.id));
+      const user = getCurrentUser(req);
+      const accountId = parseInt(req.params.id);
+      const account = await getAuthorizedAccount(user!.id, accountId);
+      if (!account) return res.status(404).json({ error: "Account not found" });
+
+      await storage.deleteKiwoomAccount(accountId);
       res.json({ message: "Account deleted" });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -50,7 +62,12 @@ export function registerAccountRoutes(app: Router) {
   // 보유 종목 조회
   app.get("/api/accounts/:accountId/holdings", isAuthenticated, async (req, res) => {
     try {
-      const holdings = await storage.getHoldings(parseInt(req.params.accountId));
+      const user = getCurrentUser(req);
+      const accountId = parseInt(req.params.accountId);
+      const account = await getAuthorizedAccount(user!.id, accountId);
+      if (!account) return res.status(404).json({ error: "Account not found" });
+
+      const holdings = await storage.getHoldings(accountId);
       res.json(holdings);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -60,8 +77,27 @@ export function registerAccountRoutes(app: Router) {
   // 계좌 잔고 및 자산 히스토리 조회
   app.get("/api/accounts/:accountId/balance", isAuthenticated, async (req, res) => {
     try {
-      const account = await storage.getKiwoomAccount(parseInt(req.params.accountId));
+      const user = getCurrentUser(req);
+      const accountId = parseInt(req.params.accountId);
+      const account = await getAuthorizedAccount(user!.id, accountId);
       if (!account) return res.status(404).json({ error: "Account not found" });
+
+      const settings = await storage.getUserSettings(user!.id);
+      const hasUserKeys = !!settings?.kiwoomAppKey && !!settings?.kiwoomAppSecret;
+      const hasServerKeys = !!process.env.KIWOOM_APP_KEY && !!process.env.KIWOOM_APP_SECRET;
+
+      if (!hasUserKeys && !hasServerKeys) {
+        return res.status(400).json({
+          error: "Kiwoom API keys are required. Configure them in Settings or server environment.",
+        });
+      }
+
+      const kiwoomService = hasUserKeys
+        ? createKiwoomService({
+            appKey: decrypt(settings!.kiwoomAppKey!),
+            appSecret: decrypt(settings!.kiwoomAppSecret!),
+          })
+        : getKiwoomService();
 
       const accountNumber = normalizeAccountNumber(account.accountNumber);
       const accountType = account.accountType === "mock" ? "mock" : "real";
@@ -124,8 +160,13 @@ export function registerAccountRoutes(app: Router) {
   // 계좌별 주문 내역 조회
   app.get("/api/accounts/:accountId/orders", isAuthenticated, async (req, res) => {
     try {
+      const user = getCurrentUser(req);
+      const accountId = parseInt(req.params.accountId);
+      const account = await getAuthorizedAccount(user!.id, accountId);
+      if (!account) return res.status(404).json({ error: "Account not found" });
+
       const limit = req.query.limit ? parseInt(req.query.limit as string) : 100;
-      const orders = await storage.getOrders(parseInt(req.params.accountId), limit);
+      const orders = await storage.getOrders(accountId, limit);
       res.json(orders);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
