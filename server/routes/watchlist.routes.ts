@@ -3,9 +3,20 @@ import type { Router } from "express";
 import { storage } from "../storage";
 import { isAuthenticated, getCurrentUser } from "../auth";
 import { insertWatchlistSchema, insertAlertSchema, insertWatchlistSignalSchema } from "@shared/schema";
+import { encrypt } from "../utils/crypto";
 import { z } from "zod";
 
 export function registerWatchlistRoutes(app: Router) {
+  const formatSettingsResponse = (settings: any) => {
+    if (!settings) return settings;
+
+    return {
+      ...settings,
+      hasKiwoomKeys: !!settings.kiwoomAppKey && !!settings.kiwoomAppSecret,
+      kiwoomAppKey: undefined,
+      kiwoomAppSecret: undefined,
+    };
+  };
 
   // 관심종목 목록
   app.get("/api/watchlist", isAuthenticated, async (req, res) => {
@@ -73,7 +84,8 @@ export function registerWatchlistRoutes(app: Router) {
   app.get("/api/settings", isAuthenticated, async (req, res) => {
     try {
       const user = getCurrentUser(req);
-      res.json(await storage.getUserSettings(user!.id));
+      const settings = await storage.getUserSettings(user!.id);
+      res.json(formatSettingsResponse(settings));
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -83,7 +95,22 @@ export function registerWatchlistRoutes(app: Router) {
   app.patch("/api/settings", isAuthenticated, async (req, res) => {
     try {
       const user = getCurrentUser(req);
-      res.json(await storage.updateUserSettings(user!.id, req.body));
+      const updates = { ...req.body };
+
+      if (typeof updates.kiwoomAppKey === "string" && updates.kiwoomAppKey.trim()) {
+        updates.kiwoomAppKey = encrypt(updates.kiwoomAppKey.trim());
+      } else {
+        delete updates.kiwoomAppKey;
+      }
+
+      if (typeof updates.kiwoomAppSecret === "string" && updates.kiwoomAppSecret.trim()) {
+        updates.kiwoomAppSecret = encrypt(updates.kiwoomAppSecret.trim());
+      } else {
+        delete updates.kiwoomAppSecret;
+      }
+
+      const settings = await storage.updateUserSettings(user!.id, updates);
+      res.json(formatSettingsResponse(settings));
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }

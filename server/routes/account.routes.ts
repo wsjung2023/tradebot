@@ -4,6 +4,7 @@ import { storage } from "../storage";
 import { isAuthenticated, getCurrentUser } from "../auth";
 import { insertKiwoomAccountSchema } from "@shared/schema";
 import { createKiwoomService, getKiwoomService } from "../services/kiwoom";
+import { decrypt } from "../utils/crypto";
 
 export function registerAccountRoutes(app: Router) {
   const normalizeAccountNumber = (accountNumber: string) => accountNumber.replace(/\D/g, "");
@@ -91,8 +92,8 @@ export function registerAccountRoutes(app: Router) {
 
       const kiwoomService = hasUserKeys
         ? createKiwoomService({
-            appKey: settings!.kiwoomAppKey!,
-            appSecret: settings!.kiwoomAppSecret!,
+            appKey: decrypt(settings!.kiwoomAppKey!),
+            appSecret: decrypt(settings!.kiwoomAppSecret!),
           })
         : getKiwoomService();
 
