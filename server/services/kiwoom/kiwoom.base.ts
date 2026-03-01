@@ -137,7 +137,7 @@ export class KiwoomBase {
 
   protected async authenticate(): Promise<void> {
     try {
-      const response = await this.api.post("/oauth2/token", {
+      const response = await this.api.post("/oauth2/tokenP", {
         grant_type: "client_credentials",
         appkey: this.appKey,
         appsecret: this.appSecret,
