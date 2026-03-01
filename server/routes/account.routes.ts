@@ -8,6 +8,8 @@ import { getKiwoomService } from "../services/kiwoom";
 export function registerAccountRoutes(app: Router) {
   const kiwoomService = getKiwoomService();
 
+  const normalizeAccountNumber = (accountNumber: string) => accountNumber.replace(/\D/g, "");
+
   // 계좌 목록 조회
   app.get("/api/accounts", isAuthenticated, async (req, res) => {
     try {
@@ -23,7 +25,11 @@ export function registerAccountRoutes(app: Router) {
   app.post("/api/accounts", isAuthenticated, async (req, res) => {
     try {
       const user = getCurrentUser(req);
-      const accountData = insertKiwoomAccountSchema.parse({ ...req.body, userId: user!.id });
+      const accountData = insertKiwoomAccountSchema.parse({
+        ...req.body,
+        accountNumber: normalizeAccountNumber(req.body.accountNumber || ""),
+        userId: user!.id,
+      });
       const account = await storage.createKiwoomAccount(accountData);
       res.json(account);
     } catch (error: any) {
@@ -57,7 +63,35 @@ export function registerAccountRoutes(app: Router) {
       const account = await storage.getKiwoomAccount(parseInt(req.params.accountId));
       if (!account) return res.status(404).json({ error: "Account not found" });
 
-      const balance = await kiwoomService.getAccountBalance(account.accountNumber);
+      const accountNumber = normalizeAccountNumber(account.accountNumber);
+      const accountType = account.accountType === "mock" ? "mock" : "real";
+      const balance = await kiwoomService.getAccountBalance(accountNumber, accountType);
+
+      if (Array.isArray(balance.output2)) {
+        for (const item of balance.output2) {
+          const stockCode = item.pdno;
+          const existing = await storage.getHoldingByStock(account.id, stockCode);
+          const updates = {
+            stockName: item.prdt_name,
+            quantity: parseInt(item.hldg_qty || "0", 10),
+            averagePrice: item.pchs_avg_pric || "0",
+            currentPrice: item.prpr || "0",
+            profitLoss: item.evlu_pfls_amt || "0",
+            profitLossRate: item.evlu_pfls_rt || "0",
+          };
+
+          if (existing) {
+            await storage.updateHolding(existing.id, updates);
+          } else {
+            await storage.createHolding({
+              accountId: account.id,
+              stockCode,
+              ...updates,
+            });
+          }
+        }
+      }
+
       const totalAssets = parseFloat(balance.output1?.tot_evlu_amt || "100000000");
       let baseAsset = totalAssets;
       const today = new Date();
@@ -98,4 +132,3 @@ export function registerAccountRoutes(app: Router) {
     }
   });
 }
-

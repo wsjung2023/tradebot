@@ -2,7 +2,7 @@
 import { KiwoomBase, type AccountBalanceResponse } from "./kiwoom.base";
 
 export class KiwoomAccount extends KiwoomBase {
-    async getAccountBalance(accountNumber: string): Promise<AccountBalanceResponse> {
+    async getAccountBalance(accountNumber: string, accountType: "mock" | "real" = "real"): Promise<AccountBalanceResponse> {
     if (this.stubMode) {
       // Return mock data in stub mode
       return {
@@ -40,6 +40,8 @@ export class KiwoomAccount extends KiwoomBase {
     }
     
     try {
+      const trId = accountType === "mock" ? "VTTC8434R" : "TTTC8434R";
+
       const response = await this.api.get<AccountBalanceResponse>(
         '/uapi/domestic-stock/v1/trading/inquire-balance',
         {
@@ -55,7 +57,7 @@ export class KiwoomAccount extends KiwoomBase {
             PRCS_DVSN: '01',
           },
           headers: {
-            tr_id: 'TTTC8434R',
+            tr_id: trId,
           },
         }
       );
