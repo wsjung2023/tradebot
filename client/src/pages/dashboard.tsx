@@ -289,6 +289,15 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       )}
+      {(balance as any)?.isMockData && (
+        <Card className="border-yellow-500/30 bg-yellow-500/5">
+          <CardContent className="pt-4 pb-4">
+            <p className="text-sm text-yellow-600 dark:text-yellow-400">
+              키움 API 연결 중... 현재 샘플 데이터를 표시하고 있습니다. 실제 API 키를 설정하면 실제 데이터가 표시됩니다.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid gap-3 md:gap-4 grid-cols-1 md:grid-cols-2">
         <Card className="hover-elevate">

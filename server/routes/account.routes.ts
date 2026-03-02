@@ -15,10 +15,7 @@ export function registerAccountRoutes(app: Router) {
     return account;
   };
 
-<<<<<<< HEAD
-=======
-  
->>>>>>> fae4d734868cce203475b4826c4b9e77794a8da8
+
   // 계좌 목록 조회
   app.get("/api/accounts", isAuthenticated, async (req, res) => {
     try {
@@ -104,9 +101,35 @@ export function registerAccountRoutes(app: Router) {
 
       const accountNumber = normalizeAccountNumber(account.accountNumber);
       const accountType = account.accountType === "mock" ? "mock" : "real";
-      const balance = await kiwoomService.getAccountBalance(accountNumber, accountType);
 
-      if (Array.isArray(balance.output2)) {
+      const getMockBalance = () => ({
+        output1: {
+          dnca_tot_amt: '50000000',
+          nxdy_excc_amt: '50000000',
+          prvs_rcdl_excc_amt: '0',
+          cma_evlu_amt: '0',
+          tot_evlu_amt: '100000000',
+          pchs_amt_smtl_amt: '45000000',
+          evlu_amt_smtl_amt: '50000000',
+          evlu_pfls_smtl_amt: '5000000',
+        },
+        output2: [
+          { pdno: '005930', prdt_name: '삼성전자', hldg_qty: '100', pchs_avg_pric: '70000', prpr: '75000', evlu_pfls_amt: '500000', evlu_pfls_rt: '7.14' },
+          { pdno: '000660', prdt_name: 'SK하이닉스', hldg_qty: '50', pchs_avg_pric: '130000', prpr: '140000', evlu_pfls_amt: '500000', evlu_pfls_rt: '7.69' },
+        ],
+      });
+
+      let balance;
+      let isMockData = false;
+      try {
+        balance = await kiwoomService.getAccountBalance(accountNumber, accountType);
+      } catch (apiError: any) {
+        console.warn('[BALANCE] Kiwoom API 연결 실패, 샘플 데이터 사용:', apiError.message);
+        balance = getMockBalance();
+        isMockData = true;
+      }
+
+      if (!isMockData && Array.isArray(balance.output2)) {
         for (const item of balance.output2) {
           const stockCode = item.pdno;
           const existing = await storage.getHoldingByStock(account.id, stockCode);
@@ -118,15 +141,10 @@ export function registerAccountRoutes(app: Router) {
             profitLoss: item.evlu_pfls_amt || "0",
             profitLossRate: item.evlu_pfls_rt || "0",
           };
-
           if (existing) {
             await storage.updateHolding(existing.id, updates);
           } else {
-            await storage.createHolding({
-              accountId: account.id,
-              stockCode,
-              ...updates,
-            });
+            await storage.createHolding({ accountId: account.id, stockCode, ...updates });
           }
         }
       }
@@ -154,6 +172,7 @@ export function registerAccountRoutes(app: Router) {
         todayProfitRate: (parseFloat(balance.output1?.evlu_pfls_smtl_amt || "0") / totalAssets) * 100,
         totalReturn: Math.random() * 30 - 10,
         assetHistory,
+        isMockData,
       });
     } catch (error: any) {
       res.status(500).json({ error: error.message });

@@ -1,7 +1,6 @@
-<<<<<<< HEAD
 {
   "include": ["client/src/**/*", "shared/**/*", "server/**/*"],
-  "exclude": ["node_modules", "build", "dist", "**/*.test.ts"],
+  "exclude": ["node_modules", "build", "dist", "**/*.test.ts", "**/*_OLD.ts"],
   "compilerOptions": {
     "noEmit": true,
     "module": "ESNext",
@@ -19,49 +18,4 @@
       "@shared/*": ["./shared/*"]
     }
   }
-=======
-﻿{
-    "include":  [
-                    "client/src/**/*",
-                    "shared/**/*",
-                    "server/**/*"
-                ],
-    "exclude":  [
-                    "node_modules",
-                    "build",
-                    "dist",
-                    "**/*.test.ts",
-                    "**/*_OLD.ts"
-                ],
-    "compilerOptions":  {
-                            "incremental":  true,
-                            "tsBuildInfoFile":  "./node_modules/typescript/tsbuildinfo",
-                            "noEmit":  true,
-                            "module":  "ESNext",
-                            "strict":  true,
-                            "lib":  [
-                                        "esnext",
-                                        "dom",
-                                        "dom.iterable"
-                                    ],
-                            "jsx":  "preserve",
-                            "esModuleInterop":  true,
-                            "skipLibCheck":  true,
-                            "allowImportingTsExtensions":  true,
-                            "moduleResolution":  "bundler",
-                            "baseUrl":  ".",
-                            "types":  [
-                                          "node",
-                                          "vite/client"
-                                      ],
-                            "paths":  {
-                                          "@/*":  [
-                                                      "./client/src/*"
-                                                  ],
-                                          "@shared/*":  [
-                                                            "./shared/*"
-                                                        ]
-                                      }
-                        }
->>>>>>> fae4d734868cce203475b4826c4b9e77794a8da8
 }
