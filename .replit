@@ -33,13 +33,13 @@ args = "Start application"
 name = "Start application"
 author = "agent"
 
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "NODE_OPTIONS='--max-old-space-size=8192' npm run dev"
-waitForPort = 5000
-
 [workflows.workflow.metadata]
 outputType = "webview"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm run start"
+waitForPort = 5000
 
 [agent]
 integrations = ["javascript_auth_all_persistance:1.0.0", "javascript_database:1.0.0", "javascript_openai:1.0.0", "javascript_websocket:1.0.0"]
