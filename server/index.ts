@@ -155,9 +155,13 @@ app.use((req, res, next) => {
   }, () => {
     log(`serving on port ${port}`);
     
-    // Memory monitoring - log every 10 seconds
+    // Memory monitoring - log every 30s via stderr (always flushed)
     let prevHeapMB = 0;
     setInterval(() => {
+      // Trigger GC if exposed (--expose-gc flag)
+      if (typeof (global as any).gc === 'function') {
+        (global as any).gc();
+      }
       const { heapUsed, heapTotal, rss, external } = process.memoryUsage();
       const heapMB = Math.round(heapUsed / 1024 / 1024);
       const totalMB = Math.round(heapTotal / 1024 / 1024);
@@ -165,8 +169,8 @@ app.use((req, res, next) => {
       const extMB = Math.round(external / 1024 / 1024);
       const deltaMB = heapMB - prevHeapMB;
       prevHeapMB = heapMB;
-      log(`[MEM] heap: ${heapMB}MB / ${totalMB}MB | rss: ${rssMB}MB | ext: ${extMB}MB | delta: ${deltaMB > 0 ? '+' : ''}${deltaMB}MB`, 'memory');
-    }, 10000);
+      process.stderr.write(`[MEM] heap: ${heapMB}MB / ${totalMB}MB | rss: ${rssMB}MB | ext: ${extMB}MB | delta: ${deltaMB > 0 ? '+' : ''}${deltaMB}MB\n`);
+    }, 30000);
     
     // Background jobs are OFF by default. Use /api/admin/jobs to enable.
     // autoTradingWorker.start();

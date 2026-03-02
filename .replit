@@ -38,7 +38,7 @@ outputType = "webview"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "npm run start"
+args = "NODE_OPTIONS='--max-old-space-size=8192 --expose-gc' npm run start"
 waitForPort = 5000
 
 [agent]

@@ -32,15 +32,20 @@ export async function registerRoutes(app: Express, sessionMiddleware: any): Prom
   app.use("/api/rainbow", rainbowRouter);
 
   // HTTP 서버 + WebSocket
+  // noServer: true 로 수동 업그레이드 처리 (세션 인증 포함)
+  // server+path 자동 처리와 동시 사용하면 업그레이드가 중복 처리됨
   const httpServer = createServer(app);
-  const wss = new WebSocketServer({ server: httpServer, path: "/ws/market" });
+  const wss = new WebSocketServer({ noServer: true });
 
   wss.on("connection", (ws) => {
     marketHub.addClient(ws);
   });
 
   httpServer.on("upgrade", (request, socket, head) => {
-    if (!request.url?.startsWith("/ws/market")) return;
+    if (!request.url?.startsWith("/ws/market")) {
+      socket.destroy();
+      return;
+    }
     sessionMiddleware(request as any, {} as any, () => {
       const user = (request as any).session?.passport?.user;
       if (!user) {

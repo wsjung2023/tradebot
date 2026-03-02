@@ -16,6 +16,7 @@ import {
   Code2,
   Rainbow,
   GraduationCap,
+  ServerCog,
 } from "lucide-react";
 import {
   Sidebar,
@@ -108,6 +109,11 @@ const menuItems = [
     title: "설정",
     url: "/settings",
     icon: Settings,
+  },
+  {
+    title: "배치잡 관리",
+    url: "/admin-jobs",
+    icon: ServerCog,
   },
 ];
 

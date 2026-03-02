@@ -31,27 +31,42 @@ export function useMarketStream(symbols: string[], channels: string[] = ["price"
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('offline');
   const [retryCount, setRetryCount] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  
+
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
   const heartbeatIntervalRef = useRef<NodeJS.Timeout>();
   const missedPongsRef = useRef(0);
+
+  // Refs to avoid stale closures in connect() without creating dependency cycles
+  const retryCountRef = useRef(0);
+  const statusRef = useRef<ConnectionStatus>('offline');
+  const symbolsRef = useRef(symbols);
+  const channelsRef = useRef(channels);
+
   const MAX_RETRIES = 10;
   const MAX_MISSED_PONGS = 3;
+
+  // Keep refs in sync
+  symbolsRef.current = symbols;
+  channelsRef.current = channels;
+
+  const setStatus = useCallback((s: ConnectionStatus) => {
+    statusRef.current = s;
+    setConnectionStatus(s);
+  }, []);
+
+  const setRetry = useCallback((n: number) => {
+    retryCountRef.current = n;
+    setRetryCount(n);
+  }, []);
 
   const getReconnectDelay = useCallback((retries: number) => {
     const baseDelay = 1000;
     const maxDelay = 30000;
-    const exponentialDelay = Math.min(baseDelay * Math.pow(2, retries), maxDelay);
-    const jitter = Math.random() * 1000;
-    return exponentialDelay + jitter;
+    return Math.min(baseDelay * Math.pow(2, retries), maxDelay) + Math.random() * 1000;
   }, []);
 
   const cleanup = useCallback(() => {
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
-    }
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
       reconnectTimeoutRef.current = undefined;
@@ -60,71 +75,105 @@ export function useMarketStream(symbols: string[], channels: string[] = ["price"
       clearInterval(heartbeatIntervalRef.current);
       heartbeatIntervalRef.current = undefined;
     }
+    if (wsRef.current) {
+      const ws = wsRef.current;
+      wsRef.current = null;
+      // Remove listeners before closing to avoid triggering onclose reconnect logic
+      ws.onopen = null;
+      ws.onmessage = null;
+      ws.onerror = null;
+      ws.onclose = null;
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        ws.close(1000, 'cleanup');
+      }
+    }
   }, []);
 
+  // connect is stable — does NOT depend on connectionStatus or retryCount
   const connect = useCallback(() => {
     if (!navigator.onLine) {
-      setConnectionStatus('offline');
+      setStatus('offline');
       setErrorMessage('네트워크 연결이 없습니다');
       return;
     }
 
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
-    if (retryCount >= MAX_RETRIES) {
-      setConnectionStatus('failed');
+    if (wsRef.current?.readyState === WebSocket.CONNECTING) return;
+
+    if (retryCountRef.current >= MAX_RETRIES) {
+      setStatus('failed');
       setErrorMessage(`최대 재연결 횟수(${MAX_RETRIES})를 초과했습니다`);
       return;
     }
 
-    cleanup();
-    setConnectionStatus('connecting');
+    // Clear previous socket WITHOUT triggering cleanup that would reset the reconnect logic
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = undefined;
+    }
+    if (heartbeatIntervalRef.current) {
+      clearInterval(heartbeatIntervalRef.current);
+      heartbeatIntervalRef.current = undefined;
+    }
+    if (wsRef.current) {
+      const old = wsRef.current;
+      wsRef.current = null;
+      old.onopen = null;
+      old.onmessage = null;
+      old.onerror = null;
+      old.onclose = null;
+      if (old.readyState === WebSocket.OPEN || old.readyState === WebSocket.CONNECTING) {
+        old.close(1000, 'reconnect');
+      }
+    }
+
+    setStatus('connecting');
     setErrorMessage(null);
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = import.meta.env.VITE_WS_URL || `${protocol}//${window.location.host}/ws/market`;
-    
+    const wsUrl = `${protocol}//${window.location.host}/ws/market`;
     const ws = new WebSocket(wsUrl);
-    let heartbeatTimeout: NodeJS.Timeout;
+    wsRef.current = ws;
+
+    let heartbeatPongTimeout: NodeJS.Timeout | undefined;
 
     ws.onopen = () => {
-      setConnectionStatus('online');
-      setRetryCount(0);
+      if (wsRef.current !== ws) { ws.close(1000); return; }
+
+      setStatus('online');
+      setRetry(0);
       setErrorMessage(null);
       missedPongsRef.current = 0;
-      
-      if (symbols.length > 0) {
-        ws.send(JSON.stringify({
-          type: "subscribe",
-          symbols,
-          channels,
-        }));
+
+      const currentSymbols = symbolsRef.current;
+      const currentChannels = channelsRef.current;
+      if (currentSymbols.length > 0) {
+        ws.send(JSON.stringify({ type: "subscribe", symbols: currentSymbols, channels: currentChannels }));
       }
 
       heartbeatIntervalRef.current = setInterval(() => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: "ping", timestamp: Date.now() }));
-          
-          heartbeatTimeout = setTimeout(() => {
-            missedPongsRef.current++;
-            if (missedPongsRef.current >= MAX_MISSED_PONGS) {
-              setConnectionStatus('degraded');
-              setErrorMessage('서버 응답이 없습니다');
-              ws.close();
-            }
-          }, 5000);
-        }
+        if (ws.readyState !== WebSocket.OPEN) return;
+        ws.send(JSON.stringify({ type: "ping", timestamp: Date.now() }));
+        heartbeatPongTimeout = setTimeout(() => {
+          missedPongsRef.current++;
+          if (missedPongsRef.current >= MAX_MISSED_PONGS) {
+            setStatus('degraded');
+            setErrorMessage('서버 응답이 없습니다');
+          }
+        }, 5000);
       }, 30000);
     };
 
     ws.onmessage = (event) => {
+      if (wsRef.current !== ws) return;
       try {
         const message: MarketDataMessage = JSON.parse(event.data);
 
         if (message.type === "pong") {
           missedPongsRef.current = 0;
-          if (heartbeatTimeout) clearTimeout(heartbeatTimeout);
-          if (connectionStatus === 'degraded') {
-            setConnectionStatus('online');
+          if (heartbeatPongTimeout) { clearTimeout(heartbeatPongTimeout); heartbeatPongTimeout = undefined; }
+          if (statusRef.current === 'degraded') {
+            setStatus('online');
             setErrorMessage(null);
           }
           return;
@@ -133,88 +182,76 @@ export function useMarketStream(symbols: string[], channels: string[] = ["price"
         switch (message.type) {
           case "price":
             if (message.symbol && message.payload) {
-              setPrices((prev) => ({
-                ...prev,
-                [message.symbol!]: message.payload,
-              }));
+              setPrices(prev => ({ ...prev, [message.symbol!]: message.payload }));
             }
             break;
           case "orderbook":
             if (message.symbol && message.payload) {
-              setOrderbooks((prev) => ({
-                ...prev,
-                [message.symbol!]: message.payload,
-              }));
+              setOrderbooks(prev => ({ ...prev, [message.symbol!]: message.payload }));
             }
             break;
         }
       } catch (error) {
-        console.error("Error parsing WebSocket message:", error);
-        setErrorMessage('메시지 파싱 오류');
+        console.error("WebSocket message parse error:", error);
       }
     };
 
-    ws.onerror = (error) => {
-      console.error("WebSocket error:", error);
-      setConnectionStatus('degraded');
+    ws.onerror = () => {
+      if (wsRef.current !== ws) return;
+      setStatus('degraded');
       setErrorMessage('WebSocket 연결 오류');
     };
 
     ws.onclose = (event) => {
-      if (heartbeatTimeout) clearTimeout(heartbeatTimeout);
+      if (heartbeatPongTimeout) { clearTimeout(heartbeatPongTimeout); heartbeatPongTimeout = undefined; }
       if (heartbeatIntervalRef.current) {
         clearInterval(heartbeatIntervalRef.current);
         heartbeatIntervalRef.current = undefined;
       }
 
+      // Stale socket — ignore
+      if (wsRef.current !== ws && wsRef.current !== null) return;
+      if (wsRef.current === ws) wsRef.current = null;
+
       if (event.code === 1000) {
-        setConnectionStatus('offline');
+        setStatus('offline');
         return;
       }
 
       if (!navigator.onLine) {
-        setConnectionStatus('offline');
+        setStatus('offline');
         setErrorMessage('네트워크 연결이 끊어졌습니다');
         return;
       }
 
-      if (retryCount < MAX_RETRIES) {
-        const delay = getReconnectDelay(retryCount);
-        setConnectionStatus('connecting');
-        setErrorMessage(`재연결 중... (${retryCount + 1}/${MAX_RETRIES})`);
-        
+      const currentRetry = retryCountRef.current;
+      if (currentRetry < MAX_RETRIES) {
+        const delay = getReconnectDelay(currentRetry);
+        setStatus('connecting');
+        setErrorMessage(`재연결 중... (${currentRetry + 1}/${MAX_RETRIES})`);
+        setRetry(currentRetry + 1);
+
         reconnectTimeoutRef.current = setTimeout(() => {
-          setRetryCount(prev => prev + 1);
           connect();
         }, delay);
       } else {
-        setConnectionStatus('failed');
-        setErrorMessage(`재연결 실패: 최대 시도 횟수 초과`);
+        setStatus('failed');
+        setErrorMessage('재연결 실패: 최대 시도 횟수 초과');
       }
     };
-
-    wsRef.current = ws;
-  }, [symbols.join(','), channels.join(','), retryCount, connectionStatus, cleanup, getReconnectDelay]);
+  }, [getReconnectDelay, setStatus, setRetry]);
+  // NOTE: connect does NOT depend on connectionStatus or retryCount
 
   const forceReconnect = useCallback(() => {
-    setRetryCount(0);
+    setRetry(0);
     cleanup();
     connect();
-  }, [cleanup, connect]);
+  }, [cleanup, connect, setRetry]);
 
+  // Network events — stable refs to avoid re-registration
   useEffect(() => {
-    const handleOnline = () => {
-      setConnectionStatus('connecting');
-      setRetryCount(0);
-      connect();
-    };
-
-    const handleOffline = () => {
-      cleanup();
-      setConnectionStatus('offline');
-      setErrorMessage('네트워크 연결이 끊어졌습니다');
-    };
-
+    const handleOnline = () => { setRetry(0); connect(); };
+    const handleOffline = () => { cleanup(); setStatus('offline'); setErrorMessage('네트워크 연결이 끊어졌습니다'); };
     const handleVisibilityChange = () => {
       if (!document.hidden && wsRef.current?.readyState !== WebSocket.OPEN) {
         connect();
@@ -230,25 +267,26 @@ export function useMarketStream(symbols: string[], channels: string[] = ["price"
       window.removeEventListener('offline', handleOffline);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [connect, cleanup]);
+  }, [connect, cleanup, setStatus, setRetry]);
 
+  // Main connection effect — runs only when symbols change (not on every connect re-render)
+  const symbolsKey = symbols.join(',');
   useEffect(() => {
     if (symbols.length > 0 && navigator.onLine) {
       connect();
     }
+    return () => {
+      cleanup();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [symbolsKey]);
 
-    return cleanup;
-  }, [connect, cleanup, symbols.length]);
-
+  // Update subscriptions without reconnecting when symbols change on an open socket
   useEffect(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN && symbols.length > 0) {
-      wsRef.current.send(JSON.stringify({
-        type: "subscribe",
-        symbols,
-        channels,
-      }));
+      wsRef.current.send(JSON.stringify({ type: "subscribe", symbols, channels }));
     }
-  }, [symbols.join(','), channels.join(',')]);
+  }, [symbolsKey, channels.join(',')]);
 
   return {
     prices,

@@ -1,4 +1,4 @@
-﻿import { WebSocket } from "ws";
+import { WebSocket } from "ws";
 import type { KiwoomService } from "./services/kiwoom";
 
 export interface MarketDataMessage {
@@ -21,14 +21,16 @@ export class MarketDataHub {
   private clients: Map<WebSocket, ClientSubscription> = new Map();
   private symbolSubscribers: Map<string, Set<WebSocket>> = new Map();
   private kiwoomService: KiwoomService;
-  private priceUpdateInterval: NodeJS.Timeout | null = null;
+  private priceUpdateTimer: NodeJS.Timeout | null = null;
   private heartbeatInterval: NodeJS.Timeout | null = null;
-  private readonly HEARTBEAT_INTERVAL = 30000; // 30s
-  private readonly CLIENT_TIMEOUT = 90000; // 90s
+  private isUpdating = false;
+  private readonly HEARTBEAT_INTERVAL = 30000;
+  private readonly CLIENT_TIMEOUT = 90000;
+  private readonly UPDATE_INTERVAL = 2000; // Increased to 2s to reduce load
 
   constructor(kiwoomService: KiwoomService) {
     this.kiwoomService = kiwoomService;
-    this.startPriceUpdates();
+    this.scheduleNextUpdate();
     this.startHeartbeat();
   }
 
@@ -77,10 +79,8 @@ export class MarketDataHub {
 
   private handleClientMessage(ws: WebSocket, data: any) {
     this.updateClientActivity(ws);
-    
     try {
       const message: MarketDataMessage = JSON.parse(data.toString());
-      
       switch (message.type) {
         case "subscribe":
           this.handleSubscribe(ws, message);
@@ -106,7 +106,6 @@ export class MarketDataHub {
 
     symbols.forEach((symbol) => {
       client.symbols.add(symbol);
-      
       if (!this.symbolSubscribers.has(symbol)) {
         this.symbolSubscribers.set(symbol, new Set());
       }
@@ -114,7 +113,6 @@ export class MarketDataHub {
     });
 
     channels.forEach((channel) => client.channels.add(channel));
-
     this.sendInitialSnapshot(ws, symbols, channels);
   }
 
@@ -123,7 +121,6 @@ export class MarketDataHub {
     if (!client) return;
 
     const symbols = message.symbols || (message.symbol ? [message.symbol] : []);
-
     symbols.forEach((symbol) => {
       client.symbols.delete(symbol);
       const subscribers = this.symbolSubscribers.get(symbol);
@@ -141,11 +138,10 @@ export class MarketDataHub {
       try {
         if (channels.includes("price")) {
           const priceData = await this.kiwoomService.getStockPrice(symbol);
-          const payload = this.transformPriceData(priceData, symbol);
           this.sendMessage(ws, {
             type: "price",
             symbol,
-            payload,
+            payload: this.transformPriceData(priceData, symbol),
             timestamp: Date.now(),
           });
         }
@@ -172,9 +168,7 @@ export class MarketDataHub {
 
       this.clients.forEach((client, ws) => {
         const timeSinceActivity = now - client.lastActivity;
-        
         if (timeSinceActivity > this.CLIENT_TIMEOUT) {
-          console.log(`Client timeout detected (${timeSinceActivity}ms idle), disconnecting`);
           deadClients.push(ws);
         } else if (ws.readyState === WebSocket.OPEN) {
           ws.ping();
@@ -188,28 +182,45 @@ export class MarketDataHub {
     }, this.HEARTBEAT_INTERVAL);
   }
 
-  private startPriceUpdates() {
-    this.priceUpdateInterval = setInterval(async () => {
-      const allSymbols = Array.from(this.symbolSubscribers.keys());
-      
-      for (const symbol of allSymbols) {
-        try {
-          const subscribers = this.symbolSubscribers.get(symbol);
-          if (!subscribers || subscribers.size === 0) continue;
+  // Self-scheduling update: next tick only starts AFTER current one completes
+  private scheduleNextUpdate() {
+    this.priceUpdateTimer = setTimeout(async () => {
+      await this.doUpdateCycle();
+      // Only schedule next if not stopped
+      if (this.priceUpdateTimer !== null) {
+        this.scheduleNextUpdate();
+      }
+    }, this.UPDATE_INTERVAL);
+  }
 
-          const priceData = await this.kiwoomService.getStockPrice(symbol);
-          const orderbook = await this.kiwoomService.getStockOrderbook(symbol);
+  private async doUpdateCycle() {
+    // Guard: skip if already running (should not happen with setTimeout, but just in case)
+    if (this.isUpdating) return;
+
+    const allSymbols = Array.from(this.symbolSubscribers.keys());
+    if (allSymbols.length === 0) return; // No subscribers — skip API calls entirely
+
+    this.isUpdating = true;
+    try {
+      for (const symbol of allSymbols) {
+        const subscribers = this.symbolSubscribers.get(symbol);
+        if (!subscribers || subscribers.size === 0) continue;
+
+        try {
+          const [priceData, orderbook] = await Promise.all([
+            this.kiwoomService.getStockPrice(symbol),
+            this.kiwoomService.getStockOrderbook(symbol),
+          ]);
 
           subscribers.forEach((ws) => {
             const client = this.clients.get(ws);
             if (!client) return;
 
             if (client.channels.has("price")) {
-              const payload = this.transformPriceData(priceData, symbol);
               this.sendMessage(ws, {
                 type: "price",
                 symbol,
-                payload,
+                payload: this.transformPriceData(priceData, symbol),
                 timestamp: Date.now(),
               });
             }
@@ -227,7 +238,9 @@ export class MarketDataHub {
           console.error(`Error updating ${symbol}:`, error);
         }
       }
-    }, 1000); // Update every second
+    } finally {
+      this.isUpdating = false;
+    }
   }
 
   private transformPriceData(data: any, symbol: string) {
@@ -251,15 +264,16 @@ export class MarketDataHub {
   }
 
   stop() {
-    if (this.priceUpdateInterval) {
-      clearInterval(this.priceUpdateInterval);
+    if (this.priceUpdateTimer) {
+      clearTimeout(this.priceUpdateTimer);
+      this.priceUpdateTimer = null;
     }
     if (this.heartbeatInterval) {
       clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
     }
     this.clients.forEach((_, ws) => ws.close());
     this.clients.clear();
     this.symbolSubscribers.clear();
   }
 }
-
