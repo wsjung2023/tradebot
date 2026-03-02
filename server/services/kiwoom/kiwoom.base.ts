@@ -137,11 +137,15 @@ export class KiwoomBase {
 
   protected async authenticate(): Promise<void> {
     try {
-      const response = await this.api.post("/oauth2/tokenP", {
-        grant_type: "client_credentials",
-        appkey: this.appKey,
-        appsecret: this.appSecret,
-      });
+      const response = await axios.post(
+        `${this.api.defaults.baseURL || "https://openapi.kiwoom.com:9443"}/oauth2/tokenP`,
+        {
+          grant_type: "client_credentials",
+          appkey: this.appKey,
+          appsecret: this.appSecret,
+        },
+        { timeout: 10000 }
+      );
       const data = response.data as { access_token: string; expires_in: number };
       this.accessToken = data.access_token;
       this.tokenExpiry = Date.now() + data.expires_in * 1000 - 60000;
