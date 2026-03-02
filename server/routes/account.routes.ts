@@ -15,6 +15,10 @@ export function registerAccountRoutes(app: Router) {
     return account;
   };
 
+<<<<<<< HEAD
+=======
+  
+>>>>>>> fae4d734868cce203475b4826c4b9e77794a8da8
   // 계좌 목록 조회
   app.get("/api/accounts", isAuthenticated, async (req, res) => {
     try {
@@ -172,3 +176,4 @@ export function registerAccountRoutes(app: Router) {
     }
   });
 }
+

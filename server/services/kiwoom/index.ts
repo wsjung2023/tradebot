@@ -40,7 +40,7 @@ export class KiwoomService extends KiwoomBase {
   getStockOrderbook(stockCode: string) { return this.market.getStockOrderbook(stockCode); }
   getStockChart(stockCode: string, period?: string, bars?: number) { return this.market.getStockChart(stockCode, period, bars); }
   searchStock(keyword: string) { return this.market.searchStock(keyword); }
-  getHighVolumeStocks(marketType?: string, limit?: number) { return this.market.getHighVolumeStocks(marketType, limit); }
+  getHighVolumeStocks(marketType?: 'ALL' | 'KOSPI' | 'KOSDAQ') { return this.market.getHighVolumeStocks(marketType); }
   getMarketIssues() { return this.market.getMarketIssues(); }
   getThemeStocks(themeCode: string) { return this.market.getThemeStocks(themeCode); }
 
@@ -83,3 +83,4 @@ export type {
   FinancialRatiosResponse, MarketIssuesResponse, ThemeStocksResponse,
   HighVolumeStocksResponse,
 };
+
