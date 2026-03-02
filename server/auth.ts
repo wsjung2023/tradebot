@@ -11,21 +11,15 @@ passport.serializeUser((user: any, done) => {
   done(null, user.id);
 });
 
-// Deserialize user from session
 passport.deserializeUser(async (id: string | number, done) => {
   try {
-    // user.id is varchar (UUID), use it directly as string
     const userId = String(id);
-    console.log(`[DESERIALIZE] Looking up user with ID: ${userId}`);
     const user = await storage.getUser(userId);
     if (!user) {
-      console.log(`[DESERIALIZE] ❌ User not found: ${userId}`);
       return done(null, false);
     }
-    console.log(`[DESERIALIZE] ✅ User found: ${user.id} (${user.email})`);
     done(null, user);
   } catch (error) {
-    console.error(`[DESERIALIZE] ❌ Error:`, error);
     done(null, false);
   }
 });
@@ -72,11 +66,6 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
     : 'http://localhost:5000';
   
   const callbackURL = `${baseURL}/api/auth/google/callback`;
-  
-  console.log('[OAuth] Google OAuth Configuration:');
-  console.log('  - Base URL:', baseURL);
-  console.log('  - Callback URL:', callbackURL);
-  console.log('  - Client ID (first 20 chars):', process.env.GOOGLE_CLIENT_ID.substring(0, 20) + '...');
   
   passport.use(
     new GoogleStrategy(
@@ -149,38 +138,9 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
 
 // Middleware to check if user is authenticated
 export function isAuthenticated(req: any, res: any, next: any) {
-  const isAuth = req.isAuthenticated();
-  const sessionData = req.session ? JSON.stringify({
-    id: req.sessionID,
-    passport: req.session.passport,
-    cookie: req.session.cookie ? { 
-      maxAge: req.session.cookie.maxAge,
-      secure: req.session.cookie.secure 
-    } : null
-  }) : 'no session';
-  
-  // Parse cookie to extract session ID for comparison
-  const rawCookies = req.headers.cookie || '';
-  const cookieMatch = rawCookies.match(/connect\.sid=s%3A([^.]+)\./);
-  const cookieSessionId = cookieMatch ? cookieMatch[1] : 'not found';
-  
-  // Log cookies for debugging
-  const origin = req.headers.origin || 'no origin';
-  const referer = req.headers.referer || 'no referer';
-  
-  console.log(`[AUTH] ${req.method} ${req.path}`);
-  console.log(`  - isAuthenticated: ${isAuth}`);
-  console.log(`  - sessionID (server): ${req.sessionID}`);
-  console.log(`  - sessionID (cookie): ${cookieSessionId}`);
-  console.log(`  - MATCH: ${req.sessionID === cookieSessionId ? '✅' : '❌ MISMATCH'}`);
-  console.log(`  - user: ${req.user ? `${req.user.id} (${req.user.email})` : 'none'}`);
-  console.log(`  - origin: ${origin}, referer: ${referer}`);
-  console.log(`  - session: ${sessionData}`);
-  
-  if (isAuth) {
+  if (req.isAuthenticated()) {
     return next();
   }
-  console.log(`[AUTH] ❌ 401 Unauthorized for ${req.method} ${req.path}`);
   res.status(401).json({ error: 'Unauthorized' });
 }
 
@@ -202,21 +162,12 @@ export const localAuth = (req: any, res: any, next: any) => {
     if (!user) return res.status(401).json({ error: info?.message || "Invalid credentials" });
     req.login(user, (loginErr: any) => {
       if (loginErr) {
-        console.log('[LOGIN] ❌ req.login() failed:', loginErr);
         return next(loginErr);
       }
-      console.log('[LOGIN] ✅ Login succeeded');
-      console.log(`  - sessionID: ${req.sessionID}`);
-      console.log(`  - user.id: ${user.id}`);
-      console.log(`  - session.passport: ${JSON.stringify(req.session?.passport)}`);
-      
-      // Explicitly save session before responding to ensure it's persisted
       req.session.save((saveErr: any) => {
         if (saveErr) {
-          console.log('[LOGIN] ❌ session.save() failed:', saveErr);
           return next(saveErr);
         }
-        console.log('[LOGIN] ✅ Session saved to database');
         // Sanitize user object - never leak password hash
         return res.json({ 
           user: { 

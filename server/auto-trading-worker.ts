@@ -50,9 +50,7 @@ class AutoTradingWorker {
     this.isRunning = true;
 
     try {
-      // Check market hours (09:00 - 15:30 KST)
       if (!this.isMarketHours()) {
-        console.log('⏰ Outside market hours - skipping');
         return;
       }
 

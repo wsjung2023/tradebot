@@ -22,9 +22,7 @@ const PgSession = ConnectPgSimple(session);
 // Trust proxy for Replit environment (needed for rate limiting)
 app.set('trust proxy', 1);
 
-// Debug: Log session secret status (first 4 chars only)
 const sessionSecret = process.env.SESSION_SECRET || 'kiwoom-ai-trading-secret-key-change-in-production';
-console.log('[SESSION] Secret configured:', sessionSecret.substring(0, 4) + '...' + sessionSecret.substring(sessionSecret.length - 4));
 
 // Security Headers
 app.use(helmet({
