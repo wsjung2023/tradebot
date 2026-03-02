@@ -22,6 +22,7 @@ export function registerAccountRoutes(app: Router) {
       const accounts = await storage.getKiwoomAccounts(user!.id);
       res.json(accounts);
     } catch (error: any) {
+      console.error('[ACCOUNTS ERROR]', error?.message, error?.stack?.split('\n').slice(0,3).join('|'));
       res.status(500).json({ error: error.message });
     }
   });

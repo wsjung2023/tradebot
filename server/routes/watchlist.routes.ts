@@ -87,6 +87,7 @@ export function registerWatchlistRoutes(app: Router) {
       const settings = await storage.getUserSettings(user!.id);
       res.json(formatSettingsResponse(settings));
     } catch (error: any) {
+      console.error('[SETTINGS ERROR]', error?.message, error?.stack?.split('\n').slice(0,3).join('|'));
       res.status(500).json({ error: error.message });
     }
   });
