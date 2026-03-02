@@ -1,10 +1,12 @@
 import express, { type Request, Response, NextFunction } from "express";
 import session from "express-session";
+import connectPgSimple from "connect-pg-simple";
 import rateLimit from "express-rate-limit";
 import helmet from "helmet";
 import path from "path";
 import fs from "fs";
 import { createServer } from "http";
+import { pool } from "./db";
 import { registerRoutes } from "./routes";
 import { setupVite, log } from "./vite";
 import { setupAuth } from "./auth";
@@ -70,15 +72,26 @@ app.use(express.json({
 }));
 app.use(express.urlencoded({ extended: false }));
 
+// 프로덕션: PostgreSQL 세션 저장소
+const PgSession = connectPgSimple(session);
 const isReplit = !!process.env.REPLIT_DOMAINS;
 const cookieSecure = isReplit || isProduction;
 
+const sessionStore = isProduction
+  ? new PgSession({
+      pool,
+      createTableIfMissing: true,
+      tableName: 'user_sessions',
+    })
+  : undefined;
+
 const sessionMiddleware = session({
+  store: sessionStore,
   secret: sessionSecret,
   resave: false,
   saveUninitialized: false,
+  rolling: false,
   name: 'connect.sid',
-  rolling: true,
   proxy: true,
   cookie: {
     maxAge: 30 * 24 * 60 * 60 * 1000,
@@ -90,6 +103,11 @@ const sessionMiddleware = session({
 
 app.use(sessionMiddleware);
 setupAuth(app);
+
+// 경량 헬스체크 엔드포인트
+app.get('/api/healthz', (_req, res) => {
+  res.status(200).json({ ok: true });
+});
 
 app.use((req, res, next) => {
   const start = Date.now();
@@ -114,18 +132,15 @@ function setupStaticServing() {
   console.log(`[STATIC] indexFile exists=${fs.existsSync(indexFile)}`);
 
   if (!fs.existsSync(publicDir)) {
-    console.error('[STATIC] FATAL: dist/public not found. Build may have failed.');
-    // 헬스체크는 통과시키되 오류 상태 표시
+    console.error('[STATIC] FATAL: dist/public not found.');
     app.use('*', (_req, res) => {
       res.status(200).send('<html><body><h1>Build error: frontend not found</h1></body></html>');
     });
     return;
   }
 
-  // 정적 파일 서빙
   app.use(express.static(publicDir));
 
-  // SPA 라우팅 — index.html 메모리 캐시
   const html = fs.readFileSync(indexFile, 'utf8');
   app.use('*', (_req, res) => {
     res.status(200).contentType('text/html').send(html);
@@ -134,8 +149,8 @@ function setupStaticServing() {
   console.log('[STATIC] Static serving configured ✓');
 }
 
-// 포트를 즉시 열어 헬스체크 확보
-httpServer.listen({ port, host: "0.0.0.0", reusePort: true }, () => {
+// 포트 열기
+httpServer.listen({ port, host: "0.0.0.0" }, () => {
   log(`serving on port ${port}`);
 });
 
@@ -145,8 +160,10 @@ httpServer.listen({ port, host: "0.0.0.0", reusePort: true }, () => {
     await registerRoutes(app, httpServer, sessionMiddleware);
 
     app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+      if (res.headersSent) return;
       const status = err.status || err.statusCode || 500;
       const message = err.message || "Internal Server Error";
+      console.error('[ERROR]', status, message);
       res.status(status).json({ message });
     });
 
