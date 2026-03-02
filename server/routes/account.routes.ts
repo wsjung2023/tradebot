@@ -1,4 +1,4 @@
-﻿// account.routes.ts — 키움증권 계좌 관리 및 포트폴리오/잔고 조회 라우터
+// account.routes.ts — 키움증권 계좌 관리 및 포트폴리오/잔고 조회 라우터
 import type { Router } from "express";
 import { storage } from "../storage";
 import { isAuthenticated, getCurrentUser } from "../auth";
@@ -15,7 +15,6 @@ export function registerAccountRoutes(app: Router) {
     return account;
   };
 
-
   // 계좌 목록 조회
   app.get("/api/accounts", isAuthenticated, async (req, res) => {
     try {
@@ -23,7 +22,7 @@ export function registerAccountRoutes(app: Router) {
       const accounts = await storage.getKiwoomAccounts(user!.id);
       res.json(accounts);
     } catch (error: any) {
-      console.error('[ACCOUNTS ERROR]', error?.message, error?.stack?.split('\n').slice(0,3).join('|'));
+      console.error('[ACCOUNTS ERROR]', error?.message);
       res.status(500).json({ error: error.message });
     }
   });
@@ -74,7 +73,7 @@ export function registerAccountRoutes(app: Router) {
     }
   });
 
-  // 계좌 잔고 및 자산 히스토리 조회
+  // 계좌 잔고 조회
   app.get("/api/accounts/:accountId/balance", isAuthenticated, async (req, res) => {
     try {
       const user = getCurrentUser(req);
@@ -88,7 +87,7 @@ export function registerAccountRoutes(app: Router) {
 
       if (!hasUserKeys && !hasServerKeys) {
         return res.status(400).json({
-          error: "Kiwoom API keys are required. Configure them in Settings or server environment.",
+          error: "API 키가 설정되지 않았습니다. 설정 페이지에서 키움 API 키를 입력해주세요.",
         });
       }
 
@@ -102,34 +101,9 @@ export function registerAccountRoutes(app: Router) {
       const accountNumber = normalizeAccountNumber(account.accountNumber);
       const accountType = account.accountType === "mock" ? "mock" : "real";
 
-      const getMockBalance = () => ({
-        output1: {
-          dnca_tot_amt: '50000000',
-          nxdy_excc_amt: '50000000',
-          prvs_rcdl_excc_amt: '0',
-          cma_evlu_amt: '0',
-          tot_evlu_amt: '100000000',
-          pchs_amt_smtl_amt: '45000000',
-          evlu_amt_smtl_amt: '50000000',
-          evlu_pfls_smtl_amt: '5000000',
-        },
-        output2: [
-          { pdno: '005930', prdt_name: '삼성전자', hldg_qty: '100', pchs_avg_pric: '70000', prpr: '75000', evlu_pfls_amt: '500000', evlu_pfls_rt: '7.14' },
-          { pdno: '000660', prdt_name: 'SK하이닉스', hldg_qty: '50', pchs_avg_pric: '130000', prpr: '140000', evlu_pfls_amt: '500000', evlu_pfls_rt: '7.69' },
-        ],
-      });
+      const balance = await kiwoomService.getAccountBalance(accountNumber, accountType);
 
-      let balance;
-      let isMockData = false;
-      try {
-        balance = await kiwoomService.getAccountBalance(accountNumber, accountType);
-      } catch (apiError: any) {
-        console.warn('[BALANCE] Kiwoom API 연결 실패, 샘플 데이터 사용:', apiError.message);
-        balance = getMockBalance();
-        isMockData = true;
-      }
-
-      if (!isMockData && Array.isArray(balance.output2)) {
+      if (Array.isArray(balance.output2)) {
         for (const item of balance.output2) {
           const stockCode = item.pdno;
           const existing = await storage.getHoldingByStock(account.id, stockCode);
@@ -149,33 +123,29 @@ export function registerAccountRoutes(app: Router) {
         }
       }
 
-      const totalAssets = parseFloat(balance.output1?.tot_evlu_amt || "100000000");
-      let baseAsset = totalAssets;
-      const today = new Date();
-      const assetHistory = [];
+      const totalAssets = parseFloat(balance.output1?.tot_evlu_amt || "0");
+      const todayProfit = parseFloat(balance.output1?.evlu_pfls_smtl_amt || "0");
 
-      for (let i = 29; i >= 0; i--) {
-        const date = new Date(today);
-        date.setDate(date.getDate() - i);
-        baseAsset = baseAsset * (1 + (Math.random() - 0.5) * 0.02);
-        assetHistory.push({
-          date: date.toISOString().split("T")[0],
-          totalAssets: Math.round(baseAsset),
-          profit: Math.round(baseAsset - totalAssets * 0.95),
-        });
-      }
+      const snapshots = await storage.getFinancialSnapshots?.(accountId, 30) ?? [];
+      const assetHistory = snapshots.map((s: any) => ({
+        date: s.date,
+        totalAssets: parseFloat(s.totalAssets || "0"),
+        profit: parseFloat(s.profit || "0"),
+      }));
 
       res.json({
         ...balance,
         totalAssets,
-        todayProfit: parseFloat(balance.output1?.evlu_pfls_smtl_amt || "0"),
-        todayProfitRate: (parseFloat(balance.output1?.evlu_pfls_smtl_amt || "0") / totalAssets) * 100,
-        totalReturn: Math.random() * 30 - 10,
+        todayProfit,
+        todayProfitRate: totalAssets > 0 ? (todayProfit / totalAssets) * 100 : 0,
         assetHistory,
-        isMockData,
       });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      console.error('[BALANCE ERROR]', error?.message);
+      res.status(502).json({
+        error: "키움 API 연결 실패",
+        detail: error.message,
+      });
     }
   });
 
@@ -195,4 +165,3 @@ export function registerAccountRoutes(app: Router) {
     }
   });
 }
-
