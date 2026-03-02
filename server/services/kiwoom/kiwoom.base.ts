@@ -114,7 +114,7 @@ export class KiwoomBase {
 
     this.api = axios.create({
       baseURL: config.baseURL || "https://openapi.kiwoom.com:9443",
-      timeout: 10000,
+      timeout: 5000,
       headers: { "Content-Type": "application/json; charset=utf-8" },
     });
 
@@ -144,12 +144,18 @@ export class KiwoomBase {
           appkey: this.appKey,
           appsecret: this.appSecret,
         },
-        { timeout: 10000 }
+        { timeout: 5000 }
       );
       const data = response.data as { access_token: string; expires_in: number };
       this.accessToken = data.access_token;
       this.tokenExpiry = Date.now() + data.expires_in * 1000 - 60000;
+      console.log("✅ Kiwoom API 인증 성공");
     } catch (error: any) {
+      // 타임아웃/네트워크 오류 시 stub 모드로 전환 (재시도 방지)
+      if (error.code === "ECONNABORTED" || error.message?.includes("timeout") || error.code === "ECONNREFUSED" || error.code === "ENOTFOUND") {
+        console.warn("⚠️  Kiwoom API 연결 불가 (네트워크/방화벽), stub 모드로 전환");
+        this.stubMode = true;
+      }
       throw new Error(`Kiwoom authentication failed: ${error.message}`);
     }
   }
