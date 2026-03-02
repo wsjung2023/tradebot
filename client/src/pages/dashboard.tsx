@@ -7,9 +7,10 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { TrendingUp, TrendingDown, Wallet, Target, Plus, Trash2, AlertCircle, WifiOff } from "lucide-react";
+import { TrendingUp, TrendingDown, Wallet, Target, Plus, Trash2, RefreshCw, WifiOff } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useKiwoomBalance } from "@/hooks/use-kiwoom-balance";
 import { LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 
 export default function Dashboard() {
@@ -21,30 +22,46 @@ export default function Dashboard() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
-  const { data: accounts, isLoading: accountsLoading } = useQuery({
-    queryKey: ['/api/accounts'],
-  });
-
-  const { data: settings } = useQuery({
-    queryKey: ['/api/settings'],
-  });
-
-  const { data: balance, error: balanceError, isLoading: balanceLoading } = useQuery({
+  const { data: accounts, isLoading: accountsLoading } = useQuery({ queryKey: ['/api/accounts'] });
+  const { data: settings } = useQuery({ queryKey: ['/api/settings'] });
+  const { data: cachedBalance } = useQuery({
     queryKey: ['/api/accounts', selectedAccountId, 'balance'],
     enabled: !!selectedAccountId,
-    retry: false,
   });
-
   const { data: holdings, isLoading: holdingsLoading } = useQuery({
     queryKey: ['/api/accounts', selectedAccountId, 'holdings'],
     enabled: !!selectedAccountId,
   });
 
+  const kiwoom = useKiwoomBalance();
+
+  const selectedAccount = accounts?.find((a: any) => a.id === selectedAccountId);
+
   useEffect(() => {
-    if (!selectedAccountId && accounts && accounts.length > 0 && !accountsLoading) {
+    if (!selectedAccountId && accounts?.length > 0 && !accountsLoading) {
       setSelectedAccountId(accounts[0].id);
     }
   }, [accounts, accountsLoading, selectedAccountId]);
+
+  // 계좌 선택 시 자동으로 잔고 조회
+  useEffect(() => {
+    if (selectedAccount && kiwoom.status === "idle") {
+      kiwoom.fetch(
+        selectedAccount.id,
+        selectedAccount.accountNumber,
+        selectedAccount.accountType as "mock" | "real"
+      );
+    }
+  }, [selectedAccountId]);
+
+  const handleRefresh = () => {
+    if (!selectedAccount) return;
+    kiwoom.fetch(
+      selectedAccount.id,
+      selectedAccount.accountNumber,
+      selectedAccount.accountType as "mock" | "real"
+    );
+  };
 
   const addAccountMutation = useMutation({
     mutationFn: async (data: any) => {
@@ -54,10 +71,8 @@ export default function Dashboard() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/accounts'] });
       setDialogOpen(false);
-      setAccountNumber("");
-      setAccountName("");
-      setAccountType("mock");
-      toast({ title: "계좌 추가 완료", description: "키움증권 계좌가 추가되었습니다" });
+      setAccountNumber(""); setAccountName(""); setAccountType("mock");
+      toast({ title: "계좌 추가 완료" });
     },
     onError: (error: any) => {
       toast({ variant: "destructive", title: "계좌 추가 실패", description: error.message });
@@ -79,32 +94,33 @@ export default function Dashboard() {
     },
   });
 
-  const formatCurrency = (value: number | string | undefined) => {
+  const fmt = (value: number | string | undefined) => {
     if (value === undefined || value === null) return "-";
-    const num = typeof value === 'string' ? parseFloat(value) : value;
-    if (isNaN(num)) return "-";
-    return `₩${num.toLocaleString('ko-KR')}`;
+    const n = typeof value === "string" ? parseFloat(value) : value;
+    if (isNaN(n)) return "-";
+    return `₩${n.toLocaleString("ko-KR")}`;
   };
 
-  const formatPercent = (value: number | string | undefined) => {
+  const fmtPct = (value: number | string | undefined) => {
     if (value === undefined || value === null) return "-";
-    const num = typeof value === 'string' ? parseFloat(value) : value;
-    if (isNaN(num)) return "-";
-    const sign = num >= 0 ? '+' : '';
-    return `${sign}${num.toFixed(2)}%`;
+    const n = typeof value === "string" ? parseFloat(value) : value;
+    if (isNaN(n)) return "-";
+    return `${n >= 0 ? "+" : ""}${n.toFixed(2)}%`;
   };
 
-  const totalAssets = balance?.totalAssets;
-  const todayProfit = balance?.todayProfit;
-  const todayProfitRate = balance?.todayProfitRate;
+  const isLoading = kiwoom.status === "loading";
+  const isSuccess = kiwoom.status === "success";
+  const hasError = kiwoom.status === "error" || kiwoom.status === "cors_error";
+  const balance = kiwoom.data;
 
-  const isConnected = !!selectedAccountId && !balanceError && !balanceLoading;
+  const assetHistory = cachedBalance?.assetHistory ?? [];
 
   return (
     <div className="relative min-h-screen">
       <div className="fixed inset-0 bg-gradient-to-br from-[hsl(var(--background))] via-[hsl(var(--neon-cyan))]/5 to-[hsl(var(--neon-purple))]/5 animate-gradient-flow -z-10" />
 
       <div className="p-3 md:p-6 space-y-4 md:space-y-6 relative z-0">
+        {/* 헤더 */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl md:text-3xl font-bold text-gradient-cyber" data-testid="text-dashboard-title">대시보드</h1>
@@ -112,10 +128,7 @@ export default function Dashboard() {
           </div>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
-              <Button data-testid="button-add-account">
-                <Plus className="h-4 w-4 mr-2" />
-                계좌 추가
-              </Button>
+              <Button data-testid="button-add-account"><Plus className="h-4 w-4 mr-2" />계좌 추가</Button>
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
@@ -124,31 +137,17 @@ export default function Dashboard() {
               </DialogHeader>
               <div className="space-y-4 py-4">
                 <div className="space-y-2">
-                  <Label htmlFor="accountNumber">계좌번호</Label>
-                  <Input
-                    id="accountNumber"
-                    placeholder="1234-56-789012"
-                    value={accountNumber}
-                    onChange={(e) => setAccountNumber(e.target.value)}
-                    data-testid="input-account-number"
-                  />
+                  <Label>계좌번호</Label>
+                  <Input placeholder="1234-56-789012" value={accountNumber} onChange={(e) => setAccountNumber(e.target.value)} data-testid="input-account-number" />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="accountName">계좌명 (선택)</Label>
-                  <Input
-                    id="accountName"
-                    placeholder="주식 계좌"
-                    value={accountName}
-                    onChange={(e) => setAccountName(e.target.value)}
-                    data-testid="input-account-name"
-                  />
+                  <Label>계좌명 (선택)</Label>
+                  <Input placeholder="주식 계좌" value={accountName} onChange={(e) => setAccountName(e.target.value)} data-testid="input-account-name" />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="accountType">계좌 유형</Label>
-                  <Select value={accountType} onValueChange={(value: any) => setAccountType(value)}>
-                    <SelectTrigger data-testid="select-account-type">
-                      <SelectValue />
-                    </SelectTrigger>
+                  <Label>계좌 유형</Label>
+                  <Select value={accountType} onValueChange={(v: any) => setAccountType(v)}>
+                    <SelectTrigger data-testid="select-account-type"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="mock">모의투자</SelectItem>
                       <SelectItem value="real">실계좌</SelectItem>
@@ -168,132 +167,115 @@ export default function Dashboard() {
           </Dialog>
         </div>
 
+        {/* 계좌 선택 */}
         {accounts && accounts.length > 0 && (
           <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
             <Label className="text-sm">계좌 선택:</Label>
             <div className="flex items-center gap-2 flex-1">
-              <Select
-                value={selectedAccountId?.toString()}
-                onValueChange={(value) => setSelectedAccountId(parseInt(value))}
-              >
-                <SelectTrigger className="w-full sm:w-64" data-testid="select-account">
-                  <SelectValue />
-                </SelectTrigger>
+              <Select value={selectedAccountId?.toString()} onValueChange={(v) => { setSelectedAccountId(parseInt(v)); }}>
+                <SelectTrigger className="w-full sm:w-64" data-testid="select-account"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {accounts.map((acc: any) => (
                     <SelectItem key={acc.id} value={acc.id.toString()}>
-                      {acc.accountName || acc.accountNumber} ({acc.accountType === 'real' ? '실계좌' : '모의투자'})
+                      {acc.accountName || acc.accountNumber} ({acc.accountType === "real" ? "실계좌" : "모의투자"})
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
               {selectedAccountId && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setDeleteConfirmOpen(true)}
-                  data-testid="button-delete-account"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
+                <>
+                  <Button variant="ghost" size="icon" onClick={handleRefresh} disabled={isLoading} data-testid="button-refresh-balance">
+                    <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+                  </Button>
+                  <Button variant="ghost" size="icon" onClick={() => setDeleteConfirmOpen(true)} data-testid="button-delete-account">
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </>
               )}
             </div>
           </div>
         )}
 
-        {balanceError && selectedAccountId && (
+        {/* 에러 상태 */}
+        {hasError && (
           <Card className="border-destructive/40 bg-destructive/5">
             <CardContent className="pt-4 pb-4 flex items-start gap-3">
               <WifiOff className="h-5 w-5 text-destructive mt-0.5 shrink-0" />
               <div>
-                <p className="text-sm font-medium text-destructive">키움 API 연결 실패</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {(balanceError as any)?.message || "API 서버에 연결할 수 없습니다. 배포 환경에서 다시 시도하세요."}
-                </p>
+                <p className="text-sm font-medium text-destructive">Kiwoom API 연결 실패</p>
+                <p className="text-xs text-muted-foreground mt-1">{kiwoom.error}</p>
               </div>
             </CardContent>
           </Card>
         )}
 
+        {/* 요약 카드 */}
         <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
           <Card className="hover-elevate transition-all duration-300 border-[hsl(var(--neon-cyan))]/20">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 gap-2">
               <CardTitle className="text-xs md:text-sm font-medium">총 자산</CardTitle>
-              <Wallet className="h-4 w-4 md:h-5 md:w-5 text-[hsl(var(--neon-cyan))]" />
+              <Wallet className="h-4 w-4 text-[hsl(var(--neon-cyan))]" />
             </CardHeader>
             <CardContent className="pt-0">
               <div className="text-lg md:text-2xl font-bold font-mono text-glow-cyan truncate" data-testid="text-total-assets">
-                {balanceLoading ? (
-                  <span className="text-muted-foreground text-base">조회 중...</span>
-                ) : balanceError ? (
-                  <span className="text-muted-foreground flex items-center gap-1 text-sm"><AlertCircle className="h-4 w-4" /> 연결 실패</span>
-                ) : (
-                  formatCurrency(totalAssets)
-                )}
+                {isLoading ? <span className="text-muted-foreground text-base">조회 중...</span>
+                  : isSuccess ? fmt(balance?.totalAssets)
+                  : <span className="text-muted-foreground text-sm">-</span>}
               </div>
-              {!selectedAccountId && (
-                <p className="text-xs text-muted-foreground">계좌를 연결해주세요</p>
-              )}
+              {!selectedAccountId && <p className="text-xs text-muted-foreground">계좌를 연결해주세요</p>}
             </CardContent>
           </Card>
 
           <Card className="hover-elevate transition-all duration-300 border-[hsl(var(--neon-green))]/20">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 gap-2">
-              <CardTitle className="text-xs md:text-sm font-medium">오늘 수익</CardTitle>
-              <TrendingUp className="h-4 w-4 md:h-5 md:w-5 text-[hsl(var(--neon-green))]" />
+              <CardTitle className="text-xs md:text-sm font-medium">평가손익</CardTitle>
+              <TrendingUp className="h-4 w-4 text-[hsl(var(--neon-green))]" />
             </CardHeader>
             <CardContent className="pt-0">
               <div
-                className={`text-lg md:text-2xl font-bold font-mono truncate ${isConnected && todayProfit && todayProfit > 0 ? 'text-[hsl(var(--neon-green))]' : isConnected && todayProfit && todayProfit < 0 ? 'text-[hsl(var(--neon-red))]' : ''}`}
+                className={`text-lg md:text-2xl font-bold font-mono truncate ${isSuccess && balance?.todayProfit && balance.todayProfit > 0 ? "text-[hsl(var(--neon-green))]" : isSuccess && balance?.todayProfit && balance.todayProfit < 0 ? "text-[hsl(var(--neon-red))]" : ""}`}
                 data-testid="text-today-profit"
               >
-                {balanceLoading ? (
-                  <span className="text-muted-foreground text-base">조회 중...</span>
-                ) : balanceError ? (
-                  <span className="text-muted-foreground text-sm">-</span>
-                ) : (
-                  formatCurrency(todayProfit)
-                )}
+                {isLoading ? <span className="text-muted-foreground text-base">조회 중...</span>
+                  : isSuccess ? fmt(balance?.todayProfit)
+                  : <span className="text-muted-foreground text-sm">-</span>}
               </div>
-              <p className={`text-xs ${isConnected && todayProfitRate && todayProfitRate > 0 ? 'text-[hsl(var(--neon-green))]' : isConnected && todayProfitRate && todayProfitRate < 0 ? 'text-[hsl(var(--neon-red))]' : 'text-muted-foreground'}`}>
-                {balanceError ? "" : formatPercent(todayProfitRate)}
+              <p className={`text-xs ${isSuccess && balance?.todayProfitRate && balance.todayProfitRate > 0 ? "text-[hsl(var(--neon-green))]" : isSuccess && balance?.todayProfitRate && balance.todayProfitRate < 0 ? "text-[hsl(var(--neon-red))]" : "text-muted-foreground"}`}>
+                {isSuccess ? fmtPct(balance?.todayProfitRate) : ""}
               </p>
             </CardContent>
           </Card>
 
           <Card className="hover-elevate transition-all duration-300 border-[hsl(var(--neon-purple))]/20">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 gap-2">
-              <CardTitle className="text-xs md:text-sm font-medium">누적 수익률</CardTitle>
-              <Target className="h-4 w-4 md:h-5 md:w-5 text-[hsl(var(--neon-purple))]" />
+              <CardTitle className="text-xs md:text-sm font-medium">예수금</CardTitle>
+              <Target className="h-4 w-4 text-[hsl(var(--neon-purple))]" />
             </CardHeader>
             <CardContent className="pt-0">
               <div className="text-lg md:text-2xl font-bold font-mono" data-testid="text-total-return">
-                {balanceLoading ? (
-                  <span className="text-muted-foreground text-base">조회 중...</span>
-                ) : balanceError ? (
-                  <span className="text-muted-foreground text-sm">-</span>
-                ) : (
-                  formatPercent(balance?.totalReturn)
-                )}
+                {isLoading ? <span className="text-muted-foreground text-base">조회 중...</span>
+                  : isSuccess ? fmt(balance?.output1?.dnca_tot_amt)
+                  : <span className="text-muted-foreground text-sm">-</span>}
               </div>
-              <p className="text-xs text-muted-foreground">시작 이후</p>
+              <p className="text-xs text-muted-foreground">출금가능금액</p>
             </CardContent>
           </Card>
 
           <Card className="hover-elevate transition-all duration-300 border-primary/30">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 gap-2">
               <CardTitle className="text-xs md:text-sm font-medium">거래 모드</CardTitle>
-              <TrendingDown className={`h-4 w-4 md:h-5 md:w-5 ${settings?.tradingMode === 'real' ? 'text-[hsl(var(--neon-cyan))] animate-pulse-glow' : 'text-muted-foreground'}`} />
+              <TrendingDown className={`h-4 w-4 ${settings?.tradingMode === "real" ? "text-[hsl(var(--neon-cyan))] animate-pulse-glow" : "text-muted-foreground"}`} />
             </CardHeader>
             <CardContent className="pt-0">
               <div className="text-lg md:text-2xl font-bold" data-testid="text-trading-mode">
-                {settings?.tradingMode === 'real' ? '실전' : '모의'}
+                {settings?.tradingMode === "real" ? "실전" : "모의"}
               </div>
               <p className="text-xs text-muted-foreground">설정에서 변경 가능</p>
             </CardContent>
           </Card>
         </div>
 
+        {/* 포트폴리오 & 보유종목 */}
         <div className="grid gap-3 md:gap-4 grid-cols-1 md:grid-cols-2">
           <Card className="hover-elevate">
             <CardHeader className="pb-2">
@@ -312,20 +294,16 @@ export default function Dashboard() {
                     <Pie
                       data={holdings.map((h: any) => ({
                         name: h.stockName,
-                        value: h.currentValue || h.quantity * (parseFloat(h.currentPrice) || parseFloat(h.averagePrice) || 0),
+                        value: h.quantity * (parseFloat(h.currentPrice) || parseFloat(h.averagePrice) || 0),
                       }))}
-                      cx="50%"
-                      cy="50%"
-                      labelLine={false}
-                      label={(entry) => entry.name}
-                      outerRadius={80}
-                      dataKey="value"
+                      cx="50%" cy="50%" labelLine={false} label={(e) => e.name}
+                      outerRadius={80} dataKey="value"
                     >
-                      {holdings.map((_: any, index: number) => (
-                        <Cell key={`cell-${index}`} fill={['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8'][index % 5]} />
+                      {holdings.map((_: any, i: number) => (
+                        <Cell key={i} fill={['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8'][i % 5]} />
                       ))}
                     </Pie>
-                    <Tooltip formatter={(value: any) => formatCurrency(value)} />
+                    <Tooltip formatter={(v: any) => fmt(v)} />
                   </PieChart>
                 </ResponsiveContainer>
               ) : (
@@ -349,20 +327,16 @@ export default function Dashboard() {
                 <p className="text-sm text-muted-foreground text-center py-8">조회 중...</p>
               ) : holdings && holdings.length > 0 ? (
                 <div className="space-y-2">
-                  {holdings.map((holding: any) => (
-                    <div
-                      key={holding.id}
-                      className="flex items-center justify-between p-3 border rounded-md"
-                      data-testid={`holding-${holding.stockCode}`}
-                    >
+                  {holdings.map((h: any) => (
+                    <div key={h.id} className="flex items-center justify-between p-3 border rounded-md" data-testid={`holding-${h.stockCode}`}>
                       <div>
-                        <p className="font-medium">{holding.stockName}</p>
-                        <p className="text-sm text-muted-foreground">{holding.stockCode}</p>
+                        <p className="font-medium">{h.stockName}</p>
+                        <p className="text-sm text-muted-foreground">{h.stockCode}</p>
                       </div>
                       <div className="text-right">
-                        <p className="font-mono text-sm">{holding.quantity}주</p>
-                        <p className={`text-sm font-medium ${parseFloat(holding.profitLossRate) > 0 ? 'text-green-600 dark:text-green-400' : parseFloat(holding.profitLossRate) < 0 ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground'}`}>
-                          {formatPercent(holding.profitLossRate)}
+                        <p className="font-mono text-sm">{h.quantity}주</p>
+                        <p className={`text-sm font-medium ${parseFloat(h.profitLossRate) > 0 ? "text-green-600 dark:text-green-400" : parseFloat(h.profitLossRate) < 0 ? "text-red-600 dark:text-red-400" : "text-muted-foreground"}`}>
+                          {fmtPct(h.profitLossRate)}
                         </p>
                       </div>
                     </div>
@@ -377,6 +351,7 @@ export default function Dashboard() {
           </Card>
         </div>
 
+        {/* 자산 추이 */}
         <Card className="hover-elevate">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -386,28 +361,25 @@ export default function Dashboard() {
             <CardDescription>최근 30일 총자산 변화</CardDescription>
           </CardHeader>
           <CardContent>
-            {balanceError ? (
-              <p className="text-sm text-muted-foreground text-center py-8">API 연결 후 데이터가 표시됩니다</p>
-            ) : balance?.assetHistory && balance.assetHistory.length > 0 ? (
+            {assetHistory.length > 0 ? (
               <ResponsiveContainer width="100%" height={300}>
-                <LineChart data={balance.assetHistory}>
+                <LineChart data={assetHistory}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="date" />
                   <YAxis />
-                  <Tooltip formatter={(value: any) => formatCurrency(value)} />
+                  <Tooltip formatter={(v: any) => fmt(v)} />
                   <Legend />
                   <Line type="monotone" dataKey="totalAssets" stroke="#8884d8" name="총자산" strokeWidth={2} />
                   <Line type="monotone" dataKey="profit" stroke="#82ca9d" name="수익" strokeWidth={2} />
                 </LineChart>
               </ResponsiveContainer>
             ) : (
-              <p className="text-sm text-muted-foreground text-center py-8">
-                거래 데이터가 누적되면 차트가 표시됩니다
-              </p>
+              <p className="text-sm text-muted-foreground text-center py-8">거래 데이터가 누적되면 차트가 표시됩니다</p>
             )}
           </CardContent>
         </Card>
 
+        {/* 최근 거래 */}
         <Card className="hover-elevate">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -426,9 +398,7 @@ export default function Dashboard() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>계좌 삭제</AlertDialogTitle>
-            <AlertDialogDescription>
-              이 계좌를 삭제하시겠습니까? 삭제 후에는 복구할 수 없습니다.
-            </AlertDialogDescription>
+            <AlertDialogDescription>이 계좌를 삭제하시겠습니까? 삭제 후에는 복구할 수 없습니다.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>취소</AlertDialogCancel>
