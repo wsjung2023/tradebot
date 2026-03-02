@@ -2,6 +2,9 @@ import express, { type Request, Response, NextFunction } from "express";
 import session from "express-session";
 import rateLimit from "express-rate-limit";
 import helmet from "helmet";
+import path from "path";
+import fs from "fs";
+import { createServer } from "http";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { setupAuth } from "./auth";
@@ -78,7 +81,6 @@ const sessionMiddleware = session({
 });
 
 app.use(sessionMiddleware);
-
 setupAuth(app);
 
 app.use((req, res, next) => {
@@ -92,9 +94,19 @@ app.use((req, res, next) => {
   next();
 });
 
+// 포트를 즉시 열어 헬스체크 통과 — 초기화 완료 전에도 응답 가능
+const port = parseInt(process.env.PORT || '5000', 10);
+const httpServer = createServer(app);
+
+httpServer.listen({ port, host: "0.0.0.0", reusePort: true }, () => {
+  log(`serving on port ${port}`);
+});
+
+// 비동기 초기화 — 포트 오픈 후 진행
 (async () => {
   try {
-    const server = await registerRoutes(app, sessionMiddleware);
+    console.log('[STARTUP] Initializing routes...');
+    await registerRoutes(app, httpServer, sessionMiddleware);
 
     app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
       const status = err.status || err.statusCode || 500;
@@ -103,17 +115,15 @@ app.use((req, res, next) => {
     });
 
     if (app.get("env") === "development") {
-      await setupVite(app, server);
+      console.log('[STARTUP] Setting up Vite dev server...');
+      await setupVite(app, httpServer);
     } else {
+      console.log('[STARTUP] Setting up static file serving...');
       serveStatic(app);
     }
-
-    const port = parseInt(process.env.PORT || '5000', 10);
-    server.listen({ port, host: "0.0.0.0", reusePort: true }, () => {
-      log(`serving on port ${port}`);
-    });
+    console.log('[STARTUP] Initialization complete.');
   } catch (err) {
-    console.error("FATAL: Server initialization failed:", err);
+    console.error('[STARTUP] FATAL initialization error:', err);
     process.exit(1);
   }
 })();

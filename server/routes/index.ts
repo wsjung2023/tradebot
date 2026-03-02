@@ -1,6 +1,6 @@
-﻿// index.ts — 모든 도메인 라우터를 Express 앱에 등록하는 진입점
+// index.ts — 모든 도메인 라우터를 Express 앱에 등록하는 진입점
 import type { Express } from "express";
-import { createServer, type Server } from "http";
+import { type Server } from "http";
 import { WebSocketServer } from "ws";
 import { MarketDataHub } from "../market-data-hub";
 import { getKiwoomService } from "../services/kiwoom";
@@ -14,7 +14,7 @@ import { registerFormulaRoutes } from "./formula.routes";
 import { registerAutoTradingRoutes } from "./autotrading.routes";
 import { registerAdminRoutes } from "./admin.routes";
 
-export async function registerRoutes(app: Express, sessionMiddleware: any): Promise<Server> {
+export async function registerRoutes(app: Express, httpServer: Server, sessionMiddleware: any): Promise<void> {
   const kiwoomService = getKiwoomService();
   const marketHub = new MarketDataHub(kiwoomService);
 
@@ -31,10 +31,7 @@ export async function registerRoutes(app: Express, sessionMiddleware: any): Prom
   // 레인보우 차트 라우터
   app.use("/api/rainbow", rainbowRouter);
 
-  // HTTP 서버 + WebSocket
-  // noServer: true 로 수동 업그레이드 처리 (세션 인증 포함)
-  // server+path 자동 처리와 동시 사용하면 업그레이드가 중복 처리됨
-  const httpServer = createServer(app);
+  // WebSocket — 이미 생성된 httpServer에 연결
   const wss = new WebSocketServer({ noServer: true });
 
   wss.on("connection", (ws) => {
@@ -58,7 +55,4 @@ export async function registerRoutes(app: Express, sessionMiddleware: any): Prom
       });
     });
   });
-
-  return httpServer;
 }
-
