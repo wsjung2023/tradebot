@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 
 const ALGORITHM = 'aes-256-gcm';
-const IV_LENGTH = 16;
+const IV_LENGTH = 12;
 const SALT_LENGTH = 64;
 const TAG_LENGTH = 16;
 const KEY_LENGTH = 32;
@@ -24,15 +24,17 @@ export function encrypt(text: string): string {
   const salt = crypto.randomBytes(SALT_LENGTH);
   const key = deriveKey(masterKey, salt);
   const iv = crypto.randomBytes(IV_LENGTH);
-  
+
   const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
-  
+
   let encrypted = cipher.update(text, 'utf8', 'hex');
   encrypted += cipher.final('hex');
-  
+
   const tag = cipher.getAuthTag();
-  
-  // Format: salt:iv:tag:encrypted
+  if (!tag || tag.length !== TAG_LENGTH) {
+    throw new Error('Failed to generate authentication tag');
+  }
+
   return [
     salt.toString('hex'),
     iv.toString('hex'),
@@ -44,24 +46,29 @@ export function encrypt(text: string): string {
 export function decrypt(encryptedText: string): string {
   const masterKey = getEncryptionKey();
   const parts = encryptedText.split(':');
-  
+
   if (parts.length !== 4) {
     throw new Error('Invalid encrypted text format');
   }
-  
-  const salt = Buffer.from(parts[0], 'hex');
-  const iv = Buffer.from(parts[1], 'hex');
-  const tag = Buffer.from(parts[2], 'hex');
-  const encrypted = parts[3];
-  
+
+  const [saltHex, ivHex, tagHex, encrypted] = parts;
+
+  const salt = Buffer.from(saltHex, 'hex');
+  const iv = Buffer.from(ivHex, 'hex');
+  const tag = Buffer.from(tagHex, 'hex');
+
+  if (tag.length !== TAG_LENGTH) {
+    throw new Error('Invalid authentication tag length');
+  }
+
   const key = deriveKey(masterKey, salt);
-  
+
   const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
   decipher.setAuthTag(tag);
-  
+
   let decrypted = decipher.update(encrypted, 'hex', 'utf8');
   decrypted += decipher.final('utf8');
-  
+
   return decrypted;
 }
 

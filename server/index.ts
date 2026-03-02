@@ -9,6 +9,17 @@ import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { setupAuth } from "./auth";
 
+// 전역 에러 핸들러 — 배포 환경에서 silent crash 방지
+process.on('uncaughtException', (err) => {
+  console.error('[CRASH] Uncaught Exception:', err.message, err.stack);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason: any) => {
+  console.error('[CRASH] Unhandled Rejection:', reason?.message || reason, reason?.stack || '');
+  process.exit(1);
+});
+
 const app = express();
 
 declare module 'http' {
@@ -31,7 +42,6 @@ app.use(helmet({
       connectSrc: ["'self'", "ws:", "wss:", "https:"],
       fontSrc: ["'self'", "data:"],
       objectSrc: ["'none'"],
-      upgradeInsecureRequests: [],
     },
   } : false,
   crossOriginEmbedderPolicy: false,
@@ -83,29 +93,44 @@ const sessionMiddleware = session({
 app.use(sessionMiddleware);
 setupAuth(app);
 
+// 모든 요청 로깅 (배포 디버깅 포함)
 app.use((req, res, next) => {
   const start = Date.now();
   res.on("finish", () => {
     const duration = Date.now() - start;
-    if (req.path.startsWith("/api")) {
-      log(`${req.method} ${req.path} ${res.statusCode} in ${duration}ms`);
-    }
+    log(`${req.method} ${req.path} ${res.statusCode} in ${duration}ms`);
   });
   next();
 });
 
-// 포트를 즉시 열어 헬스체크 통과 — 초기화 완료 전에도 응답 가능
 const port = parseInt(process.env.PORT || '5000', 10);
 const httpServer = createServer(app);
 
+// 프로덕션: index.html 미리 메모리에 로드
+let cachedIndexHtml: string | null = null;
+if (isProduction) {
+  const indexPath = path.join(process.cwd(), 'dist', 'public', 'index.html');
+  console.log(`[STARTUP] Checking index.html at: ${indexPath}`);
+  if (fs.existsSync(indexPath)) {
+    cachedIndexHtml = fs.readFileSync(indexPath, 'utf8');
+    console.log('[STARTUP] index.html cached in memory ✓');
+  } else {
+    console.error('[STARTUP] WARNING: index.html not found at', indexPath);
+    console.error('[STARTUP] dist/public contents:', fs.existsSync(path.join(process.cwd(), 'dist', 'public'))
+      ? fs.readdirSync(path.join(process.cwd(), 'dist', 'public'))
+      : 'directory not found');
+  }
+}
+
+// 포트를 즉시 열어 헬스체크 통과
 httpServer.listen({ port, host: "0.0.0.0", reusePort: true }, () => {
   log(`serving on port ${port}`);
 });
 
-// 비동기 초기화 — 포트 오픈 후 진행
+// 비동기 초기화
 (async () => {
   try {
-    console.log('[STARTUP] Initializing routes...');
+    console.log('[STARTUP] Registering API routes...');
     await registerRoutes(app, httpServer, sessionMiddleware);
 
     app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
@@ -114,16 +139,16 @@ httpServer.listen({ port, host: "0.0.0.0", reusePort: true }, () => {
       res.status(status).json({ message });
     });
 
-    if (app.get("env") === "development") {
+    if (!isProduction) {
       console.log('[STARTUP] Setting up Vite dev server...');
       await setupVite(app, httpServer);
     } else {
       console.log('[STARTUP] Setting up static file serving...');
       serveStatic(app);
     }
-    console.log('[STARTUP] Initialization complete.');
-  } catch (err) {
-    console.error('[STARTUP] FATAL initialization error:', err);
+    console.log('[STARTUP] Initialization complete ✓');
+  } catch (err: any) {
+    console.error('[STARTUP] FATAL initialization error:', err.message, err.stack);
     process.exit(1);
   }
 })();
