@@ -3,6 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -18,6 +19,7 @@ export default function Dashboard() {
   const [accountName, setAccountName] = useState("");
   const [accountType, setAccountType] = useState<"mock" | "real">("mock");
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
   const { data: accounts, isLoading: accountsLoading } = useQuery({
     queryKey: ['/api/accounts'],
@@ -77,8 +79,13 @@ export default function Dashboard() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/accounts'] });
       setSelectedAccountId(null);
+      toast({ title: "계좌 삭제 완료" });
+    },
+    onError: (error: any) => {
       toast({
-        title: "계좌 삭제 완료",
+        variant: "destructive",
+        title: "계좌 삭제 실패",
+        description: error.message,
       });
     },
   });
@@ -198,11 +205,7 @@ export default function Dashboard() {
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={() => {
-                  if (confirm("이 계좌를 삭제하시겠습니까?")) {
-                    deleteAccountMutation.mutate(selectedAccountId);
-                  }
-                }}
+                onClick={() => setDeleteConfirmOpen(true)}
                 data-testid="button-delete-account"
               >
                 <Trash2 className="h-4 w-4" />
@@ -411,6 +414,30 @@ export default function Dashboard() {
         </CardContent>
       </Card>
       </div>
+
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>계좌 삭제</AlertDialogTitle>
+            <AlertDialogDescription>
+              이 계좌를 삭제하시겠습니까? 삭제 후에는 복구할 수 없습니다.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>취소</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (selectedAccountId) {
+                  deleteAccountMutation.mutate(selectedAccountId);
+                }
+              }}
+              data-testid="button-confirm-delete"
+            >
+              삭제
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
