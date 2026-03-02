@@ -155,8 +155,21 @@ app.use((req, res, next) => {
   }, () => {
     log(`serving on port ${port}`);
     
-    // Start auto trading background worker
-    autoTradingWorker.start();
+    // Memory monitoring - log every 10 seconds
+    let prevHeapMB = 0;
+    setInterval(() => {
+      const { heapUsed, heapTotal, rss, external } = process.memoryUsage();
+      const heapMB = Math.round(heapUsed / 1024 / 1024);
+      const totalMB = Math.round(heapTotal / 1024 / 1024);
+      const rssMB = Math.round(rss / 1024 / 1024);
+      const extMB = Math.round(external / 1024 / 1024);
+      const deltaMB = heapMB - prevHeapMB;
+      prevHeapMB = heapMB;
+      log(`[MEM] heap: ${heapMB}MB / ${totalMB}MB | rss: ${rssMB}MB | ext: ${extMB}MB | delta: ${deltaMB > 0 ? '+' : ''}${deltaMB}MB`, 'memory');
+    }, 10000);
+    
+    // Background jobs are OFF by default. Use /api/admin/jobs to enable.
+    // autoTradingWorker.start();
     
     // Start data cleanup service (runs daily at 02:00)
     // dataCleanupService.start();

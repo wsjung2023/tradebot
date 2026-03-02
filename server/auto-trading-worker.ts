@@ -9,36 +9,71 @@ import { RainbowChartAnalyzer } from './formula/rainbow-chart';
 
 class AutoTradingWorker {
   private isRunning = false;
+  private isLearningRunning = false;
   private cronJob: cron.ScheduledTask | null = null;
   private learningJob: cron.ScheduledTask | null = null;
   private learningService = new LearningService();
 
   async start() {
-    console.log('🤖 Auto Trading Worker starting...');
-    
-    // Run trading every 1 minute
-    this.cronJob = cron.schedule('* * * * *', async () => {
-      await this.executeTradingCycle();
-    });
-
-    // Run learning optimization at 16:00 daily (after market close)
-    this.learningJob = cron.schedule('0 16 * * *', async () => {
-      await this.executeLearningCycle();
-    });
-
-    console.log('✅ Auto Trading Worker started (runs every 1 minute)');
-    console.log('🎓 Learning System started (runs daily at 16:00)');
+    this.startTradingJob('* * * * *');
+    this.startLearningJob('0 16 * * *');
   }
 
   stop() {
+    this.stopTradingJob();
+    this.stopLearningJob();
+  }
+
+  startTradingJob(schedule: string) {
     if (this.cronJob) {
       this.cronJob.stop();
+    }
+    this.cronJob = cron.schedule(schedule, async () => {
+      await this.executeTradingCycle();
+    });
+    console.log(`✅ Auto Trading Worker started (schedule: ${schedule})`);
+  }
+
+  stopTradingJob() {
+    if (this.cronJob) {
+      this.cronJob.stop();
+      this.cronJob = null;
       console.log('⏹️  Auto Trading Worker stopped');
     }
+  }
+
+  startLearningJob(schedule: string) {
     if (this.learningJob) {
       this.learningJob.stop();
+    }
+    this.learningJob = cron.schedule(schedule, async () => {
+      await this.executeLearningCycleWrapper();
+    });
+    console.log(`✅ Learning System started (schedule: ${schedule})`);
+  }
+
+  stopLearningJob() {
+    if (this.learningJob) {
+      this.learningJob.stop();
+      this.learningJob = null;
       console.log('⏹️  Learning System stopped');
     }
+  }
+
+  isTradingJobRunning(): boolean {
+    return this.cronJob !== null;
+  }
+
+  isLearningJobRunning(): boolean {
+    return this.learningJob !== null;
+  }
+
+  async runTradingNow(): Promise<void> {
+    await this.executeTradingCycle();
+  }
+
+  async runLearningNow(): Promise<void> {
+    await this.executeLearningCycleWrapper();
   }
 
   private async executeTradingCycle() {
@@ -529,6 +564,19 @@ class AutoTradingWorker {
    * Learning cycle: analyze performance and optimize parameters
    * Runs daily at 16:00 after market close
    */
+  private async executeLearningCycleWrapper() {
+    if (this.isLearningRunning) {
+      console.log('⏭️  Skipping learning cycle - previous cycle still running');
+      return;
+    }
+    this.isLearningRunning = true;
+    try {
+      await this.executeLearningCycle();
+    } finally {
+      this.isLearningRunning = false;
+    }
+  }
+
   private async executeLearningCycle() {
     console.log('\n🎓 Starting learning optimization cycle...');
 
