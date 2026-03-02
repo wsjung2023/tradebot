@@ -6,17 +6,17 @@ import path from "path";
 import fs from "fs";
 import { createServer } from "http";
 import { registerRoutes } from "./routes";
-import { setupVite, serveStatic, log } from "./vite";
+import { setupVite, log } from "./vite";
 import { setupAuth } from "./auth";
 
-// 전역 에러 핸들러 — 배포 환경에서 silent crash 방지
+// 전역 에러 핸들러
 process.on('uncaughtException', (err) => {
   console.error('[CRASH] Uncaught Exception:', err.message, err.stack);
   process.exit(1);
 });
 
 process.on('unhandledRejection', (reason: any) => {
-  console.error('[CRASH] Unhandled Rejection:', reason?.message || reason, reason?.stack || '');
+  console.error('[CRASH] Unhandled Rejection:', reason?.message || reason);
   process.exit(1);
 });
 
@@ -31,9 +31,10 @@ declare module 'http' {
 app.set('trust proxy', 1);
 
 const sessionSecret = process.env.SESSION_SECRET || 'kiwoom-ai-trading-secret-key-change-in-production';
+const isProduction = process.env.NODE_ENV === 'production';
 
 app.use(helmet({
-  contentSecurityPolicy: process.env.NODE_ENV === 'production' ? {
+  contentSecurityPolicy: isProduction ? {
     directives: {
       defaultSrc: ["'self'"],
       scriptSrc: ["'self'"],
@@ -49,16 +50,14 @@ app.use(helmet({
 
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
-  message: { error: '너무 많은 요청이 발생했습니다. 잠시 후 다시 시도해주세요.' },
+  max: 200,
   standardHeaders: true,
   legacyHeaders: false,
 });
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 5,
-  message: { error: '로그인 시도가 너무 많습니다. 15분 후 다시 시도해주세요.' },
+  max: 10,
   skipSuccessfulRequests: true,
 });
 
@@ -72,7 +71,6 @@ app.use(express.json({
 app.use(express.urlencoded({ extended: false }));
 
 const isReplit = !!process.env.REPLIT_DOMAINS;
-const isProduction = process.env.NODE_ENV === 'production';
 const cookieSecure = isReplit || isProduction;
 
 const sessionMiddleware = session({
@@ -93,7 +91,6 @@ const sessionMiddleware = session({
 app.use(sessionMiddleware);
 setupAuth(app);
 
-// 모든 요청 로깅 (배포 디버깅 포함)
 app.use((req, res, next) => {
   const start = Date.now();
   res.on("finish", () => {
@@ -106,31 +103,45 @@ app.use((req, res, next) => {
 const port = parseInt(process.env.PORT || '5000', 10);
 const httpServer = createServer(app);
 
-// 프로덕션: index.html 미리 메모리에 로드
-let cachedIndexHtml: string | null = null;
-if (isProduction) {
-  const indexPath = path.join(process.cwd(), 'dist', 'public', 'index.html');
-  console.log(`[STARTUP] Checking index.html at: ${indexPath}`);
-  if (fs.existsSync(indexPath)) {
-    cachedIndexHtml = fs.readFileSync(indexPath, 'utf8');
-    console.log('[STARTUP] index.html cached in memory ✓');
-  } else {
-    console.error('[STARTUP] WARNING: index.html not found at', indexPath);
-    console.error('[STARTUP] dist/public contents:', fs.existsSync(path.join(process.cwd(), 'dist', 'public'))
-      ? fs.readdirSync(path.join(process.cwd(), 'dist', 'public'))
-      : 'directory not found');
+// 프로덕션: process.cwd() 기반 경로 (import.meta.dirname 미사용)
+function setupStaticServing() {
+  const cwd = process.cwd();
+  const publicDir = path.join(cwd, 'dist', 'public');
+  const indexFile = path.join(publicDir, 'index.html');
+
+  console.log(`[STATIC] cwd=${cwd}`);
+  console.log(`[STATIC] publicDir=${publicDir} exists=${fs.existsSync(publicDir)}`);
+  console.log(`[STATIC] indexFile exists=${fs.existsSync(indexFile)}`);
+
+  if (!fs.existsSync(publicDir)) {
+    console.error('[STATIC] FATAL: dist/public not found. Build may have failed.');
+    // 헬스체크는 통과시키되 오류 상태 표시
+    app.use('*', (_req, res) => {
+      res.status(200).send('<html><body><h1>Build error: frontend not found</h1></body></html>');
+    });
+    return;
   }
+
+  // 정적 파일 서빙
+  app.use(express.static(publicDir));
+
+  // SPA 라우팅 — index.html 메모리 캐시
+  const html = fs.readFileSync(indexFile, 'utf8');
+  app.use('*', (_req, res) => {
+    res.status(200).contentType('text/html').send(html);
+  });
+
+  console.log('[STATIC] Static serving configured ✓');
 }
 
-// 포트를 즉시 열어 헬스체크 통과
+// 포트를 즉시 열어 헬스체크 확보
 httpServer.listen({ port, host: "0.0.0.0", reusePort: true }, () => {
   log(`serving on port ${port}`);
 });
 
-// 비동기 초기화
 (async () => {
   try {
-    console.log('[STARTUP] Registering API routes...');
+    console.log('[STARTUP] Registering routes...');
     await registerRoutes(app, httpServer, sessionMiddleware);
 
     app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
@@ -140,15 +151,16 @@ httpServer.listen({ port, host: "0.0.0.0", reusePort: true }, () => {
     });
 
     if (!isProduction) {
-      console.log('[STARTUP] Setting up Vite dev server...');
+      console.log('[STARTUP] Vite dev server...');
       await setupVite(app, httpServer);
     } else {
-      console.log('[STARTUP] Setting up static file serving...');
-      serveStatic(app);
+      console.log('[STARTUP] Static file serving...');
+      setupStaticServing();
     }
-    console.log('[STARTUP] Initialization complete ✓');
+
+    console.log('[STARTUP] Ready ✓');
   } catch (err: any) {
-    console.error('[STARTUP] FATAL initialization error:', err.message, err.stack);
+    console.error('[STARTUP] FATAL:', err.message, err.stack);
     process.exit(1);
   }
 })();
