@@ -15,8 +15,6 @@ export function registerAccountRoutes(app: Router) {
     return account;
   };
 
-  const normalizeAccountNumber = (accountNumber: string) => accountNumber.replace(/\D/g, "");
-
   // 계좌 목록 조회
   app.get("/api/accounts", isAuthenticated, async (req, res) => {
     try {
