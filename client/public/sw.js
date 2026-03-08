@@ -1,6 +1,6 @@
 // 키움 AI 트레이딩 Service Worker
 
-const CACHE_NAME = 'kiwoom-ai-v1';
+const CACHE_NAME = 'kiwoom-ai-v2';
 const STATIC_ASSETS = [
   '/',
   '/manifest.json',
@@ -31,9 +31,9 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const { request } = event;
-  const url = new URL(request.url);
 
-  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/ws')) {
+  // http/https 요청만 처리 (chrome-extension:// 등 제외)
+  if (!request.url.startsWith('http')) {
     return;
   }
 
@@ -41,9 +41,17 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  const url = new URL(request.url);
+
+  // API, WebSocket 요청은 캐시하지 않음
+  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/ws')) {
+    return;
+  }
+
   event.respondWith(
     fetch(request)
       .then((response) => {
+        // 정상 응답만 캐시 (opaque 응답 제외)
         if (response.ok && response.type === 'basic') {
           const cloned = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(request, cloned));
