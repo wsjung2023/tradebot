@@ -80,8 +80,8 @@ const cookieSecure = isReplit || isProduction;
 const sessionStore = isProduction
   ? new PgSession({
       pool,
-      createTableIfMissing: true,
-      tableName: 'user_sessions',
+      createTableIfMissing: false,
+      tableName: 'session',
     })
   : undefined;
 
