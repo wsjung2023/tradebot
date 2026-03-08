@@ -7,7 +7,11 @@ import { decrypt } from "../utils/crypto";
 import { createKiwoomService } from "../services/kiwoom";
 
 export function registerAccountRoutes(app: Router) {
-  const normalizeAccountNumber = (accountNumber: string) => accountNumber.replace(/\D/g, "");
+  // 계좌번호 정규화: 숫자만 추출 후, 정확히 8자리이면 주식 상품코드 "11" 자동 추가
+  const normalizeAccountNumber = (accountNumber: string) => {
+    const digits = accountNumber.replace(/\D/g, "");
+    return digits.length === 8 ? digits + "11" : digits;
+  };
 
   const getAuthorizedAccount = async (userId: string, accountId: number) => {
     const account = await storage.getKiwoomAccount(accountId);

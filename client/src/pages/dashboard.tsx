@@ -138,7 +138,8 @@ export default function Dashboard() {
               <div className="space-y-4 py-4">
                 <div className="space-y-2">
                   <Label>계좌번호</Label>
-                  <Input placeholder="1234-56-789012" value={accountNumber} onChange={(e) => setAccountNumber(e.target.value)} data-testid="input-account-number" />
+                  <Input placeholder="81208166 (8자리)" value={accountNumber} onChange={(e) => setAccountNumber(e.target.value)} data-testid="input-account-number" />
+                  <p className="text-xs text-muted-foreground">8자리 계좌번호를 입력하세요. 주식계좌는 상품코드(11)가 자동으로 추가됩니다.</p>
                 </div>
                 <div className="space-y-2">
                   <Label>계좌명 (선택)</Label>
