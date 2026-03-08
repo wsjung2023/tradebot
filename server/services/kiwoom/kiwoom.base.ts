@@ -114,7 +114,7 @@ export class KiwoomBase {
 
     this.api = axios.create({
       baseURL: config.baseURL || "https://openapi.kiwoom.com:9443",
-      timeout: 5000,
+      timeout: 2000,
       headers: { "Content-Type": "application/json; charset=utf-8" },
     });
 
@@ -144,7 +144,7 @@ export class KiwoomBase {
           appkey: this.appKey,
           appsecret: this.appSecret,
         },
-        { timeout: 5000 }
+        { timeout: 2000 }
       );
       const data = response.data as { access_token: string; expires_in: number };
       this.accessToken = data.access_token;

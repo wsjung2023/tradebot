@@ -48,6 +48,7 @@ export default function Dashboard() {
     if (selectedAccount && kiwoom.status === "idle") {
       kiwoom.fetch(
         selectedAccount.id,
+        selectedAccount.accountNumber,
         selectedAccount.accountType as "mock" | "real"
       );
     }
@@ -57,6 +58,7 @@ export default function Dashboard() {
     if (!selectedAccount) return;
     kiwoom.fetch(
       selectedAccount.id,
+      selectedAccount.accountNumber,
       selectedAccount.accountType as "mock" | "real"
     );
   };
@@ -108,7 +110,7 @@ export default function Dashboard() {
 
   const isLoading = kiwoom.status === "loading";
   const isSuccess = kiwoom.status === "success";
-  const hasError = kiwoom.status === "error" || kiwoom.status === "network_blocked";
+  const hasError = kiwoom.status === "error" || kiwoom.status === "network_blocked" || kiwoom.status === "cors_blocked";
   const balance = kiwoom.data;
 
   const assetHistory = cachedBalance?.assetHistory ?? [];

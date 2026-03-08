@@ -81,6 +81,25 @@ export function registerAccountRoutes(app: Router) {
     }
   });
 
+  // API 자격증명 제공 (클라이언트 폴백용)
+  app.get("/api/kiwoom/credentials", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const keys = await getUserApiKeys(user!.id);
+      if (!keys) {
+        return res.status(400).json({ error: "API 키가 설정되지 않았습니다." });
+      }
+      res.json({
+        appKey: keys.appKey,
+        appSecret: keys.appSecret,
+        baseUrl: "https://openapi.kiwoom.com:9443",
+        mockBaseUrl: "https://openapi.kiwoom.com:9443",
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // ── 서버사이드 잔고 조회 (서버가 Kiwoom API 직접 호출) ──────────────────────
   // 이전의 클라이언트사이드 CORS 방식 대체
   app.get("/api/accounts/:accountId/fetch-balance", isAuthenticated, async (req, res) => {
@@ -187,6 +206,41 @@ export function registerAccountRoutes(app: Router) {
       }));
 
       res.json({ assetHistory });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // 브라우저 폴백 결과 서버 동기화 (클라이언트 직접 호출 성공 시)
+  app.post("/api/accounts/:accountId/sync-balance", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const accountId = parseInt(req.params.accountId);
+      const account = await getAuthorizedAccount(user!.id, accountId);
+      if (!account) return res.status(404).json({ error: "Account not found" });
+
+      const { output1, output2 } = req.body;
+      if (Array.isArray(output2)) {
+        for (const item of output2) {
+          const stockCode = item.pdno;
+          if (!stockCode) continue;
+          const updates = {
+            stockName: item.prdt_name || "",
+            quantity: parseInt(item.hldg_qty || "0", 10),
+            averagePrice: item.pchs_avg_pric || "0",
+            currentPrice: item.prpr || "0",
+            profitLoss: item.evlu_pfls_amt || "0",
+            profitLossRate: item.evlu_pfls_rt || "0",
+          };
+          const existing = await storage.getHoldingByStock(account.id, stockCode);
+          if (existing) {
+            await storage.updateHolding(existing.id, updates);
+          } else {
+            await storage.createHolding({ accountId: account.id, stockCode, ...updates });
+          }
+        }
+      }
+      res.json({ ok: true });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }

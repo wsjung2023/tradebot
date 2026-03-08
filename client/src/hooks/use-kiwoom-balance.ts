@@ -1,6 +1,7 @@
-// use-kiwoom-balance.ts — 서버사이드 Kiwoom API 프록시 호출 (CORS 없음)
+// use-kiwoom-balance.ts — 서버사이드 프록시 우선, 실패 시 브라우저 직접 호출 폴백
 import { useState, useCallback } from "react";
 import { queryClient } from "@/lib/queryClient";
+import { fetchKiwoomBalance } from "@/lib/kiwoom-client";
 
 export interface BalanceResult {
   output1: Record<string, string>;
@@ -10,13 +11,13 @@ export interface BalanceResult {
   todayProfitRate: number;
 }
 
-type Status = "idle" | "loading" | "success" | "network_blocked" | "error";
+type Status = "idle" | "loading" | "success" | "network_blocked" | "cors_blocked" | "error";
 
 interface UseKiwoomBalanceResult {
   status: Status;
   data: BalanceResult | null;
   error: string | null;
-  fetch: (accountId: number, accountType: "mock" | "real") => Promise<void>;
+  fetch: (accountId: number, accountNumber: string, accountType: "mock" | "real") => Promise<void>;
 }
 
 export function useKiwoomBalance(): UseKiwoomBalanceResult {
@@ -24,32 +25,64 @@ export function useKiwoomBalance(): UseKiwoomBalanceResult {
   const [data, setData] = useState<BalanceResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchBalance = useCallback(async (accountId: number, _accountType: "mock" | "real") => {
+  const fetchBalance = useCallback(async (
+    accountId: number,
+    accountNumber: string,
+    accountType: "mock" | "real"
+  ) => {
     setStatus("loading");
     setError(null);
 
+    // 1단계: 서버사이드 프록시 시도
     try {
       const res = await fetch(`/api/accounts/${accountId}/fetch-balance`);
       const body = await res.json();
 
-      if (!res.ok) {
-        if (body.error === "KIWOOM_NETWORK_BLOCKED") {
-          setStatus("network_blocked");
-          setError(body.message || "서버에서 Kiwoom API 포트(9443)에 접근 불가합니다. 한국 서버 배포가 필요합니다.");
-        } else {
-          setStatus("error");
-          setError(body.error || body.message || `HTTP ${res.status}`);
-        }
-        setData(null);
+      if (res.ok) {
+        setData(body);
+        setStatus("success");
+        queryClient.invalidateQueries({ queryKey: ["/api/accounts", accountId, "holdings"] });
         return;
       }
 
-      setData(body);
+      // 서버가 네트워크 차단 에러를 반환한 경우 → 브라우저 직접 호출 폴백
+      if (body.error !== "KIWOOM_NETWORK_BLOCKED") {
+        setStatus("error");
+        setError(body.error || body.message || `HTTP ${res.status}`);
+        setData(null);
+        return;
+      }
+    } catch {
+      // 서버 자체 에러 → 폴백 진행
+    }
+
+    // 2단계: 브라우저에서 Kiwoom API 직접 호출 (한국 IP에서 CORS 가능성)
+    console.log("[Kiwoom] 서버 프록시 실패 → 브라우저 직접 호출 시도...");
+    try {
+      const result = await fetchKiwoomBalance(accountNumber, accountType);
+      setData(result);
       setStatus("success");
       queryClient.invalidateQueries({ queryKey: ["/api/accounts", accountId, "holdings"] });
+
+      // 서버에 결과 동기화
+      try {
+        await fetch(`/api/accounts/${accountId}/sync-balance`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ output1: result.output1, output2: result.output2 }),
+        });
+      } catch { /* 동기화 실패해도 화면 표시는 유지 */ }
     } catch (e: any) {
-      setStatus("error");
-      setError(e.message || "네트워크 오류");
+      if (e.message === "CORS_BLOCKED") {
+        setStatus("cors_blocked");
+        setError(
+          "서버(미국)와 브라우저 모두 Kiwoom API 접근 불가. " +
+          "한국 서버에 배포하거나 설정에서 API 키를 확인해주세요."
+        );
+      } else {
+        setStatus("error");
+        setError(e.message || "Kiwoom API 연결 오류");
+      }
       setData(null);
     }
   }, []);
