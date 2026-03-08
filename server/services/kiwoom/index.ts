@@ -31,8 +31,8 @@ export class KiwoomService extends KiwoomBase {
   }
 
   // 계좌
-  getAccountBalance(accountNumber: string, accountType: "mock" | "real" = "real") {
-    return this.account.getAccountBalance(accountNumber, accountType);
+  getAccountBalance(accountNumber: string, accountType: "mock" | "real" = "real", accountPassword?: string) {
+    return this.account.getAccountBalance(accountNumber, accountType, accountPassword);
   }
 
   // 시세/차트/검색

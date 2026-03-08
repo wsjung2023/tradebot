@@ -68,7 +68,7 @@ export function registerTradingRoutes(app: Router) {
       });
 
       const updatedOrder = await storage.updateOrder(order.id, {
-        orderNumber: kiwoomOrder.output.ODNO,
+        orderNumber: kiwoomOrder.output?.ODNO || kiwoomOrder.output?.ord_no,
       });
 
       await storage.createTradingLog({

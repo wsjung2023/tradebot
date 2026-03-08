@@ -1,49 +1,53 @@
-﻿// kiwoom.base.ts — 키움증권 API 공통 기반 클래스 (인증, axios 인스턴스, 공유 타입)
+// kiwoom.base.ts — 키움증권 API 공통 기반 클래스 (인증, axios 인스턴스, 공유 타입)
 import axios, { AxiosInstance } from "axios";
+
+export const KIWOOM_REAL_BASE = "https://api.kiwoom.com";
+export const KIWOOM_MOCK_BASE = "https://mockapi.kiwoom.com";
 
 export interface KiwoomConfig {
   appKey: string;
   appSecret: string;
   baseURL?: string;
+  accountType?: "real" | "mock";
+}
+
+export interface KiwoomBalanceOutput1 {
+  tot_evlu_amt: string;
+  dnca_tot_amt: string;
+  nxdy_excc_amt: string;
+  evlu_pfls_smtl_amt: string;
+  pchs_amt_smtl_amt: string;
+  evlu_amt_smtl_amt: string;
+  [key: string]: string;
+}
+
+export interface KiwoomBalanceOutput2 {
+  acnt_pdno: string;
+  prdt_name: string;
+  hldg_qty: string;
+  pchs_avg_pric: string;
+  prpr: string;
+  evlu_pfls_amt: string;
+  evlu_pfls_rt: string;
+  [key: string]: string;
 }
 
 export interface AccountBalanceResponse {
-  output1: {
-    dnca_tot_amt: string;
-    nxdy_excc_amt: string;
-    prvs_rcdl_excc_amt: string;
-    cma_evlu_amt: string;
-    tot_evlu_amt: string;
-    pchs_amt_smtl_amt: string;
-    evlu_amt_smtl_amt: string;
-    evlu_pfls_smtl_amt: string;
-  };
-  output2: Array<{
-    pdno: string;
-    prdt_name: string;
-    hldg_qty: string;
-    pchs_avg_pric: string;
-    prpr: string;
-    evlu_pfls_amt: string;
-    evlu_pfls_rt: string;
-  }>;
+  output1: KiwoomBalanceOutput1;
+  output2: KiwoomBalanceOutput2[];
+  return_code?: number;
+  return_msg?: string;
 }
 
 export interface StockPriceResponse {
-  output: {
-    stck_prpr: string;
-    prdy_vrss: string;
-    prdy_vrss_sign: string;
-    prdy_ctrt: string;
-    acml_vol: string;
-    stck_oprc: string;
-    stck_hgpr: string;
-    stck_lwpr: string;
-  };
+  output: Record<string, string>;
+  return_code?: number;
+  return_msg?: string;
 }
 
 export interface OrderRequest {
   accountNumber: string;
+  accountPassword?: string;
   stockCode: string;
   orderType: "buy" | "sell";
   orderQuantity: number;
@@ -52,14 +56,12 @@ export interface OrderRequest {
 }
 
 export interface OrderResponse {
-  rt_cd: string;
-  msg_cd: string;
-  msg1: string;
-  output: {
-    KRX_FWDG_ORD_ORGNO: string;
-    ODNO: string;
-    ORD_TMD: string;
-  };
+  return_code?: number;
+  return_msg?: string;
+  rt_cd?: string;
+  msg_cd?: string;
+  msg1?: string;
+  output?: Record<string, string>;
 }
 
 export interface ConditionListResponse {
@@ -102,6 +104,7 @@ export class KiwoomBase {
   protected appKey: string;
   protected appSecret: string;
   protected stubMode: boolean = false;
+  protected baseURL: string;
 
   constructor(config: KiwoomConfig) {
     this.appKey = config.appKey;
@@ -112,10 +115,13 @@ export class KiwoomBase {
       console.log("⚠️  KiwoomService running in STUB mode (no real API calls)");
     }
 
+    const accountType = config.accountType || "real";
+    this.baseURL = config.baseURL || (accountType === "mock" ? KIWOOM_MOCK_BASE : KIWOOM_REAL_BASE);
+
     this.api = axios.create({
-      baseURL: config.baseURL || "https://openapi.kiwoom.com:9443",
-      timeout: 2000,
-      headers: { "Content-Type": "application/json; charset=utf-8" },
+      baseURL: this.baseURL,
+      timeout: 10000,
+      headers: { "Content-Type": "application/json;charset=UTF-8" },
     });
 
     this.api.interceptors.request.use(async (cfg) => {
@@ -123,8 +129,6 @@ export class KiwoomBase {
       await this.ensureValidToken();
       if (this.accessToken) {
         cfg.headers.Authorization = `Bearer ${this.accessToken}`;
-        cfg.headers.appkey = this.appKey;
-        cfg.headers.appsecret = this.appSecret;
       }
       return cfg;
     });
@@ -138,25 +142,36 @@ export class KiwoomBase {
   protected async authenticate(): Promise<void> {
     try {
       const response = await axios.post(
-        `${this.api.defaults.baseURL || "https://openapi.kiwoom.com:9443"}/oauth2/tokenP`,
+        `${this.baseURL}/oauth2/token`,
         {
           grant_type: "client_credentials",
           appkey: this.appKey,
-          appsecret: this.appSecret,
+          secretkey: this.appSecret,
         },
-        { timeout: 2000 }
+        {
+          timeout: 10000,
+          headers: { "Content-Type": "application/json;charset=UTF-8" },
+        }
       );
-      const data = response.data as { access_token: string; expires_in: number };
-      this.accessToken = data.access_token;
-      this.tokenExpiry = Date.now() + data.expires_in * 1000 - 60000;
+      const data = response.data as { access_token?: string; token?: string; expires_in?: number; return_code?: number; return_msg?: string };
+
+      if (data.return_code && data.return_code !== 0) {
+        throw new Error(`Kiwoom auth error: ${data.return_msg} (code: ${data.return_code})`);
+      }
+
+      const token = data.access_token || data.token;
+      if (!token) throw new Error(`Kiwoom auth: no token in response. ${JSON.stringify(data)}`);
+
+      this.accessToken = token;
+      this.tokenExpiry = Date.now() + ((data.expires_in || 86400) * 1000) - 60000;
       console.log("✅ Kiwoom API 인증 성공");
     } catch (error: any) {
-      // 타임아웃/네트워크 오류 시 stub 모드로 전환 (재시도 방지)
-      if (error.code === "ECONNABORTED" || error.message?.includes("timeout") || error.code === "ECONNREFUSED" || error.code === "ENOTFOUND") {
-        console.warn("⚠️  Kiwoom API 연결 불가 (네트워크/방화벽), stub 모드로 전환");
+      if (error.code === "ECONNABORTED" || error.message?.includes("timeout") ||
+          error.code === "ECONNREFUSED" || error.code === "ENOTFOUND") {
+        console.warn("⚠️  Kiwoom API 연결 불가 (네트워크), stub 모드 전환");
         this.stubMode = true;
       }
-      throw new Error(`Kiwoom authentication failed: ${error.message}`);
+      throw new Error(`Kiwoom 인증 실패: ${error.message}`);
     }
   }
 }

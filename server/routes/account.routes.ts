@@ -92,8 +92,8 @@ export function registerAccountRoutes(app: Router) {
       res.json({
         appKey: keys.appKey,
         appSecret: keys.appSecret,
-        baseUrl: "https://openapi.kiwoom.com:9443",
-        mockBaseUrl: "https://openapi.kiwoom.com:9443",
+        baseUrl: "https://api.kiwoom.com",
+        mockBaseUrl: "https://mockapi.kiwoom.com",
       });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -115,21 +115,22 @@ export function registerAccountRoutes(app: Router) {
       }
 
       const accountType = (account.accountType as "mock" | "real") || "real";
-      const kiwoom = createKiwoomService(keys);
+      const kiwoom = createKiwoomService({ ...keys, accountType });
       const data = await kiwoom.getAccountBalance(account.accountNumber, accountType);
 
       // DB에 보유종목 동기화
       const output2 = data.output2 || [];
       for (const item of output2) {
-        const stockCode = item.pdno;
+        // Kiwoom REST API: acnt_pdno, KIS fallback: pdno
+        const stockCode = item.acnt_pdno || item.pdno || item.stk_cd;
         if (!stockCode) continue;
         const updates = {
-          stockName: item.prdt_name || "",
-          quantity: parseInt(item.hldg_qty || "0", 10),
-          averagePrice: item.pchs_avg_pric || "0",
-          currentPrice: item.prpr || "0",
-          profitLoss: item.evlu_pfls_amt || "0",
-          profitLossRate: item.evlu_pfls_rt || "0",
+          stockName: item.prdt_name || item.stk_nm || "",
+          quantity: parseInt(item.hldg_qty || item.rmnd_qty || "0", 10),
+          averagePrice: item.pchs_avg_pric || item.avg_pric || "0",
+          currentPrice: item.prpr || item.cur_prc || "0",
+          profitLoss: item.evlu_pfls_amt || item.evlu_pfls || "0",
+          profitLossRate: item.evlu_pfls_rt || item.pfls_rt || "0",
         };
         const existing = await storage.getHoldingByStock(account.id, stockCode);
         if (existing) {
@@ -140,8 +141,8 @@ export function registerAccountRoutes(app: Router) {
       }
 
       const output1 = data.output1 || {} as any;
-      const totalAssets = parseFloat(output1.tot_evlu_amt || "0");
-      const todayProfit = parseFloat(output1.evlu_pfls_smtl_amt || "0");
+      const totalAssets = parseFloat(output1.tot_evlu_amt || output1.acnt_tot_evlu_amt || "0");
+      const todayProfit = parseFloat(output1.evlu_pfls_smtl_amt || output1.tot_evlu_pfls || "0");
 
       res.json({
         output1,
@@ -151,43 +152,28 @@ export function registerAccountRoutes(app: Router) {
         todayProfitRate: totalAssets > 0 ? (todayProfit / totalAssets) * 100 : 0,
       });
     } catch (error: any) {
-      const isNetworkError = error.code === "ECONNABORTED" || error.code === "ECONNREFUSED"
-        || error.code === "ENOTFOUND" || error.message?.includes("timeout")
-        || error.message?.includes("ECONNRESET");
-      if (isNetworkError) {
-        return res.status(503).json({
-          error: "KIWOOM_NETWORK_BLOCKED",
-          message: "서버에서 Kiwoom API(9443포트)에 접근 불가. 한국 서버 배포가 필요합니다.",
-        });
-      }
+      console.error("[fetch-balance] 오류:", error.message);
       res.status(500).json({ error: error.message });
     }
   });
 
-  // ── Kiwoom API 연결 테스트 (배포 환경에서 9443 포트 접근 가능 여부 확인) ──
+  // ── Kiwoom API 연결 테스트 (api.kiwoom.com 443 포트) ──
   app.get("/api/kiwoom/test-connection", isAuthenticated, async (req, res) => {
-    const net = await import("net");
+    const axios = (await import("axios")).default;
     const start = Date.now();
-    await new Promise<void>((resolve) => {
-      const sock = new net.Socket();
-      sock.setTimeout(5000);
-      sock.on("connect", () => {
-        sock.destroy();
-        res.json({ connected: true, ms: Date.now() - start, host: "openapi.kiwoom.com", port: 9443 });
-        resolve();
-      });
-      sock.on("error", (e: any) => {
-        sock.destroy();
-        res.json({ connected: false, ms: Date.now() - start, error: e.code, host: "openapi.kiwoom.com", port: 9443 });
-        resolve();
-      });
-      sock.on("timeout", () => {
-        sock.destroy();
-        res.json({ connected: false, ms: Date.now() - start, error: "TIMEOUT", host: "openapi.kiwoom.com", port: 9443 });
-        resolve();
-      });
-      sock.connect(9443, "openapi.kiwoom.com");
-    });
+    try {
+      const r = await axios.post(
+        "https://api.kiwoom.com/oauth2/token",
+        { grant_type: "client_credentials", appkey: "test", secretkey: "test" },
+        { timeout: 5000, headers: { "Content-Type": "application/json;charset=UTF-8" } }
+      );
+      const ms = Date.now() - start;
+      const code = (r.data as any)?.return_code;
+      // return_code 3 = "인증 실패" — 서버 도달 성공을 의미
+      res.json({ connected: true, ms, host: "api.kiwoom.com", port: 443, note: (r.data as any)?.return_msg });
+    } catch (e: any) {
+      res.json({ connected: false, ms: Date.now() - start, error: e.code || e.message, host: "api.kiwoom.com", port: 443 });
+    }
   });
 
   // 잔고 히스토리 조회 (자산 추이 차트용)
