@@ -1,5 +1,27 @@
 // kiwoom.base.ts — 키움증권 API 공통 기반 클래스 (인증, axios 인스턴스, 공유 타입)
+// 토큰을 파일에 캐싱하여 서버 재시작 시에도 재사용 (rate limit 방지)
 import axios, { AxiosInstance } from "axios";
+import fs from "fs";
+import path from "path";
+
+const TOKEN_CACHE_FILE = path.resolve(process.cwd(), ".kiwoom_token_cache.json");
+
+function loadTokenCache(): Record<string, { token: string; expiry: number }> {
+  try {
+    if (fs.existsSync(TOKEN_CACHE_FILE)) {
+      return JSON.parse(fs.readFileSync(TOKEN_CACHE_FILE, "utf-8"));
+    }
+  } catch {}
+  return {};
+}
+
+function saveTokenCache(cache: Record<string, { token: string; expiry: number }>) {
+  try {
+    fs.writeFileSync(TOKEN_CACHE_FILE, JSON.stringify(cache, null, 2), "utf-8");
+  } catch (e) {
+    console.warn("⚠️  토큰 캐시 저장 실패:", e);
+  }
+}
 
 export const KIWOOM_REAL_BASE = "https://api.kiwoom.com";
 export const KIWOOM_MOCK_BASE = "https://mockapi.kiwoom.com";
@@ -105,6 +127,7 @@ export class KiwoomBase {
   protected appSecret: string;
   protected stubMode: boolean = false;
   protected baseURL: string;
+  private cacheKey: string = "";
 
   constructor(config: KiwoomConfig) {
     this.appKey = config.appKey;
@@ -117,6 +140,19 @@ export class KiwoomBase {
 
     const accountType = config.accountType || "real";
     this.baseURL = config.baseURL || (accountType === "mock" ? KIWOOM_MOCK_BASE : KIWOOM_REAL_BASE);
+    // 캐시 키: appKey + baseURL 조합 (계정/서버별 독립 캐싱)
+    this.cacheKey = `${this.appKey}__${this.baseURL}`;
+
+    // 파일 캐시에서 기존 토큰 복원 (서버 재시작 시 재사용)
+    if (!this.stubMode) {
+      const cache = loadTokenCache();
+      const cached = cache[this.cacheKey];
+      if (cached && cached.expiry > Date.now() + 60000) {
+        this.accessToken = cached.token;
+        this.tokenExpiry = cached.expiry;
+        console.log("♻️  Kiwoom 토큰 캐시에서 복원 (유효기간:", new Date(cached.expiry).toLocaleTimeString(), ")");
+      }
+    }
 
     this.api = axios.create({
       baseURL: this.baseURL,
@@ -164,7 +200,13 @@ export class KiwoomBase {
 
       this.accessToken = token;
       this.tokenExpiry = Date.now() + ((data.expires_in || 86400) * 1000) - 60000;
-      console.log("✅ Kiwoom API 인증 성공");
+
+      // 파일 캐시에 저장 (서버 재시작 시 재사용)
+      const cache = loadTokenCache();
+      cache[this.cacheKey] = { token, expiry: this.tokenExpiry };
+      saveTokenCache(cache);
+
+      console.log("✅ Kiwoom API 인증 성공 (캐시 저장됨)");
     } catch (error: any) {
       if (error.code === "ECONNABORTED" || error.message?.includes("timeout") ||
           error.code === "ECONNREFUSED" || error.code === "ENOTFOUND") {
