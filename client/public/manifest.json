@@ -1,0 +1,19 @@
+{
+  "name": "키움 AI 트레이딩",
+  "short_name": "키움AI",
+  "description": "키움증권 REST API와 GPT-4를 활용한 AI 기반 자동매매 플랫폼",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0f",
+  "theme_color": "#00ffff",
+  "orientation": "portrait-primary",
+  "lang": "ko",
+  "icons": [
+    {
+      "src": "/favicon.png",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
