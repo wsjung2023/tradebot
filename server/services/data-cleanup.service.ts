@@ -1,3 +1,4 @@
+// data-cleanup.service.ts — 오래된 거래 로그, 만료 알림 등 주기적 DB 데이터 정리 서비스
 import { storage } from '../storage';
 import * as cron from 'node-cron';
 

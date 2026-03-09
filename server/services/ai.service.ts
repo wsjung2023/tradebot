@@ -1,3 +1,4 @@
+// ai.service.ts — OpenAI GPT-4 기반 주식 분석, 포트폴리오 최적화, AI 모델 추천 생성 서비스
 import OpenAI from 'openai';
 import type { AiModel, Holding, Order } from '@shared/schema';
 import { RainbowChartAnalyzer, type OHLCVData, type RainbowChartResult } from '../formula/rainbow-chart';

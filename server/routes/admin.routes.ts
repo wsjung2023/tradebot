@@ -1,3 +1,4 @@
+// admin.routes.ts — 관리자 전용 백그라운드 작업(Job) 관리 라우터
 import type { Express } from 'express';
 import { jobManager } from '../job-manager';
 

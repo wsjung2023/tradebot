@@ -1,3 +1,4 @@
+// rainbow.ts — 레인보우 차트(10선) 분석 및 매수/매도 구간 추천 라우터
 ﻿import { Router } from 'express';
 import { RainbowChartAnalyzer, OHLCVData } from '../formula/rainbow-chart';
 import { getKiwoomService } from '../services/kiwoom';

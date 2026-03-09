@@ -1,3 +1,4 @@
+// learning.service.ts — AI 자동매매 성과 분석 및 모델 파라미터 자동 최적화 학습 서비스
 import { storage } from '../storage';
 import { TradingPerformance, AiModel, AutoTradingSettings } from '@shared/schema';
 
