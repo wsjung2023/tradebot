@@ -12,69 +12,33 @@ export function registerAutoTradingRoutes(app: Router) {
 
   /**
    * POST /api/auto-trading/backattack-scan
-   * 백어택2 조건 자동 실행 + 레인보우 차트 분석
-   * Flow: HTS 조건 목록 → 조건 실행 → 레인보우 분석 → CL 40~60% 필터 → AI 분석 → 추천
+   * 백어택2 레인보우 차트 스캔
+   * 참고: 키움 REST API는 HTS 조건검색을 지원하지 않습니다.
+   * 종목 목록을 요청 본문(stockCodes)으로 직접 전달하거나,
+   * 커스텀 조건식 메뉴를 통해 종목을 선택하세요.
    */
   app.post("/api/auto-trading/backattack-scan", isAuthenticated, async (req, res) => {
     try {
       const user = getCurrentUser(req);
       if (!user) return res.status(401).json({ error: "인증이 필요합니다" });
 
-      const userSettings = await storage.getUserSettings(user.id);
-      const aiModel = userSettings?.aiModel || "gpt-5.1";
-
-      // Step 1: HTS 조건식 목록
-      let conditionListResponse;
-      try {
-        conditionListResponse = await kiwoomService.getConditionList();
-      } catch (error: any) {
-        return res.status(500).json({ error: "조건식 목록 조회 실패", details: error.message });
-      }
-
-      const listAny = conditionListResponse as any;
-      const listRtCd = listAny?.rt_cd || listAny?.msg_cd;
-      if (listRtCd && listRtCd !== "0") {
-        return res.status(502).json({ error: "HTS 조건식 목록 조회 실패", errorCode: listRtCd, message: listAny?.msg1 || listAny?.msg });
-      }
-
-      const conditionList = (conditionListResponse?.output as any) || [];
-
-      // Step 2: 백어택2 조건식 찾기
-      const backattack2 = conditionList.find((c: any) =>
-        (c.condition_name || c.cond_nm || "").includes("백어택2") ||
-        (c.condition_name || c.cond_nm || "").includes("BackAttack2")
-      );
-
-      if (!backattack2) {
-        return res.status(404).json({
-          error: "백어택2 조건식을 찾을 수 없습니다. HTS에서 조건식을 확인해주세요.",
-          availableConditions: conditionList.map((c: any) => c.condition_name || c.cond_nm),
+      // 키움 REST API는 HTS 조건검색 미지원 — 종목 목록을 body로 직접 받음
+      const { stockCodes } = req.body as { stockCodes?: string[] };
+      if (!stockCodes || stockCodes.length === 0) {
+        return res.status(400).json({
+          error: "키움 REST API는 HTS 조건검색을 지원하지 않습니다.",
+          guide: "요청 본문에 { stockCodes: ['005930', '000660', ...] } 형태로 종목 코드를 전달하세요.",
+          alternative: "커스텀 조건식 메뉴(조건검색)에서 직접 종목을 추가한 뒤 스캔할 수 있습니다.",
         });
       }
 
-      const conditionName = backattack2.condition_name || backattack2.cond_nm;
-      const conditionIndex = backattack2.condition_index || backattack2.cond_idx || 0;
+      const userSettings = await storage.getUserSettings(user.id);
+      const aiModel = userSettings?.aiModel || "gpt-5.1";
 
-      // Step 3: 조건식 실행
-      let searchResponse;
-      try {
-        searchResponse = await kiwoomService.getConditionSearchResults(conditionName, conditionIndex);
-      } catch (error: any) {
-        return res.status(500).json({ error: "조건검색 실행 실패", details: error.message });
-      }
+      // stockCodes 배열을 stock 목록으로 변환
+      const stockList = stockCodes.map((code: string) => ({ stock_code: code, stock_name: code }));
 
-      const respAny = searchResponse as any;
-      const rtCd = respAny?.rt_cd || respAny?.msg_cd;
-      if (rtCd && rtCd !== "0") {
-        return res.status(502).json({ error: "HTS 조건검색 실행 실패", errorCode: rtCd, message: respAny?.msg1 || respAny?.msg });
-      }
-
-      const stockList = (searchResponse?.output1 || searchResponse?.output || []) as any[];
-      if (stockList.length === 0) {
-        return res.json({ message: "조건에 맞는 종목이 없습니다.", matchCount: 0, recommendations: [], errors: [] });
-      }
-
-      // Step 4~5: 레인보우 분석 + AI 분석 + 필터링
+      // 레인보우 분석 + AI 분석 + 필터링
       const recommendations: any[] = [];
       const errors: Array<{ stockCode: string; stockName: string; error: string }> = [];
       let processedCount = 0;

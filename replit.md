@@ -77,6 +77,37 @@ AI 모델의 CRUD 작업, 활성화/비활성화, 추천 생성, 10선 레인보
 - **Kakao OAuth**: 사용자 인증
 - **Neon (PostgreSQL)**: 관리형 PostgreSQL 데이터베이스
 
+## 최근 업데이트 (2026-03-09)
+
+### 키움 REST API 전체 엔드포인트 교정 ✅
+- **문제**: 모든 서비스 파일이 한국투자증권(KIS) API (`/uapi/...`, `tr_id`) 사용 → 전체 실패
+- **원인**: 키움증권과 KIS는 완전히 다른 API 스펙을 사용
+- **8030 오류 해결**: `getKiwoomService()` 싱글톤에 `accountType: "mock"` 기본값 추가 (env: `KIWOOM_ACCOUNT_TYPE`)
+- **자동 서버 감지**: 8030 오류 수신 시 실서버↔모의서버 자동 전환 후 재시도
+
+#### 교정된 키움 REST API 엔드포인트 (공식 .NET wrapper 기준)
+| 파일 | 기능 | 엔드포인트 | api-id |
+|------|------|-----------|--------|
+| kiwoom.market.ts | 현재가 시세 | POST /api/dostk/mrkcond | ka10007 |
+| kiwoom.market.ts | 호가창 | POST /api/dostk/mrkcond | ka10004 |
+| kiwoom.market.ts | 일봉 차트 | POST /api/dostk/chart | ka10081 |
+| kiwoom.market.ts | 주봉 차트 | POST /api/dostk/chart | ka10082 |
+| kiwoom.market.ts | 월봉 차트 | POST /api/dostk/chart | ka10083 |
+| kiwoom.market.ts | 종목기본정보 | POST /api/dostk/stkinfo | ka10001 |
+| kiwoom.order.ts | 매수주문 | POST /api/dostk/ordr | kt10000 |
+| kiwoom.order.ts | 매도주문 | POST /api/dostk/ordr | kt10001 |
+| kiwoom.order.ts | 취소주문 | POST /api/dostk/ordr | kt10003 |
+| kiwoom.order.ts | 체결내역 | POST /api/dostk/acnt | kt00007 |
+| kiwoom.financial.ts | 재무비율/기본정보 | POST /api/dostk/stkinfo | ka10001 |
+
+#### REST API 미지원 기능 (HTS/WebSocket 전용)
+- **조건검색(kiwoom.condition.ts)**: 키움 REST API 미지원 → 명확한 에러 반환
+- **autotrading 백어택2 스캔**: HTS 조건검색 대신 `stockCodes` 직접 전달 방식으로 변경
+- **상세 재무제표**: 분기별 재무제표는 REST API 미지원 → ka10001 기본정보로 대체
+
+#### 주문 거래구분(trde_tp) 코드
+- "00" = 지정가(보통), "03" = 시장가, "05" = 조건부지정가, "06" = 최유리, "07" = 최우선
+
 ## 최근 업데이트 (2025-11-14)
 
 ### GPT-5.1 모델 전체 업그레이드 ✅
