@@ -194,6 +194,38 @@ Line 5 = 정확히 50% 되돌림 (주력 매수 구간)
 - **인증**: Passport.js (Local + OAuth)
 - **보안**: AES-256-GCM, Helmet.js, CSRF, Rate Limiting
 
+## ⛔ 절대 금지 — KIS API 패턴 사용 금지 (위반 시 git hook이 커밋 차단)
+
+이 프로젝트는 **키움증권 REST API**만 사용합니다. **한국투자증권(KIS) API는 완전히 다른 시스템**이며 절대 사용하지 않습니다.
+
+### 금지된 KIS API 패턴 (server/services/kiwoom/ 내 사용 불가)
+| 패턴 | 이유 |
+|------|------|
+| `/uapi/` | KIS API 경로 — 키움과 무관 |
+| `tr_id` | KIS 트랜잭션 ID 필드 — 키움은 `api-id` 사용 |
+| `TTTC`, `FHKST`, `CTPF` | KIS 전용 tr_id 코드 |
+| `Authorization: Bearer` | KIS 인증 방식 — 키움은 `token` 헤더 사용 |
+| `appkey` + `appsecret` as KIS headers | 키움도 같은 필드명이지만 경로/구조가 다름 |
+
+### 올바른 키움 REST API 패턴
+```
+베이스 URL:  https://mockapi.kiwoom.com (모의) / https://api.kiwoom.com (실서버)
+인증:        POST /oauth2/token → { token_type, access_token }
+요청 헤더:   Content-Type: application/json
+             authorization: Bearer {access_token}
+             appkey: {APP_KEY}
+             appsecret: {APP_SECRET}
+             api-id: {요청별 코드}  ← tr_id 아님!
+주요 경로:
+  /api/dostk/mrkcond   시세/호가
+  /api/dostk/chart     차트(일/주/월봉)
+  /api/dostk/ordr      주문(매수/매도/취소)
+  /api/dostk/acnt      계좌/체결
+  /api/dostk/stkinfo   종목정보/재무
+```
+
+---
+
 ## 바이브코딩 규칙 (필수)
 1. 중요한 내용 발견 → **파일에 먼저 기록** → 다음 대화에서도 유지
 2. 에러 처리 방식: **try-catch 필수**
