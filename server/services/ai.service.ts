@@ -1,6 +1,7 @@
 // ai.service.ts — OpenAI GPT-4 기반 주식 분석, 포트폴리오 최적화, AI 모델 추천 생성 서비스
 import OpenAI from 'openai';
 import type { AiModel, Holding, Order } from '@shared/schema';
+import type { NewsResult } from './news.service';
 import { RainbowChartAnalyzer, type OHLCVData, type RainbowChartResult } from '../formula/rainbow-chart';
 
 interface StockAnalysisRequest {
@@ -365,6 +366,120 @@ Format as JSON.`;
       { model, temperature: 0.4 }
     );
   }
+
+  // ==================== 통합 분석 (뉴스 + 재무제표 + 기술적 분석) ====================
+
+  async integratedAnalysis(params: {
+    stockCode: string;
+    stockName: string;
+    currentPrice: number;
+    financialRatios?: { per: string; pbr: string; eps: string; bps: string; roe: string };
+    priceHistory?: Array<{ date: string; price: number; volume: number }>;
+    news?: NewsResult;
+    model?: string;
+  }): Promise<{
+    newsScore: number;
+    financialScore: number;
+    technicalScore: number;
+    totalScore: number;
+    action: 'buy' | 'sell' | 'hold';
+    confidence: number;
+    targetPrice: number | null;
+    newsSentiment: 'positive' | 'negative' | 'neutral';
+    newsAnalysis: string;
+    financialAnalysis: string;
+    technicalAnalysis: string;
+    summary: string;
+    risks: string[];
+    catalysts: string[];
+  }> {
+    const { stockCode, stockName, currentPrice, financialRatios, priceHistory, news, model = 'gpt-5.1' } = params;
+
+    const newsSummary = news?.articles?.length
+      ? buildNewsSummary(news)
+      : '관련 뉴스 없음';
+
+    const financialSummary = financialRatios
+      ? `PER: ${financialRatios.per}, PBR: ${financialRatios.pbr}, EPS: ${financialRatios.eps}원, BPS: ${financialRatios.bps}원, ROE: ${financialRatios.roe}%`
+      : '재무 데이터 없음';
+
+    const priceSummary = priceHistory?.length
+      ? `최근 ${priceHistory.length}일 가격 데이터 (최신순): ${priceHistory.slice(0, 10).map(p => `${p.date}: ₩${p.price.toLocaleString()} (거래량 ${p.volume.toLocaleString()})`).join(', ')}`
+      : '가격 이력 없음';
+
+    const prompt = `당신은 한국 주식시장 전문 애널리스트입니다. 아래 데이터를 종합 분석하여 투자 의견을 제시하세요.
+
+종목 정보:
+- 종목코드: ${stockCode}
+- 종목명: ${stockName}
+- 현재가: ₩${currentPrice.toLocaleString()}
+
+재무지표:
+${financialSummary}
+
+최근 뉴스 (감성분석 포함):
+${newsSummary}
+
+가격 흐름:
+${priceSummary}
+
+다음 항목을 포함한 JSON을 반환하세요:
+{
+  "newsScore": 0-100 (뉴스 감성 점수: 긍정일수록 높음),
+  "financialScore": 0-100 (재무건전성 점수),
+  "technicalScore": 0-100 (기술적 흐름 점수),
+  "totalScore": 0-100 (가중 평균 종합 점수),
+  "action": "buy|sell|hold",
+  "confidence": 0-100,
+  "targetPrice": 목표주가(숫자) 또는 null,
+  "newsSentiment": "positive|negative|neutral",
+  "newsAnalysis": "뉴스 분석 요약 (2-3문장, 한국어)",
+  "financialAnalysis": "재무 분석 요약 (2-3문장, 한국어)",
+  "technicalAnalysis": "기술적 분석 요약 (2-3문장, 한국어)",
+  "summary": "종합 투자 의견 (3-4문장, 한국어)",
+  "risks": ["리스크1", "리스크2", "리스크3"],
+  "catalysts": ["촉매1", "촉매2", "촉매3"]
+}`;
+
+    const result = await this.createJsonCompletion(
+      [
+        { role: 'system', content: '당신은 한국 주식 전문 애널리스트로, 뉴스·재무·기술적 분석을 통합하여 정확한 투자 판단을 내립니다.' },
+        { role: 'user', content: prompt },
+      ],
+      { model, temperature: 0.3 }
+    );
+
+    return {
+      newsScore:       clamp(result.newsScore ?? 50),
+      financialScore:  clamp(result.financialScore ?? 50),
+      technicalScore:  clamp(result.technicalScore ?? 50),
+      totalScore:      clamp(result.totalScore ?? 50),
+      action:          ['buy', 'sell', 'hold'].includes(result.action) ? result.action : 'hold',
+      confidence:      clamp(result.confidence ?? 50),
+      targetPrice:     typeof result.targetPrice === 'number' ? result.targetPrice : null,
+      newsSentiment:   ['positive', 'negative', 'neutral'].includes(result.newsSentiment) ? result.newsSentiment : 'neutral',
+      newsAnalysis:    result.newsAnalysis || '',
+      financialAnalysis: result.financialAnalysis || '',
+      technicalAnalysis: result.technicalAnalysis || '',
+      summary:         result.summary || '',
+      risks:           Array.isArray(result.risks) ? result.risks : [],
+      catalysts:       Array.isArray(result.catalysts) ? result.catalysts : [],
+    };
+  }
+}
+
+// ─── 내부 헬퍼 ─────────────────────────────────────────────────────────────
+function clamp(v: number): number {
+  return Math.max(0, Math.min(100, Math.round(v)));
+}
+
+function buildNewsSummary(news: NewsResult): string {
+  const positive = news.articles.filter(a => a.sentiment === 'positive').length;
+  const negative = news.articles.filter(a => a.sentiment === 'negative').length;
+  const lines = news.articles.slice(0, 8).map((a, i) =>
+    `${i + 1}. [${a.sentiment.toUpperCase()}] ${a.title} — ${a.description?.slice(0, 100) || ''}`
+  );
+  return `긍정 ${positive}건 / 부정 ${negative}건 / 중립 ${news.articles.length - positive - negative}건\n${lines.join('\n')}`;
 }
 
 // Singleton instance

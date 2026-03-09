@@ -1,11 +1,13 @@
-﻿// ai-analysis.tsx — AI 분석 페이지 (종목 분석 / 포트폴리오 분석 탭 구성)
+// ai-analysis.tsx — AI 분석 페이지 (종목 분석 / 포트폴리오 분석 / 통합 분석 탭)
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { AIStockAnalysis } from "@/components/ai-analysis/AIStockAnalysis";
 import { AIPortfolioAnalysis } from "@/components/ai-analysis/AIPortfolioAnalysis";
+import { IntegratedAnalysis } from "@/components/ai-analysis/IntegratedAnalysis";
+import { Zap } from "lucide-react";
 
 export default function AIAnalysis() {
   const { toast } = useToast();
@@ -50,11 +52,20 @@ export default function AIAnalysis() {
         <h1 className="text-3xl font-bold" data-testid="text-ai-title">AI 분석</h1>
         <p className="text-muted-foreground">GPT-4 기반 종목 분석 및 추천</p>
       </div>
-      <Tabs defaultValue="stock" className="space-y-6">
+      <Tabs defaultValue="integrated" className="space-y-6">
         <TabsList>
+          <TabsTrigger value="integrated" data-testid="tab-integrated-analysis" className="flex items-center gap-1.5">
+            <Zap className="w-3.5 h-3.5" />
+            통합 분석
+          </TabsTrigger>
           <TabsTrigger value="stock" data-testid="tab-stock-analysis">종목 분석</TabsTrigger>
           <TabsTrigger value="portfolio" data-testid="tab-portfolio-analysis">포트폴리오 분석</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="integrated">
+          <IntegratedAnalysis />
+        </TabsContent>
+
         <AIStockAnalysis
           stockCode={stockCode} stockName={stockName} currentPrice={currentPrice}
           analysis={analysis} isPending={analyzeStockMutation.isPending}

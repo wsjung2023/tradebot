@@ -4,9 +4,76 @@ import { storage } from "../storage";
 import { isAuthenticated, getCurrentUser } from "../auth";
 import { insertAiModelSchema, updateAiModelSchema } from "@shared/schema";
 import { getAIService } from "../services/ai.service";
+import { getNewsService } from "../services/news.service";
+import { getKiwoomService } from "../services/kiwoom";
 
 export function registerAiRoutes(app: Router) {
   const aiService = getAIService();
+  const newsService = getNewsService();
+  const kiwoomService = getKiwoomService();
+
+  // ─── 종목 뉴스 조회 ─────────────────────────────────────────────────────────
+  app.get("/api/news/stock/:stockCode", isAuthenticated, async (req, res) => {
+    try {
+      const { stockCode } = req.params;
+      const stockName = (req.query.name as string) || stockCode;
+      const count = Math.min(parseInt(req.query.count as string) || 10, 20);
+      const news = await newsService.getStockNews(stockCode, stockName, count);
+      res.json(news);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ─── 통합 분석 (뉴스 + 재무 + 기술) ─────────────────────────────────────────
+  app.post("/api/ai/integrated-analysis", isAuthenticated, async (req, res) => {
+    try {
+      const { stockCode, stockName, currentPrice } = req.body;
+      if (!stockCode || !stockName || !currentPrice) {
+        return res.status(400).json({ error: "stockCode, stockName, currentPrice 필수" });
+      }
+
+      // 뉴스, 재무, 가격 데이터 병렬 수집
+      const [news, financialRatios, priceHistory] = await Promise.allSettled([
+        newsService.getStockNews(stockCode, stockName, 10),
+        kiwoomService.getFinancialRatios(stockCode).catch(() => null),
+        kiwoomService.getStockChart(stockCode, 'D').catch(() => null),
+      ]);
+
+      const newsData = news.status === 'fulfilled' ? news.value : undefined;
+      const ratiosData = financialRatios.status === 'fulfilled' ? financialRatios.value?.output?.[0] : undefined;
+      const chartData = priceHistory.status === 'fulfilled' && priceHistory.value
+        ? (priceHistory.value as any[]).slice(0, 30).map((c: any) => ({
+            date: c.dt || c.date || '',
+            price: Number(c.cls_prc || c.close || 0),
+            volume: Number(c.trde_qty || c.volume || 0),
+          }))
+        : undefined;
+
+      const result = await aiService.integratedAnalysis({
+        stockCode,
+        stockName,
+        currentPrice: Number(currentPrice),
+        financialRatios: ratiosData ? {
+          per: ratiosData.per || '0',
+          pbr: ratiosData.pbr || '0',
+          eps: ratiosData.eps || '0',
+          bps: ratiosData.bps || '0',
+          roe: ratiosData.roe || '0',
+        } : undefined,
+        priceHistory: chartData,
+        news: newsData,
+      });
+
+      res.json({
+        ...result,
+        news: newsData,
+        financialRatios: ratiosData,
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
 
   // 종목 AI 분석
   app.post("/api/ai/analyze-stock", isAuthenticated, async (req, res) => {
