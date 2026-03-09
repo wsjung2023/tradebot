@@ -1,41 +1,28 @@
-// Service Worker registration with update notification
+// Service Worker 등록 — 새 버전 감지 시 자동 업데이트
 
 export async function registerServiceWorker() {
-  if (!('serviceWorker' in navigator)) {
-    console.log('Service Worker not supported');
-    return null;
-  }
+  if (!('serviceWorker' in navigator)) return null;
 
   try {
     const registration = await navigator.serviceWorker.register('/sw.js', {
       scope: '/',
+      updateViaCache: 'none', // 브라우저 HTTP 캐시 우회 — 항상 서버에서 최신 SW 확인
     });
 
-    console.log('Service Worker registered successfully:', registration.scope);
-
-    // Check for updates
+    // 새 SW 설치 감지 → 즉시 활성화 (confirm 없이 자동 업데이트)
     registration.addEventListener('updatefound', () => {
       const newWorker = registration.installing;
       if (!newWorker) return;
 
       newWorker.addEventListener('statechange', () => {
         if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-          // New service worker available
-          console.log('New Service Worker available');
-          
-          // Show update notification
-          if (confirm('새로운 버전이 있습니다. 업데이트하시겠습니까?')) {
-            newWorker.postMessage({ type: 'SKIP_WAITING' });
-            window.location.reload();
-          }
+          newWorker.postMessage({ type: 'SKIP_WAITING' });
         }
       });
     });
 
-    // Auto-update check every hour
-    setInterval(() => {
-      registration.update();
-    }, 60 * 60 * 1000);
+    // 1시간마다 SW 업데이트 체크
+    setInterval(() => registration.update(), 60 * 60 * 1000);
 
     return registration;
   } catch (error) {
@@ -44,10 +31,9 @@ export async function registerServiceWorker() {
   }
 }
 
-// Listen for controller change (new SW activated)
+// SW 교체(controllerchange) 시 페이지 자동 새로고침
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.addEventListener('controllerchange', () => {
-    console.log('New Service Worker activated, reloading...');
     window.location.reload();
   });
 }

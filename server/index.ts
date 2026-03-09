@@ -141,6 +141,14 @@ function setupStaticServing() {
     return;
   }
 
+  // sw.js는 절대 캐시하지 않음 — 브라우저가 항상 최신 버전을 받아야 함
+  app.get('/sw.js', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.sendFile(path.join(publicDir, 'sw.js'));
+  });
+
   app.use(express.static(publicDir));
 
   const html = fs.readFileSync(indexFile, 'utf8');
