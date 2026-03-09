@@ -1,272 +1,188 @@
-﻿// kiwoom.market.ts — 키움증권 시세 조회, 차트, 종목 검색, 거래량 상위, 장이슈 메서드
+// kiwoom.market.ts — 키움증권 REST API 시세·차트·호가 조회 (공식 api-id 사용)
+// 시세(ka10007), 호가(ka10004), 일봉(ka10081), 주봉(ka10082), 월봉(ka10083)
+// 기본정보(ka10001) — 모두 POST 방식, api-id 헤더로 구분
 import { KiwoomBase, type StockPriceResponse, type MarketIssuesResponse, type ThemeStocksResponse, type HighVolumeStocksResponse } from "./kiwoom.base";
 
+const MRKCOND = "/api/dostk/mrkcond";
+const CHART   = "/api/dostk/chart";
+const STKINFO = "/api/dostk/stkinfo";
+
+function today(): string {
+  return new Date().toISOString().split("T")[0].replace(/-/g, "");
+}
+
+function absStr(v: string | undefined): string {
+  if (!v) return "0";
+  return String(v).replace(/^-/, "");
+}
+
 export class KiwoomMarket extends KiwoomBase {
+
+  // ───────────── 현재가 시세 ─────────────
   async getStockPrice(stockCode: string): Promise<StockPriceResponse> {
     if (this.stubMode) {
-      // Generate random but realistic stock price data
-      const basePrice = 70000 + Math.random() * 10000;
-      const change = (Math.random() - 0.5) * 5000;
-      return {
-        output: {
-          stck_prpr: Math.round(basePrice).toString(),
-          prdy_vrss: Math.round(change).toString(),
-          prdy_vrss_sign: change >= 0 ? '2' : '5',
-          prdy_ctrt: ((change / basePrice) * 100).toFixed(2),
-          acml_vol: Math.floor(Math.random() * 10000000).toString(),
-          stck_oprc: Math.round(basePrice - 1000).toString(),
-          stck_hgpr: Math.round(basePrice + 2000).toString(),
-          stck_lwpr: Math.round(basePrice - 2000).toString(),
-        },
-      };
+      throw new Error("Kiwoom API 키가 설정되지 않았습니다. 설정 > API 키 입력 후 다시 시도하세요.");
     }
-    
-    try {
-      const response = await this.api.get<StockPriceResponse>(
-        '/uapi/domestic-stock/v1/quotations/inquire-price',
-        {
-          params: {
-            FID_COND_MRKT_DIV_CODE: 'J',
-            FID_INPUT_ISCD: stockCode,
-          },
-          headers: {
-            tr_id: 'FHKST01010100',
-          },
-        }
-      );
-      return response.data;
-    } catch (error) {
-      console.error('Failed to get stock price:', error);
-      throw error;
+
+    await this.ensureValidToken();
+
+    const resp = await this.api.post<any>(
+      MRKCOND,
+      { stk_cd: stockCode },
+      { headers: { "api-id": "ka10007" } }
+    );
+    const d = resp.data;
+    if (d?.return_code !== undefined && d.return_code !== 0 && String(d.return_code) !== "0") {
+      throw new Error(`시세조회 실패: ${d.return_msg} (code: ${d.return_code})`);
     }
+
+    // ka10007 응답 필드 → StockPriceResponse.output 형식으로 정규화
+    const cur = absStr(d.cur_prc);
+    const predClose = absStr(d.pred_close_pric || "0");
+    const predRt = d.pred_rt || "0";
+    const fluRt = d.flu_rt || "0";
+    const sign = d.smbol || "3"; // 2=상승, 5=하락, 3=보합
+
+    return {
+      output: {
+        stck_prpr:      cur,
+        prdy_vrss:      absStr(predRt),
+        prdy_vrss_sign: sign,
+        prdy_ctrt:      String(fluRt).replace(/^-/, ""),
+        acml_vol:       d.acc_trde_qty || d.trde_qty || "0",
+        stck_oprc:      absStr(d.open_pric),
+        stck_hgpr:      absStr(d.high_pric),
+        stck_lwpr:      absStr(d.low_pric),
+        stck_nm:        d.stk_nm || "",
+      },
+      return_code: 0,
+    };
   }
 
+  // ───────────── 호가창 ─────────────
   async getStockOrderbook(stockCode: string): Promise<any> {
     if (this.stubMode) {
-      // Generate realistic orderbook data
-      const basePrice = 70000 + Math.random() * 10000;
-      const buyOrders = [];
-      const sellOrders = [];
-      
-      for (let i = 0; i < 10; i++) {
-        buyOrders.push({
-          price: Math.round(basePrice - (i + 1) * 100),
-          quantity: Math.floor(Math.random() * 1000) + 100,
-        });
-        sellOrders.push({
-          price: Math.round(basePrice + (i + 1) * 100),
-          quantity: Math.floor(Math.random() * 1000) + 100,
-        });
-      }
-      
-      return { buy: buyOrders, sell: sellOrders };
+      throw new Error("Kiwoom API 키가 설정되지 않았습니다. 설정 > API 키 입력 후 다시 시도하세요.");
     }
-    
-    try {
-      const response = await this.api.get(
-        '/uapi/domestic-stock/v1/quotations/inquire-asking-price-exp-ccn',
-        {
-          params: {
-            FID_COND_MRKT_DIV_CODE: 'J',
-            FID_INPUT_ISCD: stockCode,
-          },
-          headers: {
-            tr_id: 'FHKST01010200',
-          },
-        }
-      );
-      return response.data;
-    } catch (error) {
-      console.error('Failed to get orderbook:', error);
-      throw error;
+
+    await this.ensureValidToken();
+
+    const resp = await this.api.post<any>(
+      MRKCOND,
+      { stk_cd: stockCode },
+      { headers: { "api-id": "ka10004" } }
+    );
+    const d = resp.data;
+    if (d?.return_code !== undefined && d.return_code !== 0 && String(d.return_code) !== "0") {
+      throw new Error(`호가조회 실패: ${d.return_msg} (code: ${d.return_code})`);
     }
+
+    // 매도호가: sel_10th_pre_bid ~ sel_1st_pre_bid (높은 순)
+    // 매수호가: buy_1st_pre_bid ~ buy_10th_pre_bid (높은 순)
+    const sell = [];
+    const buy  = [];
+    for (let i = 10; i >= 1; i--) {
+      const sp = d[`sel_${i}th_pre_bid`] ?? d[`sel_${i === 1 ? '1st' : i === 2 ? '2nd' : i === 3 ? '3rd' : `${i}th`}_pre_bid`];
+      const sq = d[`sel_${i}th_pre_req`];
+      if (sp) sell.push({ price: Number(absStr(String(sp))), quantity: Number(sq || 0) });
+    }
+    for (let i = 1; i <= 10; i++) {
+      const bp = d[`buy_${i}th_pre_bid`];
+      const bq = d[`buy_${i}th_pre_req`];
+      if (bp) buy.push({ price: Number(absStr(String(bp))), quantity: Number(bq || 0) });
+    }
+
+    return { buy, sell, raw: d };
   }
 
-  // ==================== Trading ====================
-
-  async searchStock(keyword: string): Promise<any> {
-    try {
-      const response = await this.api.get(
-        '/uapi/domestic-stock/v1/quotations/search-stock-info',
-        {
-          params: {
-            PRDT_TYPE_CD: '300',
-            PDNO: keyword,
-          },
-          headers: {
-            tr_id: 'CTPF1002R',
-          },
-        }
-      );
-      return response.data;
-    } catch (error) {
-      console.error('Failed to search stock:', error);
-      throw error;
-    }
-  }
-
-  async getStockChart(stockCode: string, period: string = 'D', bars: number = 250): Promise<any> {
+  // ───────────── 차트 ─────────────
+  async getStockChart(stockCode: string, period: string = "D", bars: number = 250): Promise<any> {
     if (this.stubMode) {
-      // Generate chart data (default 250 bars for rainbow chart analysis)
-      const chartData = [];
-      let basePrice = 70000 + Math.random() * 10000;
-      const today = new Date();
-      
-      // Simulate realistic price movements
-      for (let i = bars - 1; i >= 0; i--) {
-        const date = new Date(today);
-        
-        // Adjust date based on period
-        if (period === 'D' || !period) {
-          // Daily: subtract days
-          date.setDate(date.getDate() - i);
-        } else if (period === 'W') {
-          // Weekly: subtract weeks (7 days each)
-          date.setDate(date.getDate() - (i * 7));
-        } else if (period === 'M') {
-          // Monthly: subtract months
-          date.setMonth(date.getMonth() - i);
-        } else if (period.match(/^\d+$/)) {
-          // Minute chart (e.g., '1', '3', '5', '10', '30', '60')
-          date.setMinutes(date.getMinutes() - (i * parseInt(period, 10)));
-        }
-        
-        const dailyChange = (Math.random() - 0.5) * 0.05;
-        basePrice = basePrice * (1 + dailyChange);
-        
-        const open = basePrice;
-        const high = basePrice * (1 + Math.random() * 0.02);
-        const low = basePrice * (1 - Math.random() * 0.02);
-        const close = low + Math.random() * (high - low);
-        
-        chartData.push({
-          date: date.toISOString().split('T')[0],
-          open: Math.round(open),
-          high: Math.round(high),
-          low: Math.round(low),
-          close: Math.round(close),
-          volume: Math.floor(Math.random() * 10000000),
-        });
-      }
-      
-      return chartData;
+      throw new Error("Kiwoom API 키가 설정되지 않았습니다. 설정 > API 키 입력 후 다시 시도하세요.");
     }
-    
-    const endDate = new Date().toISOString().split('T')[0].replace(/-/g, '');
-    
+
+    await this.ensureValidToken();
+
+    const baseDate = today();
+    let apiId: string;
+    let listKey: string;
+
+    if (period === "W") {
+      apiId = "ka10082";
+      listKey = "stk_stk_pole_chart_qry";
+    } else if (period === "M") {
+      apiId = "ka10083";
+      listKey = "stk_mth_pole_chart_qry";
+    } else {
+      // 일봉 기본
+      apiId = "ka10081";
+      listKey = "stk_dt_pole_chart_qry";
+    }
+
+    const resp = await this.api.post<any>(
+      CHART,
+      { stk_cd: stockCode, base_dt: baseDate, upd_stkpc_tp: "1" },
+      { headers: { "api-id": apiId } }
+    );
+    const d = resp.data;
+    if (d?.return_code !== undefined && d.return_code !== 0 && String(d.return_code) !== "0") {
+      throw new Error(`차트조회 실패: ${d.return_msg} (code: ${d.return_code})`);
+    }
+
+    const items: any[] = d[listKey] || [];
+    return items.map((it: any) => ({
+      date:   String(it.dt || "").substring(0, 8),
+      open:   Number(absStr(String(it.open_pric || 0))),
+      high:   Number(absStr(String(it.high_pric || 0))),
+      low:    Number(absStr(String(it.low_pric || 0))),
+      close:  Number(absStr(String(it.cur_prc || 0))),
+      volume: Number(it.trde_qty || 0),
+    })).filter(it => it.date && it.close > 0);
+  }
+
+  // ───────────── 종목 기본정보 (검색) ─────────────
+  async searchStock(keyword: string): Promise<any> {
+    if (this.stubMode) {
+      throw new Error("Kiwoom API 키가 설정되지 않았습니다. 설정 > API 키 입력 후 다시 시도하세요.");
+    }
+
+    await this.ensureValidToken();
+
     try {
-      const response = await this.api.get(
-        '/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice',
-        {
-          params: {
-            FID_COND_MRKT_DIV_CODE: 'J',
-            FID_INPUT_ISCD: stockCode,
-            FID_INPUT_DATE_1: endDate,
-            FID_INPUT_DATE_2: endDate,
-            FID_PERIOD_DIV_CODE: period,
-            FID_ORG_ADJ_PRC: '0',
-          },
-          headers: {
-            tr_id: 'FHKST03010100',
-          },
-        }
+      const resp = await this.api.post<any>(
+        STKINFO,
+        { stk_cd: keyword, dt: "", qry_tp: "1" },
+        { headers: { "api-id": "ka10001" } }
       );
-      return response.data;
+      return resp.data;
     } catch (error) {
-      console.error('Failed to get stock chart:', error);
+      console.error("종목검색 실패:", error);
       throw error;
     }
   }
 
+  // ───────────── 거래량 상위 (미지원 → 에러) ─────────────
+  async getHighVolumeStocks(_market: 'ALL' | 'KOSPI' | 'KOSDAQ' = 'ALL'): Promise<HighVolumeStocksResponse> {
+    if (this.stubMode) {
+      throw new Error("Kiwoom API 키가 설정되지 않았습니다. 설정 > API 키 입력 후 다시 시도하세요.");
+    }
+    // 거래량상위는 /api/dostk/rkinfo 계열이지만 현재 구현 보류
+    throw new Error("거래량 상위 조회는 현재 지원하지 않습니다.");
+  }
+
+  // ───────────── 장이슈 (미지원 → 에러) ─────────────
   async getMarketIssues(): Promise<MarketIssuesResponse> {
-    try {
-      const response = await this.api.get<MarketIssuesResponse>(
-        '/uapi/domestic-stock/v1/quotations/market-issues',
-        {
-          params: {
-            FID_COND_MRKT_DIV_CODE: 'J',
-            FID_ISSUE_DIV_CODE: '0',
-          },
-          headers: {
-            tr_id: 'FHKST01020400',
-          },
-        }
-      );
-      console.log('Market issues response:', response.data);
-      return response.data;
-    } catch (error) {
-      console.error('Failed to get market issues:', error);
-      throw error;
+    if (this.stubMode) {
+      throw new Error("Kiwoom API 키가 설정되지 않았습니다. 설정 > API 키 입력 후 다시 시도하세요.");
     }
+    throw new Error("장이슈 조회는 현재 지원하지 않습니다.");
   }
 
-  /**
-   * Get stocks in a specific theme or sector
-   * @param themeCode - Theme code (e.g., "001" for semiconductor, "002" for battery)
-   * @returns List of stocks in the specified theme
-   */
-  async getThemeStocks(themeCode: string): Promise<ThemeStocksResponse> {
-    try {
-      const response = await this.api.get<ThemeStocksResponse>(
-        '/uapi/domestic-stock/v1/quotations/theme-stocks',
-        {
-          params: {
-            FID_COND_MRKT_DIV_CODE: 'J',
-            FID_THEME_CLS_CODE: themeCode,
-          },
-          headers: {
-            tr_id: 'FHKST01020300',
-          },
-        }
-      );
-      console.log('Theme stocks response:', response.data);
-      return response.data;
-    } catch (error) {
-      console.error('Failed to get theme stocks:', error);
-      throw error;
+  // ───────────── 테마별 종목 (미지원 → 에러) ─────────────
+  async getThemeStocks(_themeCode: string): Promise<ThemeStocksResponse> {
+    if (this.stubMode) {
+      throw new Error("Kiwoom API 키가 설정되지 않았습니다. 설정 > API 키 입력 후 다시 시도하세요.");
     }
-  }
-
-  // ==================== Liquidity/Volume APIs (유동성) ====================
-
-  /**
-   * Get stocks with high trading volume
-   * Returns top 100 stocks by trading volume for the specified market
-   * @param market - Market filter: 'ALL' (전체), 'KOSPI' (코스피), 'KOSDAQ' (코스닥)
-   * @returns Top 100 stocks sorted by trading volume
-   */
-  async getHighVolumeStocks(
-    market: 'ALL' | 'KOSPI' | 'KOSDAQ' = 'ALL'
-  ): Promise<HighVolumeStocksResponse> {
-    const marketCode = market === 'KOSPI' ? '0' : market === 'KOSDAQ' ? '1' : '';
-    
-    try {
-      const response = await this.api.get<HighVolumeStocksResponse>(
-        '/uapi/domestic-stock/v1/quotations/high-volume-stocks',
-        {
-          params: {
-            FID_COND_MRKT_DIV_CODE: marketCode || 'J',
-            FID_COND_SCR_DIV_CODE: '20171',
-            FID_INPUT_ISCD: '0000',
-            FID_DIV_CLS_CODE: '0',
-            FID_BLNG_CLS_CODE: marketCode,
-            FID_TRGT_CLS_CODE: '111111111',
-            FID_TRGT_EXLS_CLS_CODE: '000000',
-            FID_INPUT_PRICE_1: '',
-            FID_INPUT_PRICE_2: '',
-            FID_VOL_CNT: '',
-            FID_INPUT_DATE_1: '',
-          },
-          headers: {
-            tr_id: 'FHKST01020900',
-          },
-        }
-      );
-      console.log('High volume stocks response:', response.data);
-      return response.data;
-    } catch (error) {
-      console.error('Failed to get high volume stocks:', error);
-      throw error;
-    }
+    throw new Error("테마별 종목 조회는 현재 지원하지 않습니다.");
   }
 }

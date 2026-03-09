@@ -177,37 +177,18 @@ export class KiwoomBase {
 
   protected async authenticate(): Promise<void> {
     try {
-      const response = await axios.post(
-        `${this.baseURL}/oauth2/token`,
-        {
-          grant_type: "client_credentials",
-          appkey: this.appKey,
-          secretkey: this.appSecret,
-        },
-        {
-          timeout: 10000,
-          headers: { "Content-Type": "application/json;charset=UTF-8" },
-        }
-      );
-      const data = response.data as { access_token?: string; token?: string; expires_in?: number; return_code?: number; return_msg?: string };
-
-      if (data.return_code && data.return_code !== 0) {
-        throw new Error(`Kiwoom auth error: ${data.return_msg} (code: ${data.return_code})`);
-      }
-
-      const token = data.access_token || data.token;
-      if (!token) throw new Error(`Kiwoom auth: no token in response. ${JSON.stringify(data)}`);
-
-      this.accessToken = token;
-      this.tokenExpiry = Date.now() + ((data.expires_in || 86400) * 1000) - 60000;
-
-      // 파일 캐시에 저장 (서버 재시작 시 재사용)
-      const cache = loadTokenCache();
-      cache[this.cacheKey] = { token, expiry: this.tokenExpiry };
-      saveTokenCache(cache);
-
-      console.log("✅ Kiwoom API 인증 성공 (캐시 저장됨)");
+      await this._doAuthenticate(this.baseURL);
     } catch (error: any) {
+      // 8030: 투자구분(실전/모의) 불일치 → 자동으로 반대 서버로 전환 후 재시도
+      if (error.message?.includes("8030")) {
+        const otherBase = this.baseURL === KIWOOM_REAL_BASE ? KIWOOM_MOCK_BASE : KIWOOM_REAL_BASE;
+        console.warn(`⚠️  서버 타입 불일치(8030), 자동 전환: ${this.baseURL} → ${otherBase}`);
+        this.baseURL = otherBase;
+        this.api.defaults.baseURL = otherBase;
+        this.cacheKey = `${this.appKey}__${this.baseURL}`;
+        await this._doAuthenticate(this.baseURL);
+        return;
+      }
       if (error.code === "ECONNABORTED" || error.message?.includes("timeout") ||
           error.code === "ECONNREFUSED" || error.code === "ENOTFOUND") {
         console.warn("⚠️  Kiwoom API 연결 불가 (네트워크), stub 모드 전환");
@@ -215,5 +196,38 @@ export class KiwoomBase {
       }
       throw new Error(`Kiwoom 인증 실패: ${error.message}`);
     }
+  }
+
+  private async _doAuthenticate(baseURL: string): Promise<void> {
+    const response = await axios.post(
+      `${baseURL}/oauth2/token`,
+      {
+        grant_type: "client_credentials",
+        appkey: this.appKey,
+        secretkey: this.appSecret,
+      },
+      {
+        timeout: 10000,
+        headers: { "Content-Type": "application/json;charset=UTF-8" },
+      }
+    );
+    const data = response.data as { access_token?: string; token?: string; expires_in?: number; return_code?: number; return_msg?: string };
+
+    if (data.return_code && data.return_code !== 0) {
+      throw new Error(`Kiwoom auth error: ${data.return_msg} (code: ${data.return_code})`);
+    }
+
+    const token = data.access_token || data.token;
+    if (!token) throw new Error(`Kiwoom auth: no token in response. ${JSON.stringify(data)}`);
+
+    this.accessToken = token;
+    this.tokenExpiry = Date.now() + ((data.expires_in || 86400) * 1000) - 60000;
+
+    // 파일 캐시에 저장 (서버 재시작 시 재사용)
+    const cache = loadTokenCache();
+    cache[this.cacheKey] = { token, expiry: this.tokenExpiry };
+    saveTokenCache(cache);
+
+    console.log(`✅ Kiwoom API 인증 성공 — ${baseURL.includes("mock") ? "모의" : "실전"} 서버 (캐시 저장됨)`);
   }
 }

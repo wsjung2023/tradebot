@@ -67,6 +67,7 @@ export function getKiwoomService(): KiwoomService {
     kiwoomServiceInstance = new KiwoomService({
       appKey: process.env.KIWOOM_APP_KEY || "stub",
       appSecret: process.env.KIWOOM_APP_SECRET || "stub",
+      accountType: (process.env.KIWOOM_ACCOUNT_TYPE as "real" | "mock") || "mock",
     });
   }
   return kiwoomServiceInstance;
