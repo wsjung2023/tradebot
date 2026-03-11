@@ -42,11 +42,23 @@ export function registerTradingRoutes(app: Router) {
   // 종목 검색
   app.get("/api/stocks/search", isAuthenticated, async (req, res) => {
     try {
-      const keyword = req.query.q as string;
+      const keyword = (req.query.query ?? req.query.q ?? "") as string;
+      if (!keyword.trim()) return res.json([]);
       const results = await kiwoomService.searchStock(keyword);
       res.json(results);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
+    }
+  });
+
+
+  // 종목 기본정보 조회 (코드→이름)
+  app.get("/api/stocks/:stockCode/info", isAuthenticated, async (req, res) => {
+    try {
+      const info = await kiwoomService.getStockInfo(req.params.stockCode);
+      res.json(info);
+    } catch (error: any) {
+      res.status(404).json({ error: error.message });
     }
   });
 

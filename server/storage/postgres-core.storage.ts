@@ -222,6 +222,13 @@ export class PostgreSQLCoreStorage {
     await db.delete(schema.alerts).where(eq(schema.alerts.id, id));
   }
 
+  async getAllActiveAlerts(): Promise<Alert[]> {
+    return db
+      .select()
+      .from(schema.alerts)
+      .where(and(eq(schema.alerts.isActive, true), eq(schema.alerts.isTriggered, false)));
+  }
+
   // ==================== User Settings Methods ====================
 
   async getUserSettings(userId: string): Promise<UserSettings | undefined> {

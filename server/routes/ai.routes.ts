@@ -41,7 +41,8 @@ export function registerAiRoutes(app: Router) {
       ]);
 
       const newsData = news.status === 'fulfilled' ? news.value : undefined;
-      const ratiosData = financialRatios.status === 'fulfilled' ? financialRatios.value?.output?.[0] : undefined;
+      const ratiosOutput = financialRatios.status === 'fulfilled' ? financialRatios.value?.output : undefined;
+      const ratiosData = Array.isArray(ratiosOutput) ? ratiosOutput[0] : ratiosOutput;
       const chartData = priceHistory.status === 'fulfilled' && priceHistory.value
         ? (priceHistory.value as any[]).slice(0, 30).map((c: any) => ({
             date: c.dt || c.date || '',
@@ -75,11 +76,14 @@ export function registerAiRoutes(app: Router) {
     }
   });
 
-  // 종목 AI 분석
+  // 종목 AI 분석 (사용자 설정 모델 적용)
   app.post("/api/ai/analyze-stock", isAuthenticated, async (req, res) => {
     try {
+      const user = getCurrentUser(req);
       const { stockCode, stockName, currentPrice } = req.body;
-      const analysis = await aiService.analyzeStock({ stockCode, stockName, currentPrice });
+      const settings = await storage.getUserSettings(user!.id);
+      const model = settings?.aiModel || "gpt-5.1";
+      const analysis = await aiService.analyzeStock({ stockCode, stockName, currentPrice }, model);
       res.json(analysis);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
