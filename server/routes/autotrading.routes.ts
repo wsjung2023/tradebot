@@ -102,7 +102,7 @@ export function registerAutoTradingRoutes(app: Router) {
 
       res.json({
         message: "백어택2 스캔 완료",
-        conditionName, totalMatches: stockList.length, processedCount,
+        totalMatches: stockList.length, processedCount,
         recommendationCount: recommendations.length, errorCount: errors.length,
         recommendations, errors: errors.length > 0 ? errors : undefined,
       });

@@ -73,6 +73,7 @@ export interface IStorage {
   createAlert(alert: InsertAlert): Promise<Alert>;
   updateAlert(id: number, updates: Partial<Alert>): Promise<Alert | undefined>;
   deleteAlert(id: number): Promise<void>;
+  getAllActiveAlerts(): Promise<Alert[]>;
 
   // 사용자 설정
   getUserSettings(userId: string): Promise<UserSettings | undefined>;

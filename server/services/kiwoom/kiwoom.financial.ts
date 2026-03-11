@@ -55,18 +55,17 @@ export class KiwoomFinancial extends KiwoomBase {
       return {
         output: [
           {
-            stac_yymm:    today().substring(0, 6),
-            sale_account: info.sale_acnt    || info.acc_trde_prica || "0",
-            sale_cost:    "0",
-            sale_totl_prft: "0",
-            bsop_prti:    "0",
-            op_prft:      info.oprt_prft   || "0",
-            thtr_ntin:    info.net_incm    || "0",
-            indi_cptl:    info.cap         || "0",
-            cptl:         info.cap         || "0",
+            stac_yymm: today().substring(0, 6),
+            sale_account: info.sale_acnt || info.acc_trde_prica || "0",
+            sale_cost: "0",
+            sale_totl_prfi: "0",
+            bsop_prti: info.oprt_prft || "0",
+            ntin: info.net_incm || "0",
+            total_aset: info.tot_aset || "0",
+            total_lblt: info.tot_lblt || "0",
+            cpfn: info.cap || "0",
           },
         ],
-        return_code: 0,
       };
     } catch (error: any) {
       console.error("재무제표 조회 실패:", error.message);
@@ -86,20 +85,16 @@ export class KiwoomFinancial extends KiwoomBase {
     try {
       const info = await this.getStockBasicInfo(stockCode);
       return {
-        output: [
-          {
-            stac_yymm: today().substring(0, 6),
-            per:       info.per    || "0",
-            pbr:       info.pbr    || "0",
-            eps:       info.eps    || "0",
-            bps:       info.bps    || "0",
-            roe:       info.roe    || "0",
-            roa:       "0",
-            ebitda:    "0",
-            debt_rate: "0",
-          },
-        ],
-        return_code: 0,
+        output: {
+          roe: info.roe || "0",
+          roa: "0",
+          debt_ratio: info.debt_ratio || "0",
+          reserve_ratio: info.reserve_ratio || "0",
+          eps: info.eps || "0",
+          per: info.per || "0",
+          bps: info.bps || "0",
+          pbr: info.pbr || "0",
+        },
       };
     } catch (error: any) {
       console.error("재무비율 조회 실패:", error.message);

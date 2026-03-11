@@ -1,7 +1,7 @@
 // auto-trading-worker.ts — 자동매매 cron 스케줄러. 매 1분마다 AI 모델 순회 및 조건 검색 실행
 import * as cron from 'node-cron';
 import { storage } from './storage';
-import { KiwoomService } from './services/kiwoom';
+import { getKiwoomService, KiwoomService } from './services/kiwoom';
 import { AIService } from './services/ai.service';
 import { LearningService } from './services/learning.service';
 import { TradeExecutorService } from './services/trade-executor.service';
@@ -73,6 +73,13 @@ class AutoTradingWorker {
       if (activeModels.length === 0) { console.log('📭 No active AI models found'); return; }
       console.log(`📊 Found ${activeModels.length} active AI model(s)`);
       for (const model of activeModels) await this.processModel(model);
+
+      try {
+        await this.checkPriceAlerts();
+      } catch (alertError) {
+        console.error('[AutoTrading] 가격 알림 체크 오류:', alertError);
+      }
+
       console.log('✅ Trading cycle completed');
     } catch (error) {
       console.error('❌ Error in trading cycle:', error);
@@ -129,7 +136,23 @@ class AutoTradingWorker {
   ) {
     console.log(`  🔍 Running condition: ${condition.conditionName}`);
     try {
-      const results = await kiwoomService.getConditionSearchResults(condition.conditionName, condition.id);
+      let conditionSeq = String((condition as any).kiwoomSeq ?? "").trim();
+      if (!conditionSeq) {
+        try {
+          const conditionList = await kiwoomService.getConditionList();
+          const rows = conditionList?.output ?? [];
+          const matched = rows.find((row: any) => row.condition_name === condition.conditionName);
+          if (matched) {
+            conditionSeq = String(matched.condition_index);
+          }
+        } catch (seqResolveError) {
+          console.warn('[AutoTrading] Kiwoom 조건식 seq 자동해결 실패:', seqResolveError);
+        }
+      }
+      if (!conditionSeq) {
+        conditionSeq = String(condition.id);
+      }
+      const results = await kiwoomService.getConditionSearchResults(conditionSeq, condition.id);
       if (!results?.output?.length) {
         console.log(`  ⚠️  No stocks found for ${condition.conditionName}`); return;
       }
@@ -143,6 +166,45 @@ class AutoTradingWorker {
       }
     } catch (error) {
       console.error(`  ❌ Error in condition ${condition.conditionName}:`, error);
+    }
+  }
+
+
+  private async checkPriceAlerts(): Promise<void> {
+    const alerts = await storage.getAllActiveAlerts();
+    if (alerts.length === 0) return;
+
+    const codes = Array.from(new Set(alerts.map((alert) => alert.stockCode)));
+    const kiwoom = getKiwoomService();
+
+    let priceMap: Record<string, number> = {};
+    try {
+      const prices = await kiwoom.getWatchlistInfo(codes);
+      for (const price of prices) {
+        const current = parseFloat(String(price.currentPrice).replace(/[^0-9.-]/g, ''));
+        if (!Number.isNaN(current)) {
+          priceMap[price.stockCode] = current;
+        }
+      }
+    } catch (error) {
+      console.warn('[AutoTrading] 시세 조회 실패로 알림 체크 스킵:', error);
+      return;
+    }
+
+    for (const alert of alerts) {
+      const currentPrice = priceMap[alert.stockCode];
+      if (currentPrice === undefined) continue;
+
+      const target = parseFloat(String(alert.targetValue ?? '0'));
+      let triggered = false;
+
+      if (alert.alertType === 'price_above' && currentPrice >= target) triggered = true;
+      if (alert.alertType === 'price_below' && currentPrice <= target) triggered = true;
+
+      if (triggered) {
+        await storage.updateAlert(alert.id, { isTriggered: true, triggeredAt: new Date() });
+        console.log(`[Alert] 🔔 발동! ${alert.stockCode} | 현재가: ${currentPrice} | 조건: ${alert.alertType} ${target} | 사용자: ${alert.userId}`);
+      }
     }
   }
 
