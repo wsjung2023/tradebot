@@ -6,11 +6,15 @@ import { insertAiModelSchema, updateAiModelSchema } from "@shared/schema";
 import { getAIService } from "../services/ai.service";
 import { getNewsService } from "../services/news.service";
 import { getKiwoomService } from "../services/kiwoom";
+import { getAICouncilService } from "../services/ai-council.service";
+import { getFeatureFlags } from "../config/feature-flags";
 
 export function registerAiRoutes(app: Router) {
   const aiService = getAIService();
   const newsService = getNewsService();
   const kiwoomService = getKiwoomService();
+  const aiCouncilService = getAICouncilService();
+  const featureFlags = getFeatureFlags();
 
   // ─── 종목 뉴스 조회 ─────────────────────────────────────────────────────────
   app.get("/api/news/stock/:stockCode", isAuthenticated, async (req, res) => {
@@ -41,7 +45,8 @@ export function registerAiRoutes(app: Router) {
       ]);
 
       const newsData = news.status === 'fulfilled' ? news.value : undefined;
-      const ratiosData = financialRatios.status === 'fulfilled' ? financialRatios.value?.output?.[0] : undefined;
+      const ratiosOutput = financialRatios.status === 'fulfilled' ? financialRatios.value?.output : undefined;
+      const ratiosData = Array.isArray(ratiosOutput) ? ratiosOutput[0] : ratiosOutput;
       const chartData = priceHistory.status === 'fulfilled' && priceHistory.value
         ? (priceHistory.value as any[]).slice(0, 30).map((c: any) => ({
             date: c.dt || c.date || '',
@@ -75,11 +80,14 @@ export function registerAiRoutes(app: Router) {
     }
   });
 
-  // 종목 AI 분석
+  // 종목 AI 분석 (사용자 설정 모델 적용)
   app.post("/api/ai/analyze-stock", isAuthenticated, async (req, res) => {
     try {
+      const user = getCurrentUser(req);
       const { stockCode, stockName, currentPrice } = req.body;
-      const analysis = await aiService.analyzeStock({ stockCode, stockName, currentPrice });
+      const settings = await storage.getUserSettings(user!.id);
+      const model = settings?.aiModel || "gpt-5.1";
+      const analysis = await aiService.analyzeStock({ stockCode, stockName, currentPrice }, model);
       res.json(analysis);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -104,6 +112,59 @@ export function registerAiRoutes(app: Router) {
     }
   });
 
+
+  // AI Council Shadow 분석
+  app.post("/api/ai/council-analysis", isAuthenticated, async (req, res) => {
+    try {
+      if (!featureFlags.enableAICouncil) {
+        return res.status(403).json({
+          error: "AI Council disabled",
+          code: "AI_COUNCIL_DISABLED",
+        });
+      }
+
+      const user = getCurrentUser(req);
+      const { stockCode, stockName, currentPrice } = req.body;
+      if (!stockCode || !stockName || !currentPrice) {
+        return res.status(400).json({ error: "stockCode, stockName, currentPrice 필수" });
+      }
+
+      const settings = await storage.getUserSettings(user!.id);
+      const preferredModel = settings?.aiModel || "gpt-5.1";
+
+      const result = await aiCouncilService.conductShadowCouncil({
+        stockCode,
+        stockName,
+        currentPrice: Number(currentPrice),
+        preferredModel,
+      });
+
+      const saved = await storage.createAiCouncilSession({
+        userId: user!.id,
+        stockCode,
+        stockName,
+        sessionData: result as any,
+        finalAction: result.chairman.action,
+        finalConfidence: String(result.chairman.confidence),
+        targetPrice: null,
+      });
+
+      res.json({ ...result, sessionId: saved.id });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/ai/council-sessions", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const limit = Math.min(Math.max(parseInt(String(req.query.limit || 20), 10), 1), 100);
+      const sessions = await storage.getAiCouncilSessions(user!.id, limit);
+      res.json(sessions);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
   // AI 모델 목록
   app.get("/api/ai/models", isAuthenticated, async (req, res) => {
     try {
