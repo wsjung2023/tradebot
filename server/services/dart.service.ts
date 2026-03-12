@@ -1,6 +1,6 @@
 // dart.service.ts — 금감원 전자공시(DART) API 연동
-// DART_API_KEY 환경변수 필요. DART_CORP_CODE_MAP으로 종목코드→고유번호 매핑.
-// DART_API_KEY 없으면 공시 조회 시 빈 배열 반환(graceful degradation).
+// DART_API_KEY 환경변수 필요. 없으면 빈 배열 반환(graceful degradation).
+// 종목코드 → DART 고유번호 변환을 DART company API로 실시간 조회 (메모리 캐시 적용).
 import axios from 'axios';
 
 export type DartFilingItem = {
@@ -17,38 +17,50 @@ export type DartFilingItem = {
 export class DartService {
   private readonly apiKey = process.env.DART_API_KEY || '';
   private readonly baseUrl = 'https://opendart.fss.or.kr/api/list.json';
-  private readonly corpCodeMap = this.parseCorpCodeMap(process.env.DART_CORP_CODE_MAP || '');
+  private readonly companyUrl = 'https://opendart.fss.or.kr/api/company.json';
 
-  private parseCorpCodeMap(raw: string): Record<string, string> {
-    if (!raw) return {};
-    try {
-      const parsed = JSON.parse(raw);
-      if (!parsed || typeof parsed !== 'object') return {};
-
-      return Object.entries(parsed).reduce<Record<string, string>>((acc, [key, value]) => {
-        if (typeof value !== 'string') return acc;
-        const normalizedKey = key.replace(/\D/g, '');
-        const normalizedValue = value.trim();
-        if (!normalizedKey || !normalizedValue) return acc;
-        acc[normalizedKey] = normalizedValue;
-        return acc;
-      }, {});
-    } catch {
-      console.warn('[DartService] failed to parse DART_CORP_CODE_MAP; fallback to empty map');
-      return {};
-    }
-  }
+  // 메모리 캐시: 종목코드 → DART 고유번호 (프로세스 재시작 시 초기화)
+  private readonly corpCodeCache = new Map<string, string>();
 
   get isAvailable(): boolean {
     return !!this.apiKey;
   }
 
-  getMappedCorpCode(stockCode: string): string {
-    const normalized = String(stockCode || '').replace(/\D/g, '');
+  // 종목코드로 DART 고유번호 실시간 조회 (캐시 적용)
+  async resolveCorpCode(stockCode: string): Promise<string> {
+    if (!this.isAvailable || !stockCode) return '';
+    const normalized = String(stockCode).replace(/\D/g, '');
     if (!normalized) return '';
-    return this.corpCodeMap[normalized] || '';
+
+    if (this.corpCodeCache.has(normalized)) {
+      return this.corpCodeCache.get(normalized)!;
+    }
+
+    try {
+      const resp = await axios.get(this.companyUrl, {
+        params: { crtfc_key: this.apiKey, stock_code: normalized },
+        timeout: 8000,
+      });
+      const corpCode = String(resp.data?.corp_code || '').trim();
+      if (corpCode) {
+        this.corpCodeCache.set(normalized, corpCode);
+      }
+      return corpCode;
+    } catch (error: any) {
+      console.warn('[DartService] resolveCorpCode failed:', error?.message);
+      return '';
+    }
   }
 
+  // 종목코드로 최근 공시 조회 (고유번호 자동 해결)
+  async getFilingsByStockCode(stockCode: string, days: number = 30): Promise<DartFilingItem[]> {
+    if (!this.isAvailable) return [];
+    const corpCode = await this.resolveCorpCode(stockCode);
+    if (!corpCode) return [];
+    return this.getRecentFilings(corpCode, days);
+  }
+
+  // DART 고유번호로 공시 직접 조회
   async getRecentFilings(corpCode: string, days: number = 30): Promise<DartFilingItem[]> {
     if (!this.isAvailable || !corpCode) return [];
 

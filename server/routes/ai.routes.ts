@@ -34,7 +34,7 @@ export function registerAiRoutes(app: Router) {
       newsService.getStockNews(stockCode, stockName, 20),
       kiwoomService.getFinancialRatios(stockCode).catch(() => null),
       storage.getMarketIssuesByStock(stockCode).catch(() => []),
-      dartService.getRecentFilings(corpCode || '', 30),
+      dartService.getFilingsByStockCode(stockCode, 30),
     ]);
 
     const savedNews = await Promise.all(newsData.articles.map((article) =>
@@ -104,7 +104,7 @@ export function registerAiRoutes(app: Router) {
       // ignore and fallback
     }
 
-    return dartService.getMappedCorpCode(stockCode) || "";
+    return await dartService.resolveCorpCode(stockCode) || "";
   };
 
   const isSnapshotFresh = (collectedAt: Date | string | null | undefined, maxAgeMinutes: number = 30) => {
