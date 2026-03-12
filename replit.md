@@ -79,6 +79,16 @@ AI 모델의 CRUD, 활성화/비활성화, 추천 생성 및 10선 레인보우 
 #### 뉴스+재무+기술 통합 분석
 `POST /api/ai/integrated-analysis` — 네이버 뉴스 API 감성 분석 + 재무지표 + 기술적 분석을 GPT-4로 통합하여 종합 점수 산출.
 
+#### DART 공시 서비스
+`server/services/dart.service.ts`에 구현. 금감원 전자공시시스템(DART) API 연동으로 기업 공시 자료를 수집한다. `DART_API_KEY` 환경변수 필요. 없으면 graceful degradation (빈 배열 반환). `DART_CORP_CODE_MAP`으로 종목코드→DART 고유번호 매핑.
+
+#### AI 모델 학습 서비스
+`server/services/learning.service.ts`에 구현. 거래 이력 기반 성과 분석(승률·수익률·샤프비율·최대낙폭)과 패턴 인사이트(최적 진입/청산 라인·파라미터 최적화)를 제공한다.
+
+#### 분석 재료 수집 시스템
+`POST /api/stocks/:code/sync-materials` — DART 공시 + 뉴스 + 재무 데이터를 한 번에 수집하여 `analysis_material_snapshots` 테이블에 저장.
+`GET /api/stocks/:code/materials` — 저장된 분석 재료 조회.
+
 ### 기능 사양
 - **사용자 인증**: 로컬 이메일/비밀번호, Google OAuth, Kakao OAuth
 - **키움 계좌 연동**: CRUD 작업, 잔고/보유종목 조회
@@ -90,6 +100,8 @@ AI 모델의 CRUD, 활성화/비활성화, 추천 생성 및 10선 레인보우 
 - **거래 내역 및 로그**: 주문/체결 상세, 거래 로그, 통계 대시보드
 - **관심종목**: 실시간 시세 병합, 키움 HTS 동기화, 가격 알림
 - **조건검색**: 커스텀/키움 조건식 양방향, 차트 시그널 오버레이
+- **분석 재료 수집**: DART 공시 + 뉴스 + 재무 통합 수집·조회
+- **AI 모델 학습**: 성과 분석, 패턴 인사이트, 파라미터 자동 최적화
 - **PWA 모바일 최적화**
 
 ### 주요 파일 구조 (핵심)
@@ -97,8 +109,10 @@ AI 모델의 CRUD, 활성화/비활성화, 추천 생성 및 10선 레인보우 
 server/
   config/feature-flags.ts        # 피처 플래그 ON/OFF
   services/
-    ai-council.service.ts        # AI 3인 위원회
+    ai-council.service.ts        # AI 3인 위원회 (shadow 모드)
     ai.service.ts                # GPT-4 분석
+    dart.service.ts              # 금감원 전자공시(DART) API
+    learning.service.ts          # 학습·성과분석·파라미터 최적화
     news.service.ts              # 네이버 뉴스 + 감성분석
     kiwoom/
       kiwoom.condition.ts        # 조건검색 WebSocket
@@ -107,11 +121,31 @@ server/
   routes/
     trading.routes.ts            # 차트 시그널 포함
     watchlist.routes.ts          # HTS 동기화 포함
-    ai.routes.ts                 # Council 분석 포함
+    ai.routes.ts                 # Council·학습·분석재료 엔드포인트
     formula.routes.ts            # 키움 조건식 연동
   auto-trading-worker.ts         # 자동매매 루프
-shared/schema.ts                 # DB 스키마 (watchlist_sync_snapshots 포함)
+  storage/
+    interface.ts                 # 스토리지 인터페이스
+    postgres-core.storage.ts     # PostgreSQL 구현
+client/src/
+  components/
+    auto-trading/
+      AutoTradingLearningRecords.tsx  # 학습 기록 UI
+    ai-analysis/
+      IntegratedAnalysis.tsx     # 통합분석 (분석재료 포함)
+scripts/
+  replit-readiness.mjs           # Replit 환경 준비상태 점검
+shared/schema.ts                 # DB 스키마 (27개 테이블)
 ```
+
+### 환경변수 (선택)
+| 변수 | 용도 | 없을 때 |
+|------|------|---------|
+| `DART_API_KEY` | 금감원 DART 공시 조회 | 빈 배열 반환 (graceful) |
+| `DART_CORP_CODE_MAP` | 종목코드→DART 고유번호 매핑 | 공시 조회 불가 |
+| `ENABLE_AI_COUNCIL` | AI 위원회 자동매매 연동 | false (shadow 모드만) |
+| `ENABLE_ENTRY_POINT_ENGINE` | 진입점 탐색 엔진 | false |
+| `ENABLE_ADVANCED_LEARNING` | 고급 학습 시스템 | false |
 
 ### 주의사항
 - `getFinancialRatios()` 반환값: `output`이 단일 객체 `{ per, pbr, eps, bps, roe, roa, debt_ratio, reserve_ratio }` (배열 아님)

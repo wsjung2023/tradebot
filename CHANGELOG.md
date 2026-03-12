@@ -1,5 +1,39 @@
 # CHANGELOG
 
+## [PR #11] 2026-03-12 — DART 공시·학습 서비스·분석 재료 수집·Replit 준비상태 스크립트
+
+### 신규 파일
+| 파일 | 설명 |
+|------|------|
+| `server/services/dart.service.ts` | 금감원 전자공시(DART) API 연동. `DART_API_KEY` 필요, 없으면 빈 배열 반환 |
+| `server/services/learning.service.ts` | AI 모델 성과 분석·패턴 인사이트·파라미터 최적화 |
+| `client/src/components/auto-trading/AutoTradingLearningRecords.tsx` | 학습 기록 UI (승률·수익률·샤프비율·최대낙폭·진입/청산 최적라인) |
+| `scripts/replit-readiness.mjs` | Replit 환경 준비상태 자동 점검 (DB·환경변수·빌드·서버 응답 확인) |
+
+### 신규 DB 테이블 (schema.ts + drizzle-kit push 적용)
+| 테이블 | 설명 |
+|--------|------|
+| `company_filings` | DART 공시 내용 저장 |
+| `news_articles` | 뉴스 기사 캐시 |
+| `analysis_material_snapshots` | 분석 재료 스냅샷 (뉴스+공시+재무 통합) |
+
+### 신규 API 엔드포인트
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| POST | `/api/stocks/:code/sync-materials` | 분석 재료 수집 (DART, 뉴스, 재무) |
+| GET | `/api/stocks/:code/materials` | 수집된 분석 재료 목록 조회 |
+| GET | `/api/ai/models/:id/learning-stats` | AI 모델 학습 통계 |
+| GET | `/api/ai/models/:id/learning-records` | AI 모델 학습 기록 목록 |
+
+### 주요 업데이트
+- `client/src/components/ai-analysis/IntegratedAnalysis.tsx` — 분석 재료 스냅샷 통합
+- `client/src/pages/auto-trading.tsx` — 학습 기록 탭 추가
+- `server/routes/ai.routes.ts` — 294줄 추가 (분석재료·학습·DART 엔드포인트)
+- `server/storage/interface.ts` — 40줄 추가 (`getCompanyFilings`, `getNewsArticles`, `getAnalysisMaterialSnapshots` 등)
+- `server/storage/postgres-core.storage.ts` — 187줄 추가
+
+---
+
 ## [PR #10] 2026-03-12 — HTS 동기화 에러 핸들링 보완
 ### 변경
 - `server/routes/watchlist.routes.ts`: `watchlist_sync_snapshots` 테이블 미생성 시 503 + 안내 메시지 반환 (`WATCHLIST_SYNC_TABLE_MISSING` 코드)

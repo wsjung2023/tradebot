@@ -1,3 +1,6 @@
+// dart.service.ts — 금감원 전자공시(DART) API 연동
+// DART_API_KEY 환경변수 필요. DART_CORP_CODE_MAP으로 종목코드→고유번호 매핑.
+// DART_API_KEY 없으면 공시 조회 시 빈 배열 반환(graceful degradation).
 import axios from 'axios';
 
 export type DartFilingItem = {

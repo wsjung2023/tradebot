@@ -1,3 +1,5 @@
+// replit-readiness.mjs — Replit 환경 준비상태 자동 점검 스크립트
+// DB 연결, 필수 환경변수, 빌드 산출물, 서버 응답을 순서대로 확인하고 통과/실패 리포트를 출력.
 import { existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import process from 'node:process';

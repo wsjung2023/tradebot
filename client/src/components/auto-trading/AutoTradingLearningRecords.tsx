@@ -1,3 +1,5 @@
+// AutoTradingLearningRecords.tsx — 자동매매 AI 모델 학습 기록 UI
+// 거래 성과(승률·수익률·샤프비율·최대낙폭)와 패턴 인사이트(최적 진입/청산 라인)를 표시.
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, BrainCircuit } from "lucide-react";
