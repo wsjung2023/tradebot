@@ -40,6 +40,9 @@ export class KiwoomService extends KiwoomBase {
   getStockOrderbook(stockCode: string) { return this.market.getStockOrderbook(stockCode); }
   getStockChart(stockCode: string, period?: string, bars?: number) { return this.market.getStockChart(stockCode, period, bars); }
   searchStock(keyword: string) { return this.market.searchStock(keyword); }
+  getWatchlistInfo(stockCodes: string[]) { return this.market.getWatchlistInfo(stockCodes); }
+  getStockInfo(stockCode: string) { return this.market.getStockInfo(stockCode); }
+  getStockList(marketType?: string) { return this.market.getStockList(marketType); }
   getHighVolumeStocks(marketType?: 'ALL' | 'KOSPI' | 'KOSDAQ') { return this.market.getHighVolumeStocks(marketType); }
   getMarketIssues() { return this.market.getMarketIssues(); }
   getThemeStocks(themeCode: string) { return this.market.getThemeStocks(themeCode); }
@@ -51,7 +54,7 @@ export class KiwoomService extends KiwoomBase {
 
   // 조건식
   getConditionList() { return this.condition.getConditionList(); }
-  getConditionSearchResults(conditionName: string, conditionIndex: number) { return this.condition.getConditionSearchResults(conditionName, conditionIndex); }
+  getConditionSearchResults(conditionSeq: string, conditionIndex: number) { return this.condition.getConditionSearchResults(conditionSeq, conditionIndex); }
   startConditionMonitoring(conditionName: string, conditionIndex: number) { return this.condition.startConditionMonitoring(conditionName, conditionIndex); }
 
   // 재무

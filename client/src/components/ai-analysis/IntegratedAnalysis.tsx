@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import {
   Newspaper, BarChart3, TrendingUp, TrendingDown, Minus,
   Search, Loader2, AlertTriangle, Zap, ShieldCheck, Target,
@@ -21,6 +22,19 @@ interface NewsArticle {
   pubDate: string;
   source: string;
   sentiment: 'positive' | 'negative' | 'neutral';
+}
+
+interface FilingItem {
+  id: number;
+  reportNm: string;
+  rceptDt: string | null;
+  link: string | null;
+}
+
+interface MarketIssueItem {
+  issueType: string;
+  issueTitle: string;
+  impactLevel: 'low' | 'medium' | 'high';
 }
 
 interface IntegratedResult {
@@ -40,6 +54,26 @@ interface IntegratedResult {
   catalysts: string[];
   news?: { articles: NewsArticle[]; fetchedAt: string };
   financialRatios?: { per: string; pbr: string; eps: string; bps: string; roe: string };
+  filings?: FilingItem[];
+  marketIssues?: MarketIssueItem[];
+  materialSnapshotId?: number | null;
+  materialSync?: {
+    triggered: boolean;
+    reused: boolean;
+    snapshotId: number | null;
+    collectedAt: string | null;
+  };
+}
+
+interface MaterialSyncResult {
+  snapshotId: number;
+  stockCode: string;
+  stockName: string;
+  newsCount: number;
+  filingCount: number;
+  issueCount: number;
+  collectedAt: string;
+  reused: boolean;
 }
 
 // ─── 유틸 ────────────────────────────────────────────────────────────────
@@ -156,11 +190,13 @@ export function IntegratedAnalysis() {
   const [stockName, setStockName] = useState('');
   const [currentPrice, setCurrentPrice] = useState('');
   const [result, setResult] = useState<IntegratedResult | null>(null);
+  const [lastMaterialSync, setLastMaterialSync] = useState<MaterialSyncResult | null>(null);
+  const [forceMaterialSync, setForceMaterialSync] = useState(false);
 
   const { data: accounts = [] } = useQuery<any[]>({ queryKey: ['/api/accounts'] });
 
   const analysisMutation = useMutation({
-    mutationFn: async (data: { stockCode: string; stockName: string; currentPrice: number }) => {
+    mutationFn: async (data: { stockCode: string; stockName: string; currentPrice: number; syncMaterials?: boolean }) => {
       const resp = await apiRequest('POST', '/api/ai/integrated-analysis', data);
       return resp.json();
     },
@@ -170,6 +206,23 @@ export function IntegratedAnalysis() {
     },
     onError: (e: any) => {
       toast({ variant: 'destructive', title: '분석 실패', description: e.message });
+    },
+  });
+
+  const syncMaterialsMutation = useMutation({
+    mutationFn: async (data: { stockCode: string; stockName: string; corpCode?: string; force?: boolean }) => {
+      const resp = await apiRequest('POST', `/api/stocks/${data.stockCode}/sync-materials`, data);
+      return resp.json() as Promise<MaterialSyncResult>;
+    },
+    onSuccess: (data) => {
+      setLastMaterialSync(data);
+      toast({
+        title: data.reused ? '신선한 재료 재사용' : '분석 재료 동기화 완료',
+        description: `뉴스 ${data.newsCount}건 · 공시 ${data.filingCount}건 · 이슈 ${data.issueCount}건`,
+      });
+    },
+    onError: (e: any) => {
+      toast({ variant: 'destructive', title: '재료 동기화 실패', description: e.message });
     },
   });
 
@@ -190,12 +243,26 @@ export function IntegratedAnalysis() {
     searchMutation.mutate(stockCode.trim());
   }
 
-  function handleAnalyze() {
+  async function handleAnalyze() {
     if (!stockCode || !stockName || !currentPrice) {
       toast({ variant: 'destructive', title: '입력 오류', description: '종목코드, 종목명, 현재가를 모두 입력해주세요' });
       return;
     }
-    analysisMutation.mutate({ stockCode, stockName, currentPrice: parseFloat(currentPrice) });
+
+    let preSynced = false;
+    try {
+      await syncMaterialsMutation.mutateAsync({ stockCode, stockName, force: forceMaterialSync });
+      preSynced = true;
+    } catch {
+      // 동기화 실패 시에도 기존 통합 분석은 계속 수행
+    }
+
+    analysisMutation.mutate({
+      stockCode,
+      stockName,
+      currentPrice: parseFloat(currentPrice),
+      syncMaterials: preSynced ? false : undefined,
+    });
   }
 
   const action = result ? actionLabel(result.action) : null;
@@ -247,6 +314,21 @@ export function IntegratedAnalysis() {
               type="number"
             />
             <Button
+              variant="outline"
+              onClick={() => syncMaterialsMutation.mutate({ stockCode, stockName, force: forceMaterialSync })}
+              disabled={syncMaterialsMutation.isPending || !stockCode || !stockName}
+              data-testid="button-sync-materials"
+            >
+              {syncMaterialsMutation.isPending
+                ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />동기화 중...</>
+                : <><RefreshCw className="w-4 h-4 mr-2" />재료 동기화</>
+              }
+            </Button>
+            <label className="inline-flex items-center gap-2 text-xs text-muted-foreground px-2" data-testid="toggle-force-sync">
+              <Switch checked={forceMaterialSync} onCheckedChange={setForceMaterialSync} />
+              강제 동기화
+            </label>
+            <Button
               onClick={handleAnalyze}
               disabled={analysisMutation.isPending}
               data-testid="button-integrated-analyze"
@@ -261,6 +343,11 @@ export function IntegratedAnalysis() {
             <p className="text-xs text-muted-foreground mt-3 flex items-center gap-1.5">
               <Loader2 className="w-3 h-3 animate-spin" />
               뉴스 수집 및 재무 데이터 분석 중... (10~20초 소요)
+            </p>
+          )}
+          {lastMaterialSync && (
+            <p className="text-xs text-muted-foreground mt-2" data-testid="text-last-material-sync">
+              Snapshot #{lastMaterialSync.snapshotId} · {lastMaterialSync.reused ? '재사용' : '신규 수집'} · {new Date(lastMaterialSync.collectedAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}
             </p>
           )}
         </CardContent>
@@ -317,6 +404,24 @@ export function IntegratedAnalysis() {
             <CardContent className="space-y-4">
               <p className="text-sm leading-relaxed" data-testid="text-integrated-summary">{result.summary}</p>
 
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="secondary" className="no-default-active-elevate">재료 Snapshot #{result.materialSnapshotId || '-'}</Badge>
+                <Badge variant="secondary" className="no-default-active-elevate">공시 {result.filings?.length || 0}건</Badge>
+                <Badge variant="secondary" className="no-default-active-elevate">이슈 {result.marketIssues?.length || 0}건</Badge>
+                {result.materialSync && (
+                  <Badge variant="secondary" className="no-default-active-elevate">
+                    재료 {result.materialSync.reused ? '재사용' : result.materialSync.triggered ? '자동동기화' : '유지'}
+                  </Badge>
+                )}
+              </div>
+              {result.materialSync && (
+                <p className="text-xs text-muted-foreground" data-testid="text-material-sync-detail">
+                  materialSync · snapshot #{result.materialSync.snapshotId ?? '-'} · 수집시각 {result.materialSync.collectedAt
+                    ? new Date(result.materialSync.collectedAt).toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+                    : '-'}
+                </p>
+              )}
+
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-1.5">
                   <h4 className="text-xs font-semibold text-cyan-400 flex items-center gap-1"><Newspaper className="w-3 h-3" />뉴스 분석</h4>
@@ -356,6 +461,51 @@ export function IntegratedAnalysis() {
               </div>
             </CardContent>
           </Card>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm flex items-center gap-2"><Target className="w-4 h-4 text-amber-400" />최근 공시</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {result.filings?.length ? (
+                  <div className="space-y-2">
+                    {result.filings.slice(0, 5).map((filing) => (
+                      <div key={filing.id} className="text-xs border rounded-md p-2 flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate font-medium">{filing.reportNm}</p>
+                          <p className="text-muted-foreground">{filing.rceptDt || '-'}</p>
+                        </div>
+                        {filing.link ? <a href={filing.link} target="_blank" rel="noopener noreferrer"><ExternalLink className="w-3.5 h-3.5" /></a> : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">저장된 최근 공시가 없습니다. 재료 동기화를 먼저 실행하세요.</p>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-rose-400" />최근 시장 이슈</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {result.marketIssues?.length ? (
+                  <div className="space-y-2">
+                    {result.marketIssues.slice(0, 5).map((issue, idx) => (
+                      <div key={`${issue.issueType}-${idx}`} className="text-xs border rounded-md p-2">
+                        <p className="font-medium">[{issue.issueType}] {issue.issueTitle}</p>
+                        <p className="text-muted-foreground">영향도: {issue.impactLevel}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">저장된 시장 이슈가 없습니다.</p>
+                )}
+              </CardContent>
+            </Card>
+          </div>
 
           {/* 재무제표 + 뉴스 2열 레이아웃 */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

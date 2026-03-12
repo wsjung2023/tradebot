@@ -31,7 +31,7 @@ export function SettingsAI({ aiModel, isPending, onModelChange }: Props) {
                 </div>
               </SelectItem>
               <SelectItem value="gpt-5.1-chat-latest">
-                <div className="flex flex-col"><span className="font-medium">GPT-5.1 Instant</span><span className="text-xs text-muted-foreground">빠른 대화형 분석, 실시간 스캔용</span></div>
+                <div className="flex flex-col"><span className="font-medium">GPT-5.1 Chat (Latest)</span><span className="text-xs text-muted-foreground">대화형 응답 최적화, 빠른 인터랙션용</span></div>
               </SelectItem>
               <SelectItem value="gpt-5-mini">
                 <div className="flex flex-col"><span className="font-medium">GPT-5 Mini</span><span className="text-xs text-muted-foreground">비용 효율적인 대량 분석</span></div>
@@ -47,7 +47,7 @@ export function SettingsAI({ aiModel, isPending, onModelChange }: Props) {
         </div>
         <div className="text-sm text-muted-foreground space-y-1">
           <p>✦ <strong>GPT-5.1 (권장)</strong>: 최신 추론 모델, 트레이딩에 최적화, 수익률 45% 향상</p>
-          <p>✦ <strong>GPT-5.1 Instant</strong>: 빠른 응답, 실시간 스캔 및 대화형 분석에 적합</p>
+          <p>✦ <strong>GPT-5.1 Chat (Latest)</strong>: 대화형 응답 최적화, 빠른 인터랙션/요약 분석에 적합</p>
           <p>✦ <strong>GPT-5 Mini</strong>: 비용 절감, 대량 분석 및 자동화된 스캔에 적합</p>
           <p>✦ <strong>GPT-4.1</strong>: 멀티모달 지원, 텍스트/PDF/이미지 분석 필요시 사용</p>
           <p>✦ <strong>GPT-4o</strong>: 범용형 모델, 레거시 채널 호환 (신규 사용 비권장)</p>

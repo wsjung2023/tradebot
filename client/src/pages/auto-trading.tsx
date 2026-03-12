@@ -6,7 +6,8 @@ import { useToast } from "@/hooks/use-toast";
 import { AutoTradingModelDialog } from "@/components/auto-trading/AutoTradingModelDialog";
 import { AutoTradingModelList } from "@/components/auto-trading/AutoTradingModelList";
 import { AutoTradingRecommendations } from "@/components/auto-trading/AutoTradingRecommendations";
-import type { AiModel, AiRecommendation } from "@shared/schema";
+import { AutoTradingLearningRecords } from "@/components/auto-trading/AutoTradingLearningRecords";
+import type { AiModel, AiRecommendation, LearningRecord } from "@shared/schema";
 import { Bot } from "lucide-react";
 
 export default function AutoTrading() {
@@ -19,11 +20,29 @@ export default function AutoTrading() {
   const [maxPositions, setMaxPositions] = useState("5");
   const [stopLossPercent, setStopLossPercent] = useState("5");
   const [takeProfitPercent, setTakeProfitPercent] = useState("10");
+  const [learningVisibleCount, setLearningVisibleCount] = useState(10);
+  const [learningPeriodDays, setLearningPeriodDays] = useState(30);
 
   const { data: models = [], isLoading: modelsLoading } = useQuery<AiModel[]>({ queryKey: ["/api/ai/models"] });
   const { data: recommendations = [] } = useQuery<AiRecommendation[]>({
     queryKey: ["/api/ai/models", selectedModelId, "recommendations"],
     enabled: !!selectedModelId,
+  });
+  const { data: learningRecords = [], isLoading: recordsLoading } = useQuery<LearningRecord[]>({
+    queryKey: ["/api/ai/models", selectedModelId, "learning-records", learningVisibleCount],
+    queryFn: async () => {
+      if (!selectedModelId) return [];
+      const resp = await apiRequest("GET", `/api/ai/models/${selectedModelId}/learning-records?limit=${learningVisibleCount}`);
+      return resp.json();
+    },
+    enabled: !!selectedModelId,
+  });
+
+  const filteredLearningRecords = learningRecords.filter((record) => {
+    if (!record.createdAt) return true;
+    const createdAt = new Date(record.createdAt).getTime();
+    if (Number.isNaN(createdAt)) return true;
+    return Date.now() - createdAt <= learningPeriodDays * 24 * 60 * 60 * 1000;
   });
 
   const createModelMutation = useMutation({
@@ -79,6 +98,15 @@ export default function AutoTrading() {
         onDelete={(id) => deleteModelMutation.mutate(id)}
       />
       <AutoTradingRecommendations recommendations={recommendations as AiRecommendation[]} />
+      <AutoTradingLearningRecords
+        records={filteredLearningRecords}
+        isLoading={recordsLoading}
+        selectedModelId={selectedModelId}
+        visibleCount={learningVisibleCount}
+        onVisibleCountChange={setLearningVisibleCount}
+        periodDays={learningPeriodDays}
+        onPeriodDaysChange={setLearningPeriodDays}
+      />
     </div>
   );
 }

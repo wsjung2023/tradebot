@@ -7,21 +7,41 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@/components/ui/table";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { Search, Play, Plus, AlertCircle, Zap } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { ConditionFormula, ConditionResult } from "@shared/schema";
 
+interface KiwoomConditionItem {
+  condition_index: number;
+  condition_name: string;
+}
+
+interface KiwoomConditionResult {
+  stock_code: string;
+  stock_name: string;
+  current_price?: string;
+  change_rate?: string;
+}
+
 export default function ConditionScreeningPage() {
   const { toast } = useToast();
   const [selectedConditionId, setSelectedConditionId] = useState<number | null>(null);
   const [isRunning, setIsRunning] = useState(false);
+  const [screeningMode, setScreeningMode] = useState<"custom" | "kiwoom">("custom");
   const [enableAutoRefresh, setEnableAutoRefresh] = useState(false);
   const [refreshInterval, setRefreshInterval] = useState(60); // seconds - validated to be positive number
+  const [selectedKiwoomSeq, setSelectedKiwoomSeq] = useState<string>("");
+  const [kiwoomResults, setKiwoomResults] = useState<KiwoomConditionResult[]>([]);
 
   // Fetch user's condition formulas
   const { data: conditions = [], isLoading: loadingConditions } = useQuery<ConditionFormula[]>({
     queryKey: ["/api/conditions"],
+  });
+
+  const { data: kiwoomConditions = [], isLoading: loadingKiwoomConditions } = useQuery<KiwoomConditionItem[]>({
+    queryKey: ["/api/kiwoom/conditions"],
   });
 
   // Fetch screening results for selected condition
@@ -62,6 +82,37 @@ export default function ConditionScreeningPage() {
     },
   });
 
+  const runKiwoomMutation = useMutation({
+    mutationFn: async (seq: string) => {
+      setIsRunning(true);
+      const response = await fetch(`/api/kiwoom/conditions/${seq}/run`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Failed to run Kiwoom condition search");
+      }
+      return await response.json();
+    },
+    onSuccess: (data: KiwoomConditionResult[]) => {
+      setKiwoomResults(Array.isArray(data) ? data : []);
+      toast({
+        title: "키움 조건검색 실행 완료",
+        description: "HTS 조건식 검색이 완료되었습니다.",
+      });
+      setIsRunning(false);
+    },
+    onError: (error: any) => {
+      toast({
+        variant: "destructive",
+        title: "키움 조건검색 실행 실패",
+        description: error.message || "키움 조건식 실행 중 오류가 발생했습니다.",
+      });
+      setIsRunning(false);
+    },
+  });
+
   // Add to watchlist mutation
   const addToWatchlistMutation = useMutation({
     mutationFn: async (stockCode: string) => {
@@ -97,6 +148,19 @@ export default function ConditionScreeningPage() {
   });
 
   const handleRun = () => {
+    if (screeningMode === "kiwoom") {
+      if (!selectedKiwoomSeq) {
+        toast({
+          variant: "destructive",
+          title: "키움 조건식을 선택하세요",
+          description: "실행할 키움 HTS 조건식을 먼저 선택해주세요.",
+        });
+        return;
+      }
+      runKiwoomMutation.mutate(selectedKiwoomSeq);
+      return;
+    }
+
     if (!selectedConditionId) {
       toast({
         variant: "destructive",
@@ -165,37 +229,66 @@ export default function ConditionScreeningPage() {
             <div className="flex items-end gap-4">
               <div className="flex-1">
                 <label className="text-sm font-medium mb-2 block">조건식</label>
-                <Select
-                  value={selectedConditionId?.toString() || ""}
-                  onValueChange={(value) => setSelectedConditionId(Number(value))}
-                  disabled={loadingConditions}
-                >
-                  <SelectTrigger data-testid="select-condition">
-                    <SelectValue placeholder="조건식을 선택하세요" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {activeConditions.length === 0 && (
-                      <div className="p-4 text-sm text-muted-foreground text-center" data-testid="text-no-conditions">
-                        활성화된 조건식이 없습니다
-                      </div>
-                    )}
-                    {activeConditions.map((condition) => (
-                      <SelectItem key={condition.id} value={condition.id.toString()} data-testid={`option-condition-${condition.id}`}>
-                        {condition.conditionName} ({condition.marketType})
-                        {condition.isRealTimeMonitoring && (
-                          <span className="ml-2 text-cyan-400 inline-flex items-center gap-1" data-testid={`text-realtime-${condition.id}`}>
-                            <Zap className="w-3 h-3" /> 실시간
-                          </span>
-                        )}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+                  <Tabs value={screeningMode} onValueChange={(value) => setScreeningMode(value as "custom" | "kiwoom")}>
+                    <TabsList className="mb-3">
+                      <TabsTrigger value="custom">커스텀 조건식</TabsTrigger>
+                      <TabsTrigger value="kiwoom">Kiwoom HTS 조건식</TabsTrigger>
+                    </TabsList>
+                  </Tabs>
+
+                  <Select
+                    value={screeningMode === "custom" ? (selectedConditionId?.toString() || "") : selectedKiwoomSeq}
+                    onValueChange={(value) => {
+                      if (screeningMode === "custom") {
+                        setSelectedConditionId(Number(value));
+                      } else {
+                        setSelectedKiwoomSeq(value);
+                      }
+                    }}
+                    disabled={screeningMode === "custom" ? loadingConditions : loadingKiwoomConditions}
+                  >
+                    <SelectTrigger data-testid="select-condition">
+                      <SelectValue placeholder={screeningMode === "custom" ? "조건식을 선택하세요" : "키움 HTS 조건식을 선택하세요"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {screeningMode === "custom" ? (
+                        <>
+                          {activeConditions.length === 0 && (
+                            <div className="p-4 text-sm text-muted-foreground text-center" data-testid="text-no-conditions">
+                              활성화된 조건식이 없습니다
+                            </div>
+                          )}
+                          {activeConditions.map((condition) => (
+                            <SelectItem key={condition.id} value={condition.id.toString()} data-testid={`option-condition-${condition.id}`}>
+                              {condition.conditionName} ({condition.marketType})
+                            </SelectItem>
+                          ))}
+                        </>
+                      ) : (
+                        <>
+                          {kiwoomConditions.length === 0 && (
+                            <div className="p-4 text-sm text-muted-foreground text-center" data-testid="text-no-kiwoom-conditions">
+                              키움 HTS 조건식이 없습니다
+                            </div>
+                          )}
+                          {kiwoomConditions.map((condition) => (
+                            <SelectItem
+                              key={condition.condition_index}
+                              value={String(condition.condition_index)}
+                              data-testid={`option-kiwoom-condition-${condition.condition_index}`}
+                            >
+                              [{condition.condition_index}] {condition.condition_name}
+                            </SelectItem>
+                          ))}
+                        </>
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
               
               <Button
                 onClick={handleRun}
-                disabled={!selectedConditionId || isRunning}
+                disabled={screeningMode === "custom" ? !selectedConditionId || isRunning : !selectedKiwoomSeq || isRunning}
                 className="bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-600 hover:to-blue-600"
                 data-testid="button-run"
               >
@@ -205,7 +298,7 @@ export default function ConditionScreeningPage() {
             </div>
 
             {/* Auto-refresh controls */}
-            {selectedCondition?.isRealTimeMonitoring && (
+            {screeningMode === "custom" && selectedCondition?.isRealTimeMonitoring && (
               <div className="border border-cyan-500/30 rounded-lg p-4 bg-cyan-500/5 space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -278,7 +371,7 @@ export default function ConditionScreeningPage() {
                   <div className="w-6 h-6 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
                   <span className="ml-3 text-muted-foreground">결과를 불러오는 중...</span>
                 </div>
-              ) : results.length === 0 ? (
+              ) : (screeningMode === "custom" ? results.length : kiwoomResults.length) === 0 ? (
                 <div className="text-center py-12 text-muted-foreground">
                   <Search className="w-12 h-12 mx-auto mb-4 opacity-50" />
                   <p>검색 결과가 없습니다.</p>
@@ -299,46 +392,46 @@ export default function ConditionScreeningPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {results.map((result, index) => (
-                        <TableRow key={result.id} data-testid={`row-result-${index}`}>
+                      {(screeningMode === "custom" ? results : kiwoomResults).map((result: any, index) => (
+                        <TableRow key={screeningMode === "custom" ? result.id : `${result.stock_code}-${index}`} data-testid={`row-result-${index}`}>
                           <TableCell className="font-mono" data-testid={`text-stockcode-${index}`}>
-                            {result.stockCode}
+                            {screeningMode === "custom" ? result.stockCode : result.stock_code}
                           </TableCell>
                           <TableCell className="font-medium" data-testid={`text-stockname-${index}`}>
-                            {result.stockName}
+                            {screeningMode === "custom" ? result.stockName : result.stock_name}
                           </TableCell>
                           <TableCell className="text-right font-mono">
-                            {result.currentPrice?.toLocaleString() || "-"}
+                            {screeningMode === "custom" ? result.currentPrice?.toLocaleString() || "-" : Number(result.current_price || 0).toLocaleString()}
                           </TableCell>
                           <TableCell className="text-right">
-                            {result.changeRate ? (
+                            {(screeningMode === "custom" ? result.changeRate : result.change_rate) ? (
                               <span
                                 className={`font-mono ${
-                                  Number(result.changeRate) > 0
+                                  Number(screeningMode === "custom" ? result.changeRate : result.change_rate) > 0
                                     ? "text-red-500"
-                                    : Number(result.changeRate) < 0
+                                    : Number(screeningMode === "custom" ? result.changeRate : result.change_rate) < 0
                                     ? "text-blue-500"
                                     : "text-muted-foreground"
                                 }`}
                               >
-                                {Number(result.changeRate) > 0 ? "+" : ""}
-                                {Number(result.changeRate).toFixed(2)}%
+                                {Number(screeningMode === "custom" ? result.changeRate : result.change_rate) > 0 ? "+" : ""}
+                                {Number(screeningMode === "custom" ? result.changeRate : result.change_rate).toFixed(2)}%
                               </span>
                             ) : (
                               "-"
                             )}
                           </TableCell>
                           <TableCell className="text-right font-mono">
-                            {result.volume?.toLocaleString() || "-"}
+                            {screeningMode === "custom" ? result.volume?.toLocaleString() || "-" : "-"}
                           </TableCell>
                           <TableCell className="text-sm text-muted-foreground">
-                            {new Date(result.createdAt).toLocaleString("ko-KR")}
+                            {screeningMode === "custom" ? new Date(result.createdAt).toLocaleString("ko-KR") : "-"}
                           </TableCell>
                           <TableCell className="text-right">
                             <Button
                               size="sm"
                               variant="outline"
-                              onClick={() => addToWatchlistMutation.mutate(result.stockCode)}
+                              onClick={() => addToWatchlistMutation.mutate(screeningMode === "custom" ? result.stockCode : result.stock_code)}
                               disabled={addToWatchlistMutation.isPending}
                               data-testid={`button-add-watchlist-${index}`}
                             >
