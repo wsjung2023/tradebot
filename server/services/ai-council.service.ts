@@ -1,3 +1,6 @@
+// ai-council.service.ts — AI 투자자문 위원회 (shadow 모드)
+// 기술·기본·감성 3인 애널리스트가 독립 분석 후 다수결로 최종 의견 도출.
+// 현재는 shadow 모드(실거래 미연동)로만 동작하며, enableAICouncil 플래그 ON 시 자동매매 연동.
 import { getAIService } from './ai.service';
 import { getNewsService } from './news.service';
 import { getKiwoomService } from './kiwoom';
