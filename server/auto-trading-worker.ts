@@ -1,15 +1,17 @@
 // auto-trading-worker.ts — 자동매매 cron 스케줄러. 매 1분마다 AI 모델 순회 및 조건 검색 실행
 import * as cron from 'node-cron';
 import { storage } from './storage';
-import { KiwoomService } from './services/kiwoom';
+import { getKiwoomService, KiwoomService } from './services/kiwoom';
 import { AIService } from './services/ai.service';
 import { LearningService } from './services/learning.service';
 import { TradeExecutorService } from './services/trade-executor.service';
 import { AiModel, AutoTradingSettings, ConditionFormula } from '@shared/schema';
 import { decrypt } from './utils/crypto';
+import { getFeatureFlags } from './config/feature-flags';
 
 class AutoTradingWorker {
   private isRunning = false;
+  private readonly featureFlags = getFeatureFlags();
   private isLearningRunning = false;
   private cronJob: cron.ScheduledTask | null = null;
   private learningJob: cron.ScheduledTask | null = null;
@@ -64,18 +66,41 @@ class AutoTradingWorker {
   async runLearningNow(): Promise<void> { await this.executeLearningCycleWrapper(); }
 
   private async executeTradingCycle() {
-    if (this.isRunning) { console.log('⏭️  Skipping cycle - previous cycle still running'); return; }
+    const cycleId = `trading-${Date.now()}`;
+
+    if (this.isRunning) {
+      console.log(`[AutoTrading][${cycleId}] ⏭️  Skipping cycle - previous cycle still running`);
+      return;
+    }
+
     this.isRunning = true;
     try {
-      if (!this.isMarketHours()) return;
-      console.log('🔄 Starting auto trading cycle...');
+      if (!this.isMarketHours()) {
+        console.log(`[AutoTrading][${cycleId}] 🕒 Outside market hours - skipping`);
+        return;
+      }
+      console.log(`[AutoTrading][${cycleId}] 🔄 Starting auto trading cycle...`);
       const activeModels = await storage.getActiveAiModels();
-      if (activeModels.length === 0) { console.log('📭 No active AI models found'); return; }
-      console.log(`📊 Found ${activeModels.length} active AI model(s)`);
+      if (activeModels.length === 0) {
+        console.log(`[AutoTrading][${cycleId}] 📭 No active AI models found`);
+        return;
+      }
+      console.log(`[AutoTrading][${cycleId}] 📊 Found ${activeModels.length} active AI model(s)`);
       for (const model of activeModels) await this.processModel(model);
-      console.log('✅ Trading cycle completed');
+
+      if (this.featureFlags.enablePriceAlertsInTradingCycle) {
+        try {
+          await this.checkPriceAlerts();
+        } catch (alertError) {
+          console.error(`[AutoTrading][${cycleId}] 가격 알림 체크 오류:`, alertError);
+        }
+      } else {
+        console.log(`[AutoTrading][${cycleId}] ℹ️ Price alert checks disabled by feature flag`);
+      }
+
+      console.log(`[AutoTrading][${cycleId}] ✅ Trading cycle completed`);
     } catch (error) {
-      console.error('❌ Error in trading cycle:', error);
+      console.error(`[AutoTrading][${cycleId}] ❌ Error in trading cycle:`, error);
     } finally {
       this.isRunning = false;
     }
@@ -129,7 +154,23 @@ class AutoTradingWorker {
   ) {
     console.log(`  🔍 Running condition: ${condition.conditionName}`);
     try {
-      const results = await kiwoomService.getConditionSearchResults(condition.conditionName, condition.id);
+      let conditionSeq = String((condition as any).kiwoomSeq ?? "").trim();
+      if (!conditionSeq) {
+        try {
+          const conditionList = await kiwoomService.getConditionList();
+          const rows = conditionList?.output ?? [];
+          const matched = rows.find((row: any) => row.condition_name === condition.conditionName);
+          if (matched) {
+            conditionSeq = String(matched.condition_index);
+          }
+        } catch (seqResolveError) {
+          console.warn('[AutoTrading] Kiwoom 조건식 seq 자동해결 실패:', seqResolveError);
+        }
+      }
+      if (!conditionSeq) {
+        conditionSeq = String(condition.id);
+      }
+      const results = await kiwoomService.getConditionSearchResults(conditionSeq, condition.id);
       if (!results?.output?.length) {
         console.log(`  ⚠️  No stocks found for ${condition.conditionName}`); return;
       }
@@ -146,6 +187,45 @@ class AutoTradingWorker {
     }
   }
 
+
+  private async checkPriceAlerts(): Promise<void> {
+    const alerts = await storage.getAllActiveAlerts();
+    if (alerts.length === 0) return;
+
+    const codes = Array.from(new Set(alerts.map((alert) => alert.stockCode)));
+    const kiwoom = getKiwoomService();
+
+    let priceMap: Record<string, number> = {};
+    try {
+      const prices = await kiwoom.getWatchlistInfo(codes);
+      for (const price of prices) {
+        const current = parseFloat(String(price.currentPrice).replace(/[^0-9.-]/g, ''));
+        if (!Number.isNaN(current)) {
+          priceMap[price.stockCode] = current;
+        }
+      }
+    } catch (error) {
+      console.warn('[AutoTrading] 시세 조회 실패로 알림 체크 스킵:', error);
+      return;
+    }
+
+    for (const alert of alerts) {
+      const currentPrice = priceMap[alert.stockCode];
+      if (currentPrice === undefined) continue;
+
+      const target = parseFloat(String(alert.targetValue ?? '0'));
+      let triggered = false;
+
+      if (alert.alertType === 'price_above' && currentPrice >= target) triggered = true;
+      if (alert.alertType === 'price_below' && currentPrice <= target) triggered = true;
+
+      if (triggered) {
+        await storage.updateAlert(alert.id, { isTriggered: true, triggeredAt: new Date() });
+        console.log(`[Alert] 🔔 발동! ${alert.stockCode} | 현재가: ${currentPrice} | 조건: ${alert.alertType} ${target} | 사용자: ${alert.userId}`);
+      }
+    }
+  }
+
   // ─── Learning Cycle (매일 장 마감 후 16:00 실행) ───────────────────────
 
   private async executeLearningCycleWrapper() {
@@ -156,6 +236,11 @@ class AutoTradingWorker {
   }
 
   private async executeLearningCycle() {
+    if (!this.featureFlags.enableAdvancedLearning) {
+      console.log('\n🎓 Advanced learning disabled by feature flag (ENABLE_ADVANCED_LEARNING)');
+      return;
+    }
+
     console.log('\n🎓 Starting learning optimization cycle...');
     try {
       const activeModels = await storage.getActiveAiModels();

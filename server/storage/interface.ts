@@ -18,6 +18,10 @@ import {
   type MarketIssue, type InsertMarketIssue,
   type AutoTradingSettings, type InsertAutoTradingSettings,
   type TradingPerformance, type InsertTradingPerformance,
+  type AiModelSpec, type InsertAiModelSpec,
+  type AiCouncilSession, type InsertAiCouncilSession,
+  type EntryPoint, type InsertEntryPoint,
+  type LearningRecord, type InsertLearningRecord,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -73,6 +77,7 @@ export interface IStorage {
   createAlert(alert: InsertAlert): Promise<Alert>;
   updateAlert(id: number, updates: Partial<Alert>): Promise<Alert | undefined>;
   deleteAlert(id: number): Promise<void>;
+  getAllActiveAlerts(): Promise<Alert[]>;
 
   // 사용자 설정
   getUserSettings(userId: string): Promise<UserSettings | undefined>;
@@ -130,6 +135,23 @@ export interface IStorage {
   getTradingPerformanceByStock(modelId: number, stockCode: string): Promise<TradingPerformance | undefined>;
   createTradingPerformance(performance: InsertTradingPerformance): Promise<TradingPerformance>;
   updateTradingPerformance(id: number, updates: Partial<TradingPerformance>): Promise<TradingPerformance | undefined>;
+
+  // AI 모델 스펙
+  getAiModelSpecs(activeOnly?: boolean): Promise<AiModelSpec[]>;
+  createAiModelSpec(spec: InsertAiModelSpec): Promise<AiModelSpec>;
+  updateAiModelSpec(id: number, updates: Partial<AiModelSpec>): Promise<AiModelSpec | undefined>;
+
+  // AI Council 세션
+  getAiCouncilSessions(userId: string, limit?: number): Promise<AiCouncilSession[]>;
+  createAiCouncilSession(session: InsertAiCouncilSession): Promise<AiCouncilSession>;
+
+  // 타점 기록
+  getEntryPoints(stockCode: string, limit?: number): Promise<EntryPoint[]>;
+  createEntryPoint(entryPoint: InsertEntryPoint): Promise<EntryPoint>;
+
+  // 학습 기록
+  getLearningRecords(modelId: number, limit?: number): Promise<LearningRecord[]>;
+  createLearningRecord(record: InsertLearningRecord): Promise<LearningRecord>;
 
   // 헬퍼
   getActiveAiModels(): Promise<AiModel[]>;

@@ -13,6 +13,10 @@ import type {
   Alert, InsertAlert,
   UserSettings, InsertUserSettings,
   TradingLog, InsertTradingLog,
+  AiModelSpec, InsertAiModelSpec,
+  AiCouncilSession, InsertAiCouncilSession,
+  EntryPoint, InsertEntryPoint,
+  LearningRecord, InsertLearningRecord,
 } from '@shared/schema';
 
 export class PostgreSQLCoreStorage {
@@ -222,6 +226,13 @@ export class PostgreSQLCoreStorage {
     await db.delete(schema.alerts).where(eq(schema.alerts.id, id));
   }
 
+  async getAllActiveAlerts(): Promise<Alert[]> {
+    return db
+      .select()
+      .from(schema.alerts)
+      .where(and(eq(schema.alerts.isActive, true), eq(schema.alerts.isTriggered, false)));
+  }
+
   // ==================== User Settings Methods ====================
 
   async getUserSettings(userId: string): Promise<UserSettings | undefined> {
@@ -253,6 +264,69 @@ export class PostgreSQLCoreStorage {
 
   async createTradingLog(log: InsertTradingLog): Promise<TradingLog> {
     const result = await db.insert(schema.tradingLogs).values([log]).returning();
+    return result[0];
+  }
+
+  // ==================== AI Model Specs ====================
+
+  async getAiModelSpecs(activeOnly: boolean = true): Promise<AiModelSpec[]> {
+    const query = db.select().from(schema.aiModelSpecs);
+    if (!activeOnly) return query.orderBy(desc(schema.aiModelSpecs.updatedAt));
+    return query.where(eq(schema.aiModelSpecs.isActive, true)).orderBy(desc(schema.aiModelSpecs.updatedAt));
+  }
+
+  async createAiModelSpec(spec: InsertAiModelSpec): Promise<AiModelSpec> {
+    const result = await db.insert(schema.aiModelSpecs).values([spec]).returning();
+    return result[0];
+  }
+
+  async updateAiModelSpec(id: number, updates: Partial<AiModelSpec>): Promise<AiModelSpec | undefined> {
+    const result = await db.update(schema.aiModelSpecs)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(schema.aiModelSpecs.id, id))
+      .returning();
+    return result[0];
+  }
+
+  // ==================== AI Council Sessions ====================
+
+  async getAiCouncilSessions(userId: string, limit: number = 20): Promise<AiCouncilSession[]> {
+    return db.select().from(schema.aiCouncilSessions)
+      .where(eq(schema.aiCouncilSessions.userId, userId))
+      .orderBy(desc(schema.aiCouncilSessions.createdAt))
+      .limit(limit);
+  }
+
+  async createAiCouncilSession(session: InsertAiCouncilSession): Promise<AiCouncilSession> {
+    const result = await db.insert(schema.aiCouncilSessions).values([session]).returning();
+    return result[0];
+  }
+
+  // ==================== Entry Points ====================
+
+  async getEntryPoints(stockCode: string, limit: number = 50): Promise<EntryPoint[]> {
+    return db.select().from(schema.entryPoints)
+      .where(eq(schema.entryPoints.stockCode, stockCode))
+      .orderBy(desc(schema.entryPoints.createdAt))
+      .limit(limit);
+  }
+
+  async createEntryPoint(entryPoint: InsertEntryPoint): Promise<EntryPoint> {
+    const result = await db.insert(schema.entryPoints).values([entryPoint]).returning();
+    return result[0];
+  }
+
+  // ==================== Learning Records ====================
+
+  async getLearningRecords(modelId: number, limit: number = 30): Promise<LearningRecord[]> {
+    return db.select().from(schema.learningRecords)
+      .where(eq(schema.learningRecords.modelId, modelId))
+      .orderBy(desc(schema.learningRecords.createdAt))
+      .limit(limit);
+  }
+
+  async createLearningRecord(record: InsertLearningRecord): Promise<LearningRecord> {
+    const result = await db.insert(schema.learningRecords).values([record]).returning();
     return result[0];
   }
 

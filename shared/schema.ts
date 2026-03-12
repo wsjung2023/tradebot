@@ -347,6 +347,65 @@ export const tradingPerformance = pgTable("trading_performance", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+
+// AI model specs catalog
+export const aiModelSpecs = pgTable("ai_model_specs", {
+  id: serial("id").primaryKey(),
+  modelId: text("model_id").notNull().unique(),
+  provider: text("provider").notNull(),
+  displayName: text("display_name").notNull(),
+  strengths: jsonb("strengths").notNull().default([]),
+  bestFor: jsonb("best_for").notNull().default([]),
+  contextWindow: integer("context_window"),
+  inputCostPer1m: decimal("input_cost_per_1m", { precision: 10, scale: 6 }),
+  outputCostPer1m: decimal("output_cost_per_1m", { precision: 10, scale: 6 }),
+  speedTier: text("speed_tier"),
+  reasoningScore: integer("reasoning_score"),
+  isActive: boolean("is_active").notNull().default(true),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// AI council analysis sessions (shadow/production)
+export const aiCouncilSessions = pgTable("ai_council_sessions", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  stockCode: text("stock_code").notNull(),
+  stockName: text("stock_name").notNull(),
+  sessionData: jsonb("session_data").notNull(),
+  finalAction: text("final_action"),
+  finalConfidence: decimal("final_confidence", { precision: 5, scale: 2 }),
+  targetPrice: decimal("target_price", { precision: 12, scale: 2 }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// Entry point calculator outputs
+export const entryPoints = pgTable("entry_points", {
+  id: serial("id").primaryKey(),
+  councilSessionId: integer("council_session_id").references(() => aiCouncilSessions.id, { onDelete: 'set null' }),
+  stockCode: text("stock_code").notNull(),
+  entryPrice: decimal("entry_price", { precision: 12, scale: 2 }),
+  stopLoss: decimal("stop_loss", { precision: 12, scale: 2 }),
+  takeProfit: decimal("take_profit", { precision: 12, scale: 2 }),
+  positionSize: integer("position_size"),
+  signalConfluence: integer("signal_confluence"),
+  executed: boolean("executed").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// Learning run records
+export const learningRecords = pgTable("learning_records", {
+  id: serial("id").primaryKey(),
+  modelId: integer("model_id").notNull().references(() => aiModels.id, { onDelete: 'cascade' }),
+  periodStart: timestamp("period_start"),
+  periodEnd: timestamp("period_end"),
+  totalTrades: integer("total_trades"),
+  winRate: decimal("win_rate", { precision: 5, scale: 2 }),
+  avgReturn: decimal("avg_return", { precision: 8, scale: 4 }),
+  patternInsights: jsonb("pattern_insights"),
+  appliedChanges: jsonb("applied_changes"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 // ==================== Insert Schemas ====================
 
 export const insertUserSchema = createInsertSchema(users, {
@@ -499,6 +558,15 @@ export const insertAutoTradingSettingsSchema = createInsertSchema(autoTradingSet
   updatedAt: true 
 });
 
+
+export const insertAiModelSpecSchema = createInsertSchema(aiModelSpecs).omit({ id: true, updatedAt: true });
+
+export const insertAiCouncilSessionSchema = createInsertSchema(aiCouncilSessions).omit({ id: true, createdAt: true });
+
+export const insertEntryPointSchema = createInsertSchema(entryPoints).omit({ id: true, createdAt: true });
+
+export const insertLearningRecordSchema = createInsertSchema(learningRecords).omit({ id: true, createdAt: true });
+
 export const insertTradingPerformanceSchema = createInsertSchema(tradingPerformance, {
   modelId: z.number().int().positive(),
   stockCode: z.string().min(1),
@@ -563,3 +631,17 @@ export type InsertAutoTradingSettings = z.infer<typeof insertAutoTradingSettings
 
 export type TradingPerformance = typeof tradingPerformance.$inferSelect;
 export type InsertTradingPerformance = z.infer<typeof insertTradingPerformanceSchema>;
+
+
+export type AiModelSpec = typeof aiModelSpecs.$inferSelect;
+export type InsertAiModelSpec = z.infer<typeof insertAiModelSpecSchema>;
+
+export type AiCouncilSession = typeof aiCouncilSessions.$inferSelect;
+export type InsertAiCouncilSession = z.infer<typeof insertAiCouncilSessionSchema>;
+
+export type EntryPoint = typeof entryPoints.$inferSelect;
+export type InsertEntryPoint = z.infer<typeof insertEntryPointSchema>;
+
+export type LearningRecord = typeof learningRecords.$inferSelect;
+export type InsertLearningRecord = z.infer<typeof insertLearningRecordSchema>;
+
