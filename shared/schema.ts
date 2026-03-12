@@ -419,6 +419,54 @@ export const learningRecords = pgTable("learning_records", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// Company filings (DART/공시)
+export const companyFilings = pgTable("company_filings", {
+  id: serial("id").primaryKey(),
+  stockCode: text("stock_code").notNull(),
+  stockName: text("stock_name").notNull(),
+  corpCode: text("corp_code"),
+  rceptNo: text("rcept_no").notNull(),
+  reportNm: text("report_nm").notNull(),
+  flrNm: text("flr_nm"),
+  rceptDt: text("rcept_dt"),
+  link: text("link"),
+  source: text("source").notNull().default('dart'),
+  payload: jsonb("payload"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// News articles cache (학습용 영속 뉴스)
+export const newsArticles = pgTable("news_articles", {
+  id: serial("id").primaryKey(),
+  stockCode: text("stock_code").notNull(),
+  stockName: text("stock_name").notNull(),
+  title: text("title").notNull(),
+  description: text("description"),
+  link: text("link").notNull(),
+  source: text("source"),
+  sentiment: text("sentiment").notNull().default('neutral'),
+  publishedAt: timestamp("published_at"),
+  payload: jsonb("payload"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// Snapshot of analysis materials used for AI/learning
+export const analysisMaterialSnapshots = pgTable("analysis_material_snapshots", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  stockCode: text("stock_code").notNull(),
+  stockName: text("stock_name").notNull(),
+  corpCode: text("corp_code"),
+  financialSummary: jsonb("financial_summary"),
+  marketIssues: jsonb("market_issues"),
+  filingIds: jsonb("filing_ids").notNull().default([]),
+  newsIds: jsonb("news_ids").notNull().default([]),
+  collectedAt: timestamp("collected_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 // ==================== Insert Schemas ====================
 
 export const insertUserSchema = createInsertSchema(users, {
@@ -586,6 +634,12 @@ export const insertEntryPointSchema = createInsertSchema(entryPoints).omit({ id:
 
 export const insertLearningRecordSchema = createInsertSchema(learningRecords).omit({ id: true, createdAt: true });
 
+export const insertCompanyFilingSchema = createInsertSchema(companyFilings).omit({ id: true, createdAt: true, updatedAt: true });
+
+export const insertNewsArticleSchema = createInsertSchema(newsArticles).omit({ id: true, createdAt: true, updatedAt: true });
+
+export const insertAnalysisMaterialSnapshotSchema = createInsertSchema(analysisMaterialSnapshots).omit({ id: true, createdAt: true, collectedAt: true });
+
 export const insertTradingPerformanceSchema = createInsertSchema(tradingPerformance, {
   modelId: z.number().int().positive(),
   stockCode: z.string().min(1),
@@ -666,3 +720,12 @@ export type InsertEntryPoint = z.infer<typeof insertEntryPointSchema>;
 
 export type LearningRecord = typeof learningRecords.$inferSelect;
 export type InsertLearningRecord = z.infer<typeof insertLearningRecordSchema>;
+
+export type CompanyFiling = typeof companyFilings.$inferSelect;
+export type InsertCompanyFiling = z.infer<typeof insertCompanyFilingSchema>;
+
+export type NewsArticleRecord = typeof newsArticles.$inferSelect;
+export type InsertNewsArticleRecord = z.infer<typeof insertNewsArticleSchema>;
+
+export type AnalysisMaterialSnapshot = typeof analysisMaterialSnapshots.$inferSelect;
+export type InsertAnalysisMaterialSnapshot = z.infer<typeof insertAnalysisMaterialSnapshotSchema>;

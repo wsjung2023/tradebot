@@ -279,6 +279,18 @@ export class LearningService {
     // Only optimize if we have enough data
     if (stats.totalTrades < 20) {
       recommendations.push(`데이터 부족: ${stats.totalTrades}건 (최소 20건 필요)`);
+
+      await storage.createLearningRecord({
+        modelId,
+        periodStart: null,
+        periodEnd: new Date(),
+        totalTrades: stats.totalTrades,
+        winRate: stats.winRate.toFixed(2),
+        avgReturn: stats.totalReturn.toFixed(4),
+        patternInsights: patterns as any,
+        appliedChanges: { autoApply, applied: false, reason: 'INSUFFICIENT_DATA', recommendations } as any,
+      });
+
       return {
         modelId,
         stats,
@@ -351,6 +363,17 @@ export class LearningService {
     } else if (autoApply && stats.totalTrades < 50) {
       recommendations.push(`⚠️  자동 적용 최소 거래 수 미달 (현재 ${stats.totalTrades}건, 필요 50건)`);
     }
+
+    await storage.createLearningRecord({
+      modelId,
+      periodStart: null,
+      periodEnd: new Date(),
+      totalTrades: stats.totalTrades,
+      winRate: stats.winRate.toFixed(2),
+      avgReturn: stats.totalReturn.toFixed(4),
+      patternInsights: patterns as any,
+      appliedChanges: { autoApply, applied: appliedChanges, recommendations } as any,
+    });
 
     return {
       modelId,

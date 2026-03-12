@@ -18,6 +18,9 @@ import type {
   AiCouncilSession, InsertAiCouncilSession,
   EntryPoint, InsertEntryPoint,
   LearningRecord, InsertLearningRecord,
+  CompanyFiling, InsertCompanyFiling,
+  NewsArticleRecord, InsertNewsArticleRecord,
+  AnalysisMaterialSnapshot, InsertAnalysisMaterialSnapshot,
 } from '@shared/schema';
 
 export class PostgreSQLCoreStorage {
@@ -371,6 +374,72 @@ export class PostgreSQLCoreStorage {
 
   async createLearningRecord(record: InsertLearningRecord): Promise<LearningRecord> {
     const result = await db.insert(schema.learningRecords).values([record]).returning();
+    return result[0];
+  }
+
+  // ==================== Company Filings ====================
+
+  async getCompanyFilings(stockCode: string, limit: number = 30): Promise<CompanyFiling[]> {
+    return db.select().from(schema.companyFilings)
+      .where(eq(schema.companyFilings.stockCode, stockCode))
+      .orderBy(desc(schema.companyFilings.rceptDt), desc(schema.companyFilings.updatedAt))
+      .limit(limit);
+  }
+
+  async upsertCompanyFiling(filing: InsertCompanyFiling): Promise<CompanyFiling> {
+    const existing = await db.select().from(schema.companyFilings)
+      .where(and(eq(schema.companyFilings.stockCode, filing.stockCode), eq(schema.companyFilings.rceptNo, filing.rceptNo)))
+      .limit(1);
+
+    if (existing[0]) {
+      const updated = await db.update(schema.companyFilings)
+        .set({ ...filing, updatedAt: new Date() })
+        .where(eq(schema.companyFilings.id, existing[0].id))
+        .returning();
+      return updated[0];
+    }
+
+    const created = await db.insert(schema.companyFilings).values([filing]).returning();
+    return created[0];
+  }
+
+  // ==================== News Articles ====================
+
+  async getNewsArticles(stockCode: string, limit: number = 50): Promise<NewsArticleRecord[]> {
+    return db.select().from(schema.newsArticles)
+      .where(eq(schema.newsArticles.stockCode, stockCode))
+      .orderBy(desc(schema.newsArticles.publishedAt), desc(schema.newsArticles.updatedAt))
+      .limit(limit);
+  }
+
+  async upsertNewsArticle(article: InsertNewsArticleRecord): Promise<NewsArticleRecord> {
+    const existing = await db.select().from(schema.newsArticles)
+      .where(and(eq(schema.newsArticles.stockCode, article.stockCode), eq(schema.newsArticles.link, article.link)))
+      .limit(1);
+
+    if (existing[0]) {
+      const updated = await db.update(schema.newsArticles)
+        .set({ ...article, updatedAt: new Date() })
+        .where(eq(schema.newsArticles.id, existing[0].id))
+        .returning();
+      return updated[0];
+    }
+
+    const created = await db.insert(schema.newsArticles).values([article]).returning();
+    return created[0];
+  }
+
+  // ==================== Analysis Material Snapshots ====================
+
+  async getAnalysisMaterialSnapshots(userId: string, stockCode: string, limit: number = 20): Promise<AnalysisMaterialSnapshot[]> {
+    return db.select().from(schema.analysisMaterialSnapshots)
+      .where(and(eq(schema.analysisMaterialSnapshots.userId, userId), eq(schema.analysisMaterialSnapshots.stockCode, stockCode)))
+      .orderBy(desc(schema.analysisMaterialSnapshots.collectedAt))
+      .limit(limit);
+  }
+
+  async createAnalysisMaterialSnapshot(snapshot: InsertAnalysisMaterialSnapshot): Promise<AnalysisMaterialSnapshot> {
+    const result = await db.insert(schema.analysisMaterialSnapshots).values([snapshot]).returning();
     return result[0];
   }
 

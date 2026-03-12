@@ -23,6 +23,9 @@ import {
   type AiCouncilSession, type InsertAiCouncilSession,
   type EntryPoint, type InsertEntryPoint,
   type LearningRecord, type InsertLearningRecord,
+  type CompanyFiling, type InsertCompanyFiling,
+  type NewsArticleRecord, type InsertNewsArticleRecord,
+  type AnalysisMaterialSnapshot, type InsertAnalysisMaterialSnapshot,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -155,6 +158,18 @@ export interface IStorage {
   // 학습 기록
   getLearningRecords(modelId: number, limit?: number): Promise<LearningRecord[]>;
   createLearningRecord(record: InsertLearningRecord): Promise<LearningRecord>;
+
+  // 공시
+  getCompanyFilings(stockCode: string, limit?: number): Promise<CompanyFiling[]>;
+  upsertCompanyFiling(filing: InsertCompanyFiling): Promise<CompanyFiling>;
+
+  // 뉴스(영속)
+  getNewsArticles(stockCode: string, limit?: number): Promise<NewsArticleRecord[]>;
+  upsertNewsArticle(article: InsertNewsArticleRecord): Promise<NewsArticleRecord>;
+
+  // 분석 재료 스냅샷
+  getAnalysisMaterialSnapshots(userId: string, stockCode: string, limit?: number): Promise<AnalysisMaterialSnapshot[]>;
+  createAnalysisMaterialSnapshot(snapshot: InsertAnalysisMaterialSnapshot): Promise<AnalysisMaterialSnapshot>;
 
   // 헬퍼
   getActiveAiModels(): Promise<AiModel[]>;
