@@ -7,9 +7,11 @@ import { LearningService } from './services/learning.service';
 import { TradeExecutorService } from './services/trade-executor.service';
 import { AiModel, AutoTradingSettings, ConditionFormula } from '@shared/schema';
 import { decrypt } from './utils/crypto';
+import { getFeatureFlags } from './config/feature-flags';
 
 class AutoTradingWorker {
   private isRunning = false;
+  private readonly featureFlags = getFeatureFlags();
   private isLearningRunning = false;
   private cronJob: cron.ScheduledTask | null = null;
   private learningJob: cron.ScheduledTask | null = null;
@@ -64,25 +66,41 @@ class AutoTradingWorker {
   async runLearningNow(): Promise<void> { await this.executeLearningCycleWrapper(); }
 
   private async executeTradingCycle() {
-    if (this.isRunning) { console.log('⏭️  Skipping cycle - previous cycle still running'); return; }
+    const cycleId = `trading-${Date.now()}`;
+
+    if (this.isRunning) {
+      console.log(`[AutoTrading][${cycleId}] ⏭️  Skipping cycle - previous cycle still running`);
+      return;
+    }
+
     this.isRunning = true;
     try {
-      if (!this.isMarketHours()) return;
-      console.log('🔄 Starting auto trading cycle...');
+      if (!this.isMarketHours()) {
+        console.log(`[AutoTrading][${cycleId}] 🕒 Outside market hours - skipping`);
+        return;
+      }
+      console.log(`[AutoTrading][${cycleId}] 🔄 Starting auto trading cycle...`);
       const activeModels = await storage.getActiveAiModels();
-      if (activeModels.length === 0) { console.log('📭 No active AI models found'); return; }
-      console.log(`📊 Found ${activeModels.length} active AI model(s)`);
+      if (activeModels.length === 0) {
+        console.log(`[AutoTrading][${cycleId}] 📭 No active AI models found`);
+        return;
+      }
+      console.log(`[AutoTrading][${cycleId}] 📊 Found ${activeModels.length} active AI model(s)`);
       for (const model of activeModels) await this.processModel(model);
 
-      try {
-        await this.checkPriceAlerts();
-      } catch (alertError) {
-        console.error('[AutoTrading] 가격 알림 체크 오류:', alertError);
+      if (this.featureFlags.enablePriceAlertsInTradingCycle) {
+        try {
+          await this.checkPriceAlerts();
+        } catch (alertError) {
+          console.error(`[AutoTrading][${cycleId}] 가격 알림 체크 오류:`, alertError);
+        }
+      } else {
+        console.log(`[AutoTrading][${cycleId}] ℹ️ Price alert checks disabled by feature flag`);
       }
 
-      console.log('✅ Trading cycle completed');
+      console.log(`[AutoTrading][${cycleId}] ✅ Trading cycle completed`);
     } catch (error) {
-      console.error('❌ Error in trading cycle:', error);
+      console.error(`[AutoTrading][${cycleId}] ❌ Error in trading cycle:`, error);
     } finally {
       this.isRunning = false;
     }
@@ -218,6 +236,11 @@ class AutoTradingWorker {
   }
 
   private async executeLearningCycle() {
+    if (!this.featureFlags.enableAdvancedLearning) {
+      console.log('\n🎓 Advanced learning disabled by feature flag (ENABLE_ADVANCED_LEARNING)');
+      return;
+    }
+
     console.log('\n🎓 Starting learning optimization cycle...');
     try {
       const activeModels = await storage.getActiveAiModels();
