@@ -8,6 +8,12 @@ import { z } from "zod";
 import { getKiwoomService } from "../services/kiwoom";
 
 export function registerWatchlistRoutes(app: Router) {
+  const isMissingWatchlistSyncTableError = (error: any) => {
+    const message = String(error?.message ?? "");
+    const code = String(error?.code ?? "");
+    return code === "42P01" || message.includes("watchlist_sync_snapshots") || message.includes("relation");
+  };
+
   const formatSettingsResponse = (settings: any) => {
     if (!settings) return settings;
 
@@ -121,6 +127,12 @@ export function registerWatchlistRoutes(app: Router) {
         items: syncedItems,
       });
     } catch (error: any) {
+      if (isMissingWatchlistSyncTableError(error)) {
+        return res.status(503).json({
+          error: "watchlist_sync_snapshots 테이블이 없습니다. `npm run db:push` 후 서버를 재시작하세요.",
+          code: "WATCHLIST_SYNC_TABLE_MISSING",
+        });
+      }
       res.status(500).json({ error: error.message });
     }
   });
@@ -132,6 +144,12 @@ export function registerWatchlistRoutes(app: Router) {
       const snapshots = await storage.getWatchlistSyncSnapshots(user!.id);
       res.json(snapshots);
     } catch (error: any) {
+      if (isMissingWatchlistSyncTableError(error)) {
+        return res.status(503).json({
+          error: "watchlist_sync_snapshots 테이블이 없습니다. `npm run db:push` 후 서버를 재시작하세요.",
+          code: "WATCHLIST_SYNC_TABLE_MISSING",
+        });
+      }
       res.status(500).json({ error: error.message });
     }
   });
