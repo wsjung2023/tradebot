@@ -10,6 +10,7 @@ import type {
   AiModel, InsertAiModel,
   AiRecommendation, InsertAiRecommendation,
   WatchlistItem, InsertWatchlistItem,
+  WatchlistSyncSnapshot, InsertWatchlistSyncSnapshot,
   Alert, InsertAlert,
   UserSettings, InsertUserSettings,
   TradingLog, InsertTradingLog,
@@ -204,6 +205,49 @@ export class PostgreSQLCoreStorage {
 
   async deleteWatchlistItem(id: number): Promise<void> {
     await db.delete(schema.watchlist).where(eq(schema.watchlist.id, id));
+  }
+
+  async getWatchlistSyncSnapshots(userId: string): Promise<WatchlistSyncSnapshot[]> {
+    return db
+      .select()
+      .from(schema.watchlistSyncSnapshots)
+      .where(eq(schema.watchlistSyncSnapshots.userId, userId))
+      .orderBy(desc(schema.watchlistSyncSnapshots.updatedAt));
+  }
+
+  async upsertWatchlistSyncSnapshot(snapshot: InsertWatchlistSyncSnapshot): Promise<WatchlistSyncSnapshot> {
+    const existing = await db
+      .select()
+      .from(schema.watchlistSyncSnapshots)
+      .where(
+        and(
+          eq(schema.watchlistSyncSnapshots.userId, snapshot.userId),
+          eq(schema.watchlistSyncSnapshots.stockCode, snapshot.stockCode),
+        ),
+      )
+      .limit(1);
+
+    if (existing[0]) {
+      const updated = await db
+        .update(schema.watchlistSyncSnapshots)
+        .set({
+          stockName: snapshot.stockName,
+          source: snapshot.source,
+          syncedPrice: snapshot.syncedPrice,
+          rawPayload: snapshot.rawPayload,
+          syncedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.watchlistSyncSnapshots.id, existing[0].id))
+        .returning();
+      return updated[0];
+    }
+
+    const created = await db
+      .insert(schema.watchlistSyncSnapshots)
+      .values([snapshot])
+      .returning();
+    return created[0];
   }
 
   // ==================== Alert Methods ====================

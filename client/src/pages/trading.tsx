@@ -6,13 +6,21 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceDot } from "recharts";
 import { TrendingUp, TrendingDown, DollarSign, Wifi, WifiOff } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useMarketStream } from "@/hooks/use-market-stream";
 import { ConnectionStatus } from "@/components/connection-status";
 import type { KiwoomAccount } from "@shared/schema";
+
+type ChartSignal = {
+  id: number;
+  signal: "buy" | "hold";
+  currentPrice: number | null;
+  createdAt: string;
+  chartDate?: string;
+};
 
 export default function Trading() {
   const { toast } = useToast();
@@ -37,6 +45,12 @@ export default function Trading() {
   const { data: accounts = [] } = useQuery<KiwoomAccount[]>({
     queryKey: ['/api/accounts'],
   });
+
+  const { data: chartSignals = [] } = useQuery<ChartSignal[]>({
+    queryKey: ['/api/stocks', stockCode, 'chart-signals'],
+    enabled: !!stockCode,
+  });
+
 
   const orderMutation = useMutation({
     mutationFn: async (orderData: any) => {
@@ -106,6 +120,19 @@ export default function Trading() {
     if (!value) return "₩0";
     return `₩${value.toLocaleString('ko-KR')}`;
   };
+
+  const normalizedSignalDots = chartSignals
+    .map((signal) => ({
+      ...signal,
+      chartDate: signal.chartDate || String(signal.createdAt || '').replace(/[-:TZ.]/g, '').slice(0, 8),
+      chartPrice:
+        typeof signal.currentPrice === 'number' && signal.currentPrice > 0
+          ? signal.currentPrice
+          : stockPrice?.currentPrice || 0,
+    }))
+    .filter((signal) => signal.chartDate && signal.chartPrice > 0)
+    .slice(-200);
+
 
   return (
     <div className="p-3 md:p-6 space-y-4 md:space-y-6">
@@ -186,7 +213,7 @@ export default function Trading() {
         <Card className="lg:col-span-2">
           <CardHeader className="pb-2">
             <CardTitle className="text-base md:text-lg">{stockPrice?.stockName || stockCode} 차트</CardTitle>
-            <CardDescription className="text-xs md:text-sm">일봉 차트</CardDescription>
+            <CardDescription className="text-xs md:text-sm">일봉 차트 (초록=매수 시그널, 주황=관찰 시그널)</CardDescription>
           </CardHeader>
           <CardContent>
             {chartData && chartData.length > 0 ? (
@@ -197,6 +224,17 @@ export default function Trading() {
                   <YAxis domain={['auto', 'auto']} />
                   <Tooltip formatter={(value: any) => formatCurrency(value)} />
                   <Line type="monotone" dataKey="close" stroke="#8884d8" strokeWidth={2} name="종가" />
+                  {normalizedSignalDots.map((signal, index) => (
+                    <ReferenceDot
+                      key={`signal-${signal.id}-${index}`}
+                      x={signal.chartDate}
+                      y={signal.chartPrice}
+                      r={5}
+                      fill={signal.signal === 'buy' ? '#22c55e' : '#f59e0b'}
+                      stroke={signal.signal === 'buy' ? '#15803d' : '#b45309'}
+                      ifOverflow="visible"
+                    />
+                  ))}
                 </LineChart>
               </ResponsiveContainer>
             ) : (

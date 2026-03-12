@@ -124,6 +124,19 @@ export const watchlist = pgTable("watchlist", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// Watchlist sync snapshots - HTS 동기화된 시세/상태 스냅샷
+export const watchlistSyncSnapshots = pgTable("watchlist_sync_snapshots", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  stockCode: text("stock_code").notNull(),
+  stockName: text("stock_name").notNull(),
+  source: text("source").notNull().default('kiwoom_hts'),
+  syncedPrice: decimal("synced_price", { precision: 12, scale: 2 }),
+  rawPayload: jsonb("raw_payload"),
+  syncedAt: timestamp("synced_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
 // Price alerts
 export const alerts = pgTable("alerts", {
   id: serial("id").primaryKey(),
@@ -472,6 +485,12 @@ export const insertWatchlistSchema = createInsertSchema(watchlist, {
   stockName: z.string().min(1),
 }).omit({ id: true, createdAt: true });
 
+export const insertWatchlistSyncSnapshotSchema = createInsertSchema(watchlistSyncSnapshots).omit({
+  id: true,
+  syncedAt: true,
+  updatedAt: true,
+});
+
 export const insertAlertSchema = createInsertSchema(alerts, {
   alertType: z.enum(['price_above', 'price_below', 'volume_spike', 'ai_signal']),
 }).omit({ 
@@ -599,6 +618,9 @@ export type InsertAiRecommendation = z.infer<typeof insertAiRecommendationSchema
 export type WatchlistItem = typeof watchlist.$inferSelect;
 export type InsertWatchlistItem = z.infer<typeof insertWatchlistSchema>;
 
+export type WatchlistSyncSnapshot = typeof watchlistSyncSnapshots.$inferSelect;
+export type InsertWatchlistSyncSnapshot = z.infer<typeof insertWatchlistSyncSnapshotSchema>;
+
 export type Alert = typeof alerts.$inferSelect;
 export type InsertAlert = z.infer<typeof insertAlertSchema>;
 
@@ -644,4 +666,3 @@ export type InsertEntryPoint = z.infer<typeof insertEntryPointSchema>;
 
 export type LearningRecord = typeof learningRecords.$inferSelect;
 export type InsertLearningRecord = z.infer<typeof insertLearningRecordSchema>;
-

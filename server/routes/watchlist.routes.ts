@@ -73,6 +73,69 @@ export function registerWatchlistRoutes(app: Router) {
     }
   });
 
+
+  // Kiwoom HTS 관심종목 동기화 (서버 fetch -> DB 저장/업데이트)
+  app.post("/api/watchlist/sync/kiwoom", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const list = await storage.getWatchlist(user!.id);
+      if (list.length === 0) {
+        return res.json({ syncedCount: 0, message: "watchlist is empty", items: [] });
+      }
+
+      const kiwoom = getKiwoomService();
+      const stockCodes = list.map((item) => item.stockCode);
+      const fetched = await kiwoom.getWatchlistInfo(stockCodes);
+
+      const byCode: Record<string, any> = {};
+      for (const item of fetched) byCode[item.stockCode] = item;
+
+      const synced = await Promise.all(
+        list.map(async (watchItem) => {
+          const remote = byCode[watchItem.stockCode];
+          if (!remote) return null;
+
+          const snapshot = await storage.upsertWatchlistSyncSnapshot({
+            userId: user!.id,
+            stockCode: watchItem.stockCode,
+            stockName: remote.stockName || watchItem.stockName || watchItem.stockCode,
+            source: "kiwoom_hts",
+            syncedPrice: remote.currentPrice || null,
+            rawPayload: remote,
+          });
+
+          return {
+            watchlistId: watchItem.id,
+            stockCode: watchItem.stockCode,
+            stockName: watchItem.stockName,
+            snapshot,
+          };
+        }),
+      );
+
+      const syncedItems = synced.filter(Boolean);
+      res.json({
+        syncedCount: syncedItems.length,
+        requestedCount: list.length,
+        syncedAt: new Date().toISOString(),
+        items: syncedItems,
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // HTS 동기화 스냅샷 조회
+  app.get("/api/watchlist/sync-snapshots", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const snapshots = await storage.getWatchlistSyncSnapshots(user!.id);
+      res.json(snapshots);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // 관심종목 삭제
   app.delete("/api/watchlist/:id", isAuthenticated, async (req, res) => {
     try {

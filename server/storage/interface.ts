@@ -7,6 +7,7 @@ import {
   type AiModel, type InsertAiModel,
   type AiRecommendation, type InsertAiRecommendation,
   type WatchlistItem, type InsertWatchlistItem,
+  type WatchlistSyncSnapshot, type InsertWatchlistSyncSnapshot,
   type Alert, type InsertAlert,
   type UserSettings, type InsertUserSettings,
   type TradingLog, type InsertTradingLog,
@@ -71,6 +72,8 @@ export interface IStorage {
   getWatchlist(userId: string): Promise<WatchlistItem[]>;
   createWatchlistItem(item: InsertWatchlistItem): Promise<WatchlistItem>;
   deleteWatchlistItem(id: number): Promise<void>;
+  getWatchlistSyncSnapshots(userId: string): Promise<WatchlistSyncSnapshot[]>;
+  upsertWatchlistSyncSnapshot(snapshot: InsertWatchlistSyncSnapshot): Promise<WatchlistSyncSnapshot>;
 
   // 알림
   getAlerts(userId: string): Promise<Alert[]>;
