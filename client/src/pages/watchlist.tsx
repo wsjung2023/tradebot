@@ -47,7 +47,7 @@ export default function Watchlist() {
   const { prices: marketData } = useMarketStream(stockCodes);
 
   const addMutation = useMutation({
-    mutationFn: async (data: { stockCode: string; stockName: string }) => {
+    mutationFn: async (data: { stockCode: string; stockName?: string }) => {
       return await apiRequest('POST', '/api/watchlist', data);
     },
     onSuccess: () => {
@@ -66,6 +66,18 @@ export default function Watchlist() {
         title: "추가 실패",
         description: error.message || "관심종목 추가 중 오류가 발생했습니다",
       });
+    },
+  });
+
+  const stockInfoMutation = useMutation({
+    mutationFn: async (code: string) => {
+      const response = await apiRequest('GET', `/api/stocks/${code}/info`);
+      return await response.json();
+    },
+    onSuccess: (info: any) => {
+      if (info?.name) {
+        setStockName(info.name);
+      }
     },
   });
 
@@ -90,15 +102,22 @@ export default function Watchlist() {
   });
 
   const handleAdd = () => {
-    if (!stockCode.trim() || !stockName.trim()) {
+    if (!stockCode.trim()) {
       toast({
         variant: "destructive",
         title: "입력 오류",
-        description: "종목코드와 종목명을 입력해주세요",
+        description: "종목코드를 입력해주세요",
       });
       return;
     }
-    addMutation.mutate({ stockCode, stockName });
+    addMutation.mutate({ stockCode: stockCode.trim(), stockName: stockName.trim() || undefined });
+  };
+
+  const handleResolveStockName = () => {
+    const normalizedCode = stockCode.trim();
+    if (!/^\d{6}$/.test(normalizedCode)) return;
+    if (stockName.trim()) return;
+    stockInfoMutation.mutate(normalizedCode);
   };
 
   const handleRemove = (id: number) => {
@@ -147,13 +166,14 @@ export default function Watchlist() {
                   placeholder="예: 005930"
                   value={stockCode}
                   onChange={(e) => setStockCode(e.target.value)}
+                  onBlur={handleResolveStockName}
                   data-testid="input-stock-code"
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium">종목명</label>
+                <label className="text-sm font-medium">종목명 (선택)</label>
                 <Input
-                  placeholder="예: 삼성전자"
+                  placeholder="비워두면 자동 조회"
                   value={stockName}
                   onChange={(e) => setStockName(e.target.value)}
                   data-testid="input-stock-name"
@@ -161,11 +181,11 @@ export default function Watchlist() {
               </div>
               <Button 
                 onClick={handleAdd}
-                disabled={addMutation.isPending}
+                disabled={addMutation.isPending || stockInfoMutation.isPending}
                 className="w-full"
                 data-testid="button-submit-watchlist"
               >
-                {addMutation.isPending ? "추가 중..." : "추가"}
+                {addMutation.isPending ? "추가 중..." : stockInfoMutation.isPending ? "종목 확인 중..." : "추가"}
               </Button>
             </div>
           </DialogContent>

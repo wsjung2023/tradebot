@@ -8,6 +8,19 @@ import { getKiwoomService } from "../services/kiwoom";
 export function registerTradingRoutes(app: Router) {
   const kiwoomService = getKiwoomService();
 
+  type ChartSignalOverlay = {
+    id: number;
+    conditionId: number;
+    conditionName: string;
+    stockCode: string;
+    stockName: string;
+    signal: "buy" | "hold";
+    matchScore: number;
+    currentPrice: number | null;
+    createdAt: string;
+    chartDate: string;
+  };
+
   // 주가 조회
   app.get("/api/stocks/:stockCode/price", isAuthenticated, async (req, res) => {
     try {
@@ -42,9 +55,70 @@ export function registerTradingRoutes(app: Router) {
   // 종목 검색
   app.get("/api/stocks/search", isAuthenticated, async (req, res) => {
     try {
-      const keyword = req.query.q as string;
+      const keyword = (req.query.query ?? req.query.q ?? "") as string;
+      if (!keyword.trim()) return res.json([]);
       const results = await kiwoomService.searchStock(keyword);
       res.json(results);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+
+  // 종목 기본정보 조회 (코드→이름)
+  app.get("/api/stocks/:stockCode/info", isAuthenticated, async (req, res) => {
+    try {
+      const info = await kiwoomService.getStockInfo(req.params.stockCode);
+      res.json(info);
+    } catch (error: any) {
+      res.status(404).json({ error: error.message });
+    }
+  });
+
+
+  // 차트 시그널 오버레이 조회 (조건검색 결과 기반)
+  app.get("/api/stocks/:stockCode/chart-signals", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const stockCode = req.params.stockCode;
+      const limit = Math.min(Math.max(Number(req.query.limit ?? 100) || 100, 1), 500);
+      const formulas = await storage.getConditionFormulas(user!.id);
+
+      const resultsByFormula = await Promise.all(
+        formulas.map(async (formula) => ({
+          formula,
+          results: await storage.getConditionResults(formula.id),
+        })),
+      );
+
+      const overlays: ChartSignalOverlay[] = [];
+
+      for (const { formula, results } of resultsByFormula) {
+        for (const row of results) {
+          if (row.stockCode !== stockCode) continue;
+          const createdAt = row.createdAt instanceof Date ? row.createdAt : new Date(row.createdAt as any);
+          const score = Number(row.matchScore ?? 0);
+          const chartDate = Number.isNaN(createdAt.getTime())
+            ? ""
+            : createdAt.toISOString().slice(0, 10).replace(/-/g, "");
+
+          overlays.push({
+            id: row.id,
+            conditionId: formula.id,
+            conditionName: formula.conditionName,
+            stockCode: row.stockCode,
+            stockName: row.stockName,
+            signal: score >= 70 ? "buy" : "hold",
+            matchScore: score,
+            currentPrice: row.currentPrice !== null ? Number(row.currentPrice) : null,
+            createdAt: createdAt.toISOString(),
+            chartDate,
+          });
+        }
+      }
+
+      overlays.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      res.json(overlays.slice(-limit));
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }

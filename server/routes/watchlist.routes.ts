@@ -5,6 +5,7 @@ import { isAuthenticated, getCurrentUser } from "../auth";
 import { insertWatchlistSchema, insertAlertSchema, insertWatchlistSignalSchema } from "@shared/schema";
 import { encrypt } from "../utils/crypto";
 import { z } from "zod";
+import { getKiwoomService } from "../services/kiwoom";
 
 export function registerWatchlistRoutes(app: Router) {
   const formatSettingsResponse = (settings: any) => {
@@ -18,24 +19,120 @@ export function registerWatchlistRoutes(app: Router) {
     };
   };
 
-  // 관심종목 목록
+  // 관심종목 목록 (Kiwoom 시세 병합)
   app.get("/api/watchlist", isAuthenticated, async (req, res) => {
     try {
       const user = getCurrentUser(req);
-      res.json(await storage.getWatchlist(user!.id));
+      const list = await storage.getWatchlist(user!.id);
+      if (list.length === 0) return res.json([]);
+
+      try {
+        const kiwoom = getKiwoomService();
+        const codes = list.map((item) => item.stockCode);
+        const priceList = await kiwoom.getWatchlistInfo(codes);
+        const priceMap: Record<string, any> = {};
+        for (const price of priceList) {
+          priceMap[price.stockCode] = price;
+        }
+
+        return res.json(list.map((item) => ({ ...item, kiwoomData: priceMap[item.stockCode] ?? null })));
+      } catch (kiwoomError) {
+        console.warn("[Watchlist] Kiwoom 시세 조회 실패, DB 데이터만 반환:", kiwoomError);
+        return res.json(list);
+      }
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
   });
 
-  // 관심종목 추가
+  // 관심종목 추가 (종목명 없으면 자동 조회)
   app.post("/api/watchlist", isAuthenticated, async (req, res) => {
     try {
       const user = getCurrentUser(req);
-      const data = insertWatchlistSchema.parse({ ...req.body, userId: user!.id });
+      let { stockCode, stockName, ...rest } = req.body;
+
+      if (stockCode && (!stockName || stockName === stockCode)) {
+        try {
+          const kiwoom = getKiwoomService();
+          const info = await kiwoom.getStockInfo(String(stockCode));
+          if (info.name) stockName = info.name;
+        } catch {
+          stockName = stockName || stockCode;
+        }
+      }
+
+      const data = insertWatchlistSchema.parse({
+        ...rest,
+        stockCode,
+        stockName: stockName || stockCode,
+        userId: user!.id,
+      });
       res.json(await storage.createWatchlistItem(data));
     } catch (error: any) {
       res.status(400).json({ error: error.message });
+    }
+  });
+
+
+  // Kiwoom HTS 관심종목 동기화 (서버 fetch -> DB 저장/업데이트)
+  app.post("/api/watchlist/sync/kiwoom", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const list = await storage.getWatchlist(user!.id);
+      if (list.length === 0) {
+        return res.json({ syncedCount: 0, message: "watchlist is empty", items: [] });
+      }
+
+      const kiwoom = getKiwoomService();
+      const stockCodes = list.map((item) => item.stockCode);
+      const fetched = await kiwoom.getWatchlistInfo(stockCodes);
+
+      const byCode: Record<string, any> = {};
+      for (const item of fetched) byCode[item.stockCode] = item;
+
+      const synced = await Promise.all(
+        list.map(async (watchItem) => {
+          const remote = byCode[watchItem.stockCode];
+          if (!remote) return null;
+
+          const snapshot = await storage.upsertWatchlistSyncSnapshot({
+            userId: user!.id,
+            stockCode: watchItem.stockCode,
+            stockName: remote.stockName || watchItem.stockName || watchItem.stockCode,
+            source: "kiwoom_hts",
+            syncedPrice: remote.currentPrice || null,
+            rawPayload: remote,
+          });
+
+          return {
+            watchlistId: watchItem.id,
+            stockCode: watchItem.stockCode,
+            stockName: watchItem.stockName,
+            snapshot,
+          };
+        }),
+      );
+
+      const syncedItems = synced.filter(Boolean);
+      res.json({
+        syncedCount: syncedItems.length,
+        requestedCount: list.length,
+        syncedAt: new Date().toISOString(),
+        items: syncedItems,
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // HTS 동기화 스냅샷 조회
+  app.get("/api/watchlist/sync-snapshots", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const snapshots = await storage.getWatchlistSyncSnapshots(user!.id);
+      res.json(snapshots);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
     }
   });
 

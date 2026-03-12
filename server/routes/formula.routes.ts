@@ -16,6 +16,26 @@ import { z } from "zod";
 export function registerFormulaRoutes(app: Router) {
   const kiwoomService = getKiwoomService();
 
+  // 키움 조건식 목록
+  app.get("/api/kiwoom/conditions", isAuthenticated, async (_req, res) => {
+    try {
+      const conditions = await kiwoomService.getConditionList();
+      res.json(conditions?.output ?? conditions);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // 키움 조건검색 실행
+  app.post("/api/kiwoom/conditions/:seq/run", isAuthenticated, async (req, res) => {
+    try {
+      const results = await kiwoomService.getConditionSearchResults(req.params.seq, 0);
+      res.json(results?.output1 ?? results?.output ?? results);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // 조건식 목록
   app.get("/api/conditions", isAuthenticated, async (req, res) => {
     try {
@@ -122,7 +142,24 @@ export function registerFormulaRoutes(app: Router) {
       if (!condition) return res.status(404).json({ error: "Condition formula not found" });
       if (condition.userId !== user!.id) return res.status(403).json({ error: "Not authorized" });
 
-      const searchResponse = await kiwoomService.getConditionSearchResults(condition.conditionName, 0);
+      let conditionSeq = String((condition as any).kiwoomSeq ?? "").trim();
+      if (!conditionSeq) {
+        try {
+          const conditionList = await kiwoomService.getConditionList();
+          const rows = conditionList?.output ?? [];
+          const matched = rows.find((row: any) => row.condition_name === condition.conditionName);
+          if (matched) {
+            conditionSeq = String(matched.condition_index);
+          }
+        } catch (seqResolveError) {
+          console.warn("[Formula] Kiwoom 조건식 seq 자동해결 실패:", seqResolveError);
+        }
+      }
+      if (!conditionSeq) {
+        conditionSeq = String(condition.id);
+      }
+
+      const searchResponse = await kiwoomService.getConditionSearchResults(conditionSeq, 0);
       const results = searchResponse?.output1 || searchResponse?.output || [];
 
       for (const result of results) {
@@ -344,4 +381,3 @@ export function registerFormulaRoutes(app: Router) {
     }
   });
 }
-

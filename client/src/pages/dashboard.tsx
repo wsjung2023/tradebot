@@ -13,6 +13,32 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useKiwoomBalance } from "@/hooks/use-kiwoom-balance";
 import { LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 
+interface DashboardAccount {
+  id: number;
+  accountNumber: string;
+  accountType: "mock" | "real";
+  accountName?: string;
+}
+
+interface DashboardSettings {
+  tradingMode?: "mock" | "real";
+}
+
+interface DashboardCachedBalance {
+  assetHistory?: Array<{ date: string; value: number }>;
+}
+
+interface DashboardHolding {
+  id: number;
+  stockCode: string;
+  stockName: string;
+  quantity: string;
+  avgPrice: string;
+  currentPrice: string;
+  profitLoss: string;
+  profitLossRate: string;
+}
+
 export default function Dashboard() {
   const { toast } = useToast();
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
@@ -22,13 +48,13 @@ export default function Dashboard() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
-  const { data: accounts, isLoading: accountsLoading } = useQuery({ queryKey: ['/api/accounts'] });
-  const { data: settings } = useQuery({ queryKey: ['/api/settings'] });
-  const { data: cachedBalance } = useQuery({
+  const { data: accounts = [], isLoading: accountsLoading } = useQuery<DashboardAccount[]>({ queryKey: ['/api/accounts'] });
+  const { data: settings } = useQuery<DashboardSettings>({ queryKey: ['/api/settings'] });
+  const { data: cachedBalance } = useQuery<DashboardCachedBalance>({
     queryKey: ['/api/accounts', selectedAccountId, 'balance'],
     enabled: !!selectedAccountId,
   });
-  const { data: holdings, isLoading: holdingsLoading } = useQuery({
+  const { data: holdings = [], isLoading: holdingsLoading } = useQuery<DashboardHolding[]>({
     queryKey: ['/api/accounts', selectedAccountId, 'holdings'],
     enabled: !!selectedAccountId,
   });
