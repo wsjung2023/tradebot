@@ -279,4 +279,26 @@ export function registerWatchlistRoutes(app: Router) {
       res.status(500).json({ error: error.message });
     }
   });
+
+  // Kiwoom 관심종목 새로고침 — 현재 DB 관심목록 시세를 키움에서 갱신
+  app.post("/api/watchlist/sync-kiwoom", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const list = await storage.getWatchlist(user!.id);
+      if (list.length === 0) return res.json({ message: "관심종목이 없습니다", updated: 0 });
+
+      const kiwoom = getKiwoomService();
+      const codes = list.map((item) => item.stockCode);
+      const priceList = await kiwoom.getWatchlistInfo(codes);
+      const priceMap: Record<string, any> = {};
+      for (const price of priceList) {
+        priceMap[price.stockCode] = price;
+      }
+
+      const result = list.map((item) => ({ ...item, kiwoomData: priceMap[item.stockCode] ?? null }));
+      res.json({ message: "키움 시세 새로고침 완료", updated: result.length, items: result });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
 }

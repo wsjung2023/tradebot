@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useMarketStream } from "@/hooks/use-market-stream";
 import { ConnectionStatus } from "@/components/connection-status";
-import type { KiwoomAccount } from "@shared/schema";
+import type { KiwoomAccount, ChartFormula } from "@shared/schema";
 
 type ChartSignal = {
   id: number;
@@ -29,6 +29,10 @@ export default function Trading() {
   const [priceType, setPriceType] = useState<"market" | "limit">("market");
   const [quantity, setQuantity] = useState("");
   const [price, setPrice] = useState("");
+  const [selectedFormulaId, setSelectedFormulaId] = useState<string>("");
+  const [formulaOverlay, setFormulaOverlay] = useState<any[]>([]);
+  const [formulaColor, setFormulaColor] = useState<string>("#f59e0b");
+  const [formulaName, setFormulaName] = useState<string>("");
 
   // WebSocket real-time data with enhanced resilience
   const { prices, orderbooks, connectionStatus, errorMessage, retryCount, forceReconnect } = useMarketStream([stockCode], ["price", "orderbook"]);
@@ -52,6 +56,30 @@ export default function Trading() {
   });
 
 
+  const { data: chartFormulas = [] } = useQuery<ChartFormula[]>({
+    queryKey: ["/api/chart-formulas"],
+  });
+
+  const evaluateFormulaMutation = useMutation({
+    mutationFn: async ({ id, stockCode, period }: { id: number; stockCode: string; period: string }) => {
+      const res = await apiRequest("POST", `/api/chart-formulas/${id}/evaluate`, { stockCode, period });
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      if (data?.signalLine) {
+        setFormulaOverlay(data.signalLine.values || []);
+        setFormulaColor(data.signalLine.color || "#f59e0b");
+        setFormulaName(data.signalLine.name || "");
+      }
+    },
+  });
+
+  const handleFormulaSelect = (formulaId: string) => {
+    setSelectedFormulaId(formulaId);
+    if (!formulaId || !stockCode) return;
+    evaluateFormulaMutation.mutate({ id: parseInt(formulaId), stockCode, period: "D" });
+  };
+
   const orderMutation = useMutation({
     mutationFn: async (orderData: any) => {
       const res = await apiRequest('POST', '/api/orders', orderData);
@@ -59,8 +87,8 @@ export default function Trading() {
     },
     onSuccess: () => {
       toast({
-        title: "주문 성공",
-        description: `${orderType === 'buy' ? '매수' : '매도'} 주문이 접수되었습니다`,
+        title: "二쇰Ц ?깃났",
+        description: `${orderType === 'buy' ? '留ㅼ닔' : '留ㅻ룄'} 二쇰Ц???묒닔?섏뿀?듬땲??,
       });
       setQuantity("");
       setPrice("");
@@ -69,7 +97,7 @@ export default function Trading() {
     onError: (error: any) => {
       toast({
         variant: "destructive",
-        title: "주문 실패",
+        title: "二쇰Ц ?ㅽ뙣",
         description: error.message,
       });
     },
@@ -79,8 +107,8 @@ export default function Trading() {
     if (!accounts || accounts.length === 0) {
       toast({
         variant: "destructive",
-        title: "계좌 없음",
-        description: "먼저 계좌를 등록해주세요",
+        title: "怨꾩쥖 ?놁쓬",
+        description: "癒쇱? 怨꾩쥖瑜??깅줉?댁＜?몄슂",
       });
       return;
     }
@@ -88,8 +116,8 @@ export default function Trading() {
     if (!quantity || parseInt(quantity) <= 0) {
       toast({
         variant: "destructive",
-        title: "수량 오류",
-        description: "수량을 입력해주세요",
+        title: "?섎웾 ?ㅻ쪟",
+        description: "?섎웾???낅젰?댁＜?몄슂",
       });
       return;
     }
@@ -97,8 +125,8 @@ export default function Trading() {
     if (priceType === 'limit' && (!price || parseFloat(price) <= 0)) {
       toast({
         variant: "destructive",
-        title: "가격 오류",
-        description: "가격을 입력해주세요",
+        title: "媛寃??ㅻ쪟",
+        description: "媛寃⑹쓣 ?낅젰?댁＜?몄슂",
       });
       return;
     }
@@ -117,8 +145,8 @@ export default function Trading() {
   };
 
   const formatCurrency = (value: number | undefined) => {
-    if (!value) return "₩0";
-    return `₩${value.toLocaleString('ko-KR')}`;
+    if (!value) return "??";
+    return `??{value.toLocaleString('ko-KR')}`;
   };
 
   const normalizedSignalDots = chartSignals
@@ -137,15 +165,15 @@ export default function Trading() {
   return (
     <div className="p-3 md:p-6 space-y-4 md:space-y-6">
       <div>
-        <h1 className="text-2xl md:text-3xl font-bold" data-testid="text-trading-title">거래</h1>
-        <p className="text-sm md:text-base text-muted-foreground">실시간 매매 및 차트 분석</p>
+        <h1 className="text-2xl md:text-3xl font-bold" data-testid="text-trading-title">嫄곕옒</h1>
+        <p className="text-sm md:text-base text-muted-foreground">?ㅼ떆媛?留ㅻℓ 諛?李⑦듃 遺꾩꽍</p>
       </div>
 
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
-          <Label className="text-sm">종목 코드:</Label>
+          <Label className="text-sm">醫낅ぉ 肄붾뱶:</Label>
           <Input
-            placeholder="종목코드 입력 (예: 005930)"
+            placeholder="醫낅ぉ肄붾뱶 ?낅젰 (?? 005930)"
             value={stockCode}
             onChange={(e) => setStockCode(e.target.value)}
             className="w-full sm:w-64"
@@ -164,7 +192,7 @@ export default function Trading() {
         <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-2">
-              <CardTitle className="text-xs md:text-sm font-medium">현재가</CardTitle>
+              <CardTitle className="text-xs md:text-sm font-medium">?꾩옱媛</CardTitle>
               <DollarSign className="h-3 w-3 md:h-4 md:w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent className="pt-0">
@@ -179,7 +207,7 @@ export default function Trading() {
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-2">
-              <CardTitle className="text-xs md:text-sm font-medium">전일 대비</CardTitle>
+              <CardTitle className="text-xs md:text-sm font-medium">?꾩씪 ?鍮?/CardTitle>
               <TrendingUp className="h-3 w-3 md:h-4 md:w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent className="pt-0">
@@ -191,7 +219,7 @@ export default function Trading() {
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-2">
-              <CardTitle className="text-xs md:text-sm font-medium">시가</CardTitle>
+              <CardTitle className="text-xs md:text-sm font-medium">?쒓?</CardTitle>
             </CardHeader>
             <CardContent className="pt-0">
               <div className="text-lg md:text-2xl font-bold font-mono truncate">{formatCurrency(stockPrice.openPrice)}</div>
@@ -200,7 +228,7 @@ export default function Trading() {
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-2">
-              <CardTitle className="text-xs md:text-sm font-medium">거래량</CardTitle>
+              <CardTitle className="text-xs md:text-sm font-medium">嫄곕옒??/CardTitle>
             </CardHeader>
             <CardContent className="pt-0">
               <div className="text-lg md:text-2xl font-bold font-mono truncate">{stockPrice.volume?.toLocaleString()}</div>
@@ -212,8 +240,8 @@ export default function Trading() {
       <div className="grid gap-3 md:gap-4 grid-cols-1 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader className="pb-2">
-            <CardTitle className="text-base md:text-lg">{stockPrice?.stockName || stockCode} 차트</CardTitle>
-            <CardDescription className="text-xs md:text-sm">일봉 차트 (초록=매수 시그널, 주황=관찰 시그널)</CardDescription>
+            <CardTitle className="text-base md:text-lg">{stockPrice?.stockName || stockCode} 李⑦듃</CardTitle>
+            <CardDescription className="text-xs md:text-sm">?쇰큺 李⑦듃 (珥덈줉=留ㅼ닔 ?쒓렇?? 二쇳솴=愿李??쒓렇??</CardDescription>
           </CardHeader>
           <CardContent>
             {chartData && chartData.length > 0 ? (
@@ -223,7 +251,7 @@ export default function Trading() {
                   <XAxis dataKey="date" />
                   <YAxis domain={['auto', 'auto']} />
                   <Tooltip formatter={(value: any) => formatCurrency(value)} />
-                  <Line type="monotone" dataKey="close" stroke="#8884d8" strokeWidth={2} name="종가" />
+                  <Line type="monotone" dataKey="close" stroke="#8884d8" strokeWidth={2} name="醫낃?" />
                   {normalizedSignalDots.map((signal, index) => (
                     <ReferenceDot
                       key={`signal-${signal.id}-${index}`}
@@ -239,7 +267,7 @@ export default function Trading() {
               </ResponsiveContainer>
             ) : (
               <p className="text-sm text-muted-foreground text-center py-8">
-                차트 데이터 로딩 중...
+                李⑦듃 ?곗씠??濡쒕뵫 以?..
               </p>
             )}
           </CardContent>
@@ -247,13 +275,13 @@ export default function Trading() {
 
         <Card>
           <CardHeader>
-            <CardTitle>호가</CardTitle>
-            <CardDescription>실시간 매도/매수 호가</CardDescription>
+            <CardTitle>?멸?</CardTitle>
+            <CardDescription>?ㅼ떆媛?留ㅻ룄/留ㅼ닔 ?멸?</CardDescription>
           </CardHeader>
           <CardContent>
             {orderbook ? (
               <div className="space-y-1">
-                <div className="font-semibold text-sm mb-2">매도 호가</div>
+                <div className="font-semibold text-sm mb-2">留ㅻ룄 ?멸?</div>
                 {orderbook.sell?.slice(0, 5).reverse().map((item: any, idx: number) => (
                   <div key={`sell-${idx}`} className="flex justify-between text-sm p-1 bg-red-50 dark:bg-red-950/20">
                     <span className="text-red-600 dark:text-red-400">{formatCurrency(item.price)}</span>
@@ -261,7 +289,7 @@ export default function Trading() {
                   </div>
                 ))}
                 <div className="h-px bg-border my-2" />
-                <div className="font-semibold text-sm mb-2">매수 호가</div>
+                <div className="font-semibold text-sm mb-2">留ㅼ닔 ?멸?</div>
                 {orderbook.buy?.slice(0, 5).map((item: any, idx: number) => (
                   <div key={`buy-${idx}`} className="flex justify-between text-sm p-1 bg-green-50 dark:bg-green-950/20">
                     <span className="text-green-600 dark:text-green-400">{formatCurrency(item.price)}</span>
@@ -271,7 +299,7 @@ export default function Trading() {
               </div>
             ) : (
               <p className="text-sm text-muted-foreground text-center py-8">
-                호가 데이터 로딩 중...
+                ?멸? ?곗씠??濡쒕뵫 以?..
               </p>
             )}
           </CardContent>
@@ -280,37 +308,37 @@ export default function Trading() {
 
       <Card>
         <CardHeader>
-          <CardTitle>주문</CardTitle>
-          <CardDescription>매수/매도 주문</CardDescription>
+          <CardTitle>二쇰Ц</CardTitle>
+          <CardDescription>留ㅼ닔/留ㅻ룄 二쇰Ц</CardDescription>
         </CardHeader>
         <CardContent>
           <Tabs value={orderType} onValueChange={(value: any) => setOrderType(value)}>
             <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="buy" data-testid="tab-buy">매수</TabsTrigger>
-              <TabsTrigger value="sell" data-testid="tab-sell">매도</TabsTrigger>
+              <TabsTrigger value="buy" data-testid="tab-buy">留ㅼ닔</TabsTrigger>
+              <TabsTrigger value="sell" data-testid="tab-sell">留ㅻ룄</TabsTrigger>
             </TabsList>
           </Tabs>
 
           <div className="grid gap-4 mt-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>주문 유형</Label>
+                <Label>二쇰Ц ?좏삎</Label>
                 <Select value={priceType} onValueChange={(value: any) => setPriceType(value)}>
                   <SelectTrigger data-testid="select-price-type">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="market">시장가</SelectItem>
-                    <SelectItem value="limit">지정가</SelectItem>
+                    <SelectItem value="market">?쒖옣媛</SelectItem>
+                    <SelectItem value="limit">吏?뺢?</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
               <div className="space-y-2">
-                <Label>수량</Label>
+                <Label>?섎웾</Label>
                 <Input
                   type="number"
-                  placeholder="수량"
+                  placeholder="?섎웾"
                   value={quantity}
                   onChange={(e) => setQuantity(e.target.value)}
                   data-testid="input-quantity"
@@ -320,10 +348,10 @@ export default function Trading() {
 
             {priceType === 'limit' && (
               <div className="space-y-2">
-                <Label>가격</Label>
+                <Label>媛寃?/Label>
                 <Input
                   type="number"
-                  placeholder="가격"
+                  placeholder="媛寃?
                   value={price}
                   onChange={(e) => setPrice(e.target.value)}
                   data-testid="input-price"
@@ -337,7 +365,7 @@ export default function Trading() {
               className={orderType === 'buy' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'}
               data-testid="button-submit-order"
             >
-              {orderMutation.isPending ? "주문 중..." : orderType === 'buy' ? '매수' : '매도'}
+              {orderMutation.isPending ? "二쇰Ц 以?.." : orderType === 'buy' ? '留ㅼ닔' : '留ㅻ룄'}
             </Button>
           </div>
         </CardContent>
@@ -345,3 +373,4 @@ export default function Trading() {
     </div>
   );
 }
+
