@@ -5,6 +5,7 @@ import { isAuthenticated, getCurrentUser } from "../auth";
 import { insertKiwoomAccountSchema } from "@shared/schema";
 import { decrypt } from "../utils/crypto";
 import { createKiwoomService } from "../services/kiwoom";
+import { z } from "zod";
 
 export function registerAccountRoutes(app: Router) {
   // 계좌번호 정규화: 숫자만 추출 후, 정확히 8자리이면 주식 상품코드 "11" 자동 추가
@@ -52,6 +53,31 @@ export function registerAccountRoutes(app: Router) {
       });
       const account = await storage.createKiwoomAccount(accountData);
       res.json(account);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // 계좌 수정 (accountType, accountName 변경)
+  const patchAccountSchema = z.object({
+    accountType: z.enum(["mock", "real"]).optional(),
+    accountName: z.string().min(1).optional(),
+  });
+
+  app.patch("/api/accounts/:id", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const accountId = parseInt(req.params.id);
+      const account = await getAuthorizedAccount(user!.id, accountId);
+      if (!account) return res.status(404).json({ error: "Account not found" });
+
+      const updates = patchAccountSchema.parse(req.body);
+      if (Object.keys(updates).length === 0) {
+        return res.status(400).json({ error: "변경할 항목이 없습니다." });
+      }
+
+      const updated = await storage.updateKiwoomAccount(accountId, updates);
+      res.json(updated);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
@@ -115,12 +141,50 @@ export function registerAccountRoutes(app: Router) {
 
       const keys = await getUserApiKeys(user!.id);
       if (!keys) {
-        return res.status(400).json({ error: "API 키가 설정되지 않았습니다. 설정 페이지에서 키움 API 키를 입력해주세요." });
+        return res.status(400).json({
+          error: "API 키 없음: 설정 페이지에서 키움 API 키를 입력해주세요.",
+          errorCode: "NO_API_KEY",
+        });
       }
 
       const accountType = (account.accountType as "mock" | "real") || "real";
       const kiwoom = createKiwoomService({ ...keys, accountType });
-      const data = await kiwoom.getAccountBalance(account.accountNumber, accountType);
+
+      let data: any;
+      try {
+        data = await kiwoom.getAccountBalance(account.accountNumber, accountType);
+      } catch (err: any) {
+        const msg = err.message || "";
+        // 특정 에러 원인별 구체적 메시지
+        if (msg.includes("API 키가 설정되지 않았습니다")) {
+          return res.status(400).json({ error: "API 키 없음: 설정 페이지에서 키움 API 키를 입력해주세요.", errorCode: "NO_API_KEY" });
+        }
+        if (msg.includes("ECONNREFUSED") || msg.includes("ENOTFOUND") || msg.includes("timeout") || msg.includes("ECONNABORTED")) {
+          return res.status(503).json({ error: "서버 미연결: Kiwoom API 서버에 연결할 수 없습니다. 네트워크를 확인하세요.", errorCode: "SERVER_UNREACHABLE" });
+        }
+        if (msg.includes("8030") || msg.includes("계좌 타입") || msg.includes("투자구분")) {
+          return res.status(400).json({ error: "계좌 타입 불일치: 계좌의 실전/모의 설정이 API 키와 맞지 않습니다.", errorCode: "ACCOUNT_TYPE_MISMATCH" });
+        }
+        if (msg.includes("인증 실패") || msg.includes("auth error")) {
+          return res.status(401).json({ error: "인증 실패: API 키가 올바르지 않습니다. 키움 OpenAPI 페이지에서 확인하세요.", errorCode: "AUTH_FAILED" });
+        }
+        return res.status(500).json({ error: msg || "잔고 조회 중 오류가 발생했습니다.", errorCode: "UNKNOWN" });
+      }
+
+      // 8030 자동 전환 감지: 실제 사용된 서버 타입이 요청한 타입과 다른 경우
+      const usedAccountType: "mock" | "real" = data.usedAccountType || accountType;
+      let autoSwitched = false;
+
+      if (usedAccountType !== accountType) {
+        autoSwitched = true;
+        console.warn(`⚠️  [fetch-balance] 계좌 타입 자동 전환 감지: ${accountType} → ${usedAccountType}. DB 업데이트 중...`);
+        try {
+          await storage.updateKiwoomAccount(accountId, { accountType: usedAccountType });
+          console.log(`✅  [fetch-balance] accountType DB 업데이트 완료: ${usedAccountType}`);
+        } catch (dbErr: any) {
+          console.error("[fetch-balance] DB 업데이트 실패:", dbErr.message);
+        }
+      }
 
       // DB에 보유종목 동기화
       const output2 = data.output2 || [];
@@ -154,6 +218,8 @@ export function registerAccountRoutes(app: Router) {
         totalAssets,
         todayProfit,
         todayProfitRate: totalAssets > 0 ? (todayProfit / totalAssets) * 100 : 0,
+        autoSwitched,
+        usedAccountType,
       });
     } catch (error: any) {
       console.error("[fetch-balance] 오류:", error.message);

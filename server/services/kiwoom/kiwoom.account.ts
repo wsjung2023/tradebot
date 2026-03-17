@@ -6,13 +6,18 @@
 // 주의: 계좌번호(acnt_no)는 요청 본문에 불필요 — 액세스 토큰으로 계좌 식별
 import { KiwoomBase, type AccountBalanceResponse, KIWOOM_MOCK_BASE, KIWOOM_REAL_BASE } from "./kiwoom.base";
 
+export interface AccountBalanceWithMeta extends AccountBalanceResponse {
+  usedBaseURL: string;
+  usedAccountType: "mock" | "real";
+}
+
 export class KiwoomAccount extends KiwoomBase {
 
   async getAccountBalance(
     accountNumber: string,
     accountType: "mock" | "real" = "real",
     accountPassword?: string
-  ): Promise<AccountBalanceResponse> {
+  ): Promise<AccountBalanceWithMeta> {
     if (this.stubMode) {
       throw new Error("Kiwoom API 키가 설정되지 않았습니다. 설정 > API 키 입력 후 다시 시도하세요.");
     }
@@ -84,8 +89,12 @@ export class KiwoomAccount extends KiwoomBase {
         prsm_dpst_aset_amt: balData?.prsm_dpst_aset_amt || "0",
       };
 
-      console.log(`✅ [KiwoomAccount] 잔고조회 성공 — 보유종목 ${output2.length}건, 예수금 ${parseInt(output1.dnca_tot_amt || "0").toLocaleString()}원`);
-      return { output1, output2 };
+      // 실제로 사용된 baseURL과 계좌 타입 반환 (8030 자동 전환 감지에 활용)
+      const usedBaseURL = this.baseURL;
+      const usedAccountType: "mock" | "real" = usedBaseURL.includes("mock") ? "mock" : "real";
+
+      console.log(`✅ [KiwoomAccount] 잔고조회 성공 — ${usedAccountType === "mock" ? "모의" : "실전"} 서버, 보유종목 ${output2.length}건, 예수금 ${parseInt(output1.dnca_tot_amt || "0").toLocaleString()}원`);
+      return { output1, output2, usedBaseURL, usedAccountType };
 
     } catch (error: any) {
       const respBody = error?.response?.data;

@@ -7,7 +7,8 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { TrendingUp, TrendingDown, Wallet, Target, Plus, Trash2, RefreshCw, WifiOff } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { TrendingUp, TrendingDown, Wallet, Target, Plus, Trash2, RefreshCw, WifiOff, ArrowLeftRight } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useKiwoomBalance } from "@/hooks/use-kiwoom-balance";
@@ -80,6 +81,18 @@ export default function Dashboard() {
     }
   }, [selectedAccountId]);
 
+  // autoSwitched 감지 → 토스트 경고
+  useEffect(() => {
+    if (kiwoom.status === "success" && kiwoom.data?.autoSwitched) {
+      const switched = kiwoom.data.usedAccountType;
+      toast({
+        variant: "destructive",
+        title: "계좌 타입 자동 전환됨",
+        description: `API 키가 ${switched === "mock" ? "모의투자" : "실전투자"} 서버에만 연결됩니다. 계좌 설정이 자동으로 "${switched === "mock" ? "모의투자" : "실전투자"}"로 변경되었습니다.`,
+      });
+    }
+  }, [kiwoom.status, kiwoom.data?.autoSwitched]);
+
   const handleRefresh = () => {
     if (!selectedAccount) return;
     kiwoom.fetch(
@@ -102,6 +115,22 @@ export default function Dashboard() {
     },
     onError: (error: any) => {
       toast({ variant: "destructive", title: "계좌 추가 실패", description: error.message });
+    },
+  });
+
+  const toggleAccountTypeMutation = useMutation({
+    mutationFn: async ({ id, currentType }: { id: number; currentType: "mock" | "real" }) => {
+      const newType = currentType === "mock" ? "real" : "mock";
+      const res = await apiRequest('PATCH', `/api/accounts/${id}`, { accountType: newType });
+      return res.json();
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/accounts'] });
+      const newType = variables.currentType === "mock" ? "실전투자" : "모의투자";
+      toast({ title: `계좌 유형 변경됨`, description: `${newType}으로 변경되었습니다` });
+    },
+    onError: (error: any) => {
+      toast({ variant: "destructive", title: "계좌 유형 변경 실패", description: error.message });
     },
   });
 
@@ -209,8 +238,24 @@ export default function Dashboard() {
                   ))}
                 </SelectContent>
               </Select>
-              {selectedAccountId && (
+              {selectedAccountId && selectedAccount && (
                 <>
+                  <Badge
+                    variant={selectedAccount.accountType === "real" ? "default" : "secondary"}
+                    data-testid="badge-account-type"
+                  >
+                    {selectedAccount.accountType === "real" ? "실전" : "모의"}
+                  </Badge>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => toggleAccountTypeMutation.mutate({ id: selectedAccount.id, currentType: selectedAccount.accountType as "mock" | "real" })}
+                    disabled={toggleAccountTypeMutation.isPending}
+                    title={`${selectedAccount.accountType === "real" ? "모의투자" : "실전투자"}로 전환`}
+                    data-testid="button-toggle-account-type"
+                  >
+                    <ArrowLeftRight className="h-4 w-4" />
+                  </Button>
                   <Button variant="ghost" size="icon" onClick={handleRefresh} disabled={isLoading} data-testid="button-refresh-balance">
                     <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
                   </Button>
@@ -291,11 +336,11 @@ export default function Dashboard() {
           <Card className="hover-elevate transition-all duration-300 border-primary/30">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 gap-2">
               <CardTitle className="text-xs md:text-sm font-medium">거래 모드</CardTitle>
-              <TrendingDown className={`h-4 w-4 ${settings?.tradingMode === "real" ? "text-[hsl(var(--neon-cyan))] animate-pulse-glow" : "text-muted-foreground"}`} />
+              <TrendingDown className={`h-4 w-4 ${selectedAccount?.accountType === "real" ? "text-[hsl(var(--neon-cyan))] animate-pulse-glow" : "text-muted-foreground"}`} />
             </CardHeader>
             <CardContent className="pt-0">
               <div className="text-lg md:text-2xl font-bold" data-testid="text-trading-mode">
-                {settings?.tradingMode === "real" ? "실전" : "모의"}
+                {selectedAccount ? (selectedAccount.accountType === "real" ? "실전" : "모의") : (settings?.tradingMode === "real" ? "실전" : "모의")}
               </div>
               <p className="text-xs text-muted-foreground">설정에서 변경 가능</p>
             </CardContent>

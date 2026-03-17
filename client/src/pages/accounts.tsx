@@ -31,7 +31,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Plus, Wallet, Trash2, TrendingUp } from "lucide-react";
+import { Plus, Wallet, Trash2, TrendingUp, Pencil } from "lucide-react";
 
 interface KiwoomAccount {
   id: number;
@@ -42,18 +42,18 @@ interface KiwoomAccount {
   createdAt: string;
 }
 
-interface AccountBalance {
-  totalAssets: string;
-  cashBalance: string;
-  stockValue: string;
-}
-
 export default function Accounts() {
   const { toast } = useToast();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [accountNumber, setAccountNumber] = useState("");
   const [accountName, setAccountName] = useState("");
   const [accountType, setAccountType] = useState<'real' | 'mock'>('mock');
+
+  // 편집 다이얼로그 상태
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editingAccount, setEditingAccount] = useState<KiwoomAccount | null>(null);
+  const [editAccountName, setEditAccountName] = useState("");
+  const [editAccountType, setEditAccountType] = useState<'real' | 'mock'>('mock');
 
   const { data: accounts = [], isLoading } = useQuery<KiwoomAccount[]>({
     queryKey: ['/api/accounts'],
@@ -79,6 +79,29 @@ export default function Accounts() {
       toast({
         variant: "destructive",
         title: "계좌 추가 실패",
+        description: error.message,
+      });
+    },
+  });
+
+  const updateAccountMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: { accountName?: string; accountType?: 'real' | 'mock' } }) => {
+      const res = await apiRequest('PATCH', `/api/accounts/${id}`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/accounts'] });
+      toast({
+        title: "계좌 수정 완료",
+        description: "계좌 정보가 업데이트되었습니다",
+      });
+      setEditDialogOpen(false);
+      setEditingAccount(null);
+    },
+    onError: (error: any) => {
+      toast({
+        variant: "destructive",
+        title: "계좌 수정 실패",
         description: error.message,
       });
     },
@@ -121,6 +144,25 @@ export default function Accounts() {
       accountNumber,
       accountName,
       accountType,
+    });
+  };
+
+  const openEditDialog = (account: KiwoomAccount) => {
+    setEditingAccount(account);
+    setEditAccountName(account.accountName || "");
+    setEditAccountType(account.accountType);
+    setEditDialogOpen(true);
+  };
+
+  const handleEditSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingAccount) return;
+    updateAccountMutation.mutate({
+      id: editingAccount.id,
+      data: {
+        accountName: editAccountName || undefined,
+        accountType: editAccountType,
+      },
     });
   };
 
@@ -265,20 +307,32 @@ export default function Accounts() {
                       {new Date(account.createdAt).toLocaleDateString('ko-KR')}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        data-testid={`button-delete-${account.id}`}
-                        onClick={() => {
-                          if (confirm('정말 이 계좌를 삭제하시겠습니까?')) {
-                            deleteAccountMutation.mutate(account.id);
-                          }
-                        }}
-                        disabled={deleteAccountMutation.isPending}
-                        className="hover-elevate"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          data-testid={`button-edit-${account.id}`}
+                          onClick={() => openEditDialog(account)}
+                          title="계좌 수정"
+                          className="hover-elevate"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          data-testid={`button-delete-${account.id}`}
+                          onClick={() => {
+                            if (confirm('정말 이 계좌를 삭제하시겠습니까?')) {
+                              deleteAccountMutation.mutate(account.id);
+                            }
+                          }}
+                          disabled={deleteAccountMutation.isPending}
+                          className="hover-elevate"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -287,6 +341,66 @@ export default function Accounts() {
           </CardContent>
         </Card>
       )}
+
+      {/* 계좌 편집 다이얼로그 */}
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent data-testid="dialog-edit-account">
+          <DialogHeader>
+            <DialogTitle>계좌 수정</DialogTitle>
+            <DialogDescription>
+              계좌 이름과 유형을 변경할 수 있습니다
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleEditSubmit}>
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="editAccountName">계좌 이름</Label>
+                <Input
+                  id="editAccountName"
+                  data-testid="input-edit-account-name"
+                  value={editAccountName}
+                  onChange={(e) => setEditAccountName(e.target.value)}
+                  placeholder="메인 계좌"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="editAccountType">계좌 유형</Label>
+                <Select
+                  value={editAccountType}
+                  onValueChange={(value: 'real' | 'mock') => setEditAccountType(value)}
+                >
+                  <SelectTrigger id="editAccountType" data-testid="select-edit-account-type">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="mock">모의투자</SelectItem>
+                    <SelectItem value="real">실전투자</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  API 키가 실전/모의 서버와 불일치하면 잔고 조회 시 자동으로 수정됩니다
+                </p>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setEditDialogOpen(false)}
+              >
+                취소
+              </Button>
+              <Button
+                type="submit"
+                data-testid="button-submit-edit"
+                disabled={updateAccountMutation.isPending}
+              >
+                {updateAccountMutation.isPending ? "저장 중..." : "저장"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       <div className="grid gap-6 md:grid-cols-2">
         <Card className="glass-card border-cyan-500/20">

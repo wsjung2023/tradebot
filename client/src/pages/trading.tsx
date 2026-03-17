@@ -43,6 +43,7 @@ export default function Trading() {
   const [quantity, setQuantity] = useState("");
   const [price, setPrice] = useState("");
   const [showRainbow, setShowRainbow] = useState(false);
+  const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
 
   const { prices, orderbooks, connectionStatus, errorMessage, retryCount, forceReconnect } =
     useMarketStream([stockCode], ["price", "orderbook"]);
@@ -58,6 +59,10 @@ export default function Trading() {
   const { data: accounts = [] } = useQuery<KiwoomAccount[]>({
     queryKey: ["/api/accounts"],
   });
+
+  // 선택된 계좌 (없으면 첫번째 계좌)
+  const selectedAccount = accounts.find((a) => a.id === selectedAccountId) || accounts[0] || null;
+  const tradingMode: "mock" | "real" = selectedAccount?.accountType as "mock" | "real" || "mock";
 
   const { data: chartSignals = [] } = useQuery<ChartSignal[]>({
     queryKey: ["/api/stocks", stockCode, "chart-signals"],
@@ -86,7 +91,7 @@ export default function Trading() {
   });
 
   const handleSubmitOrder = () => {
-    if (!accounts || accounts.length === 0) {
+    if (!selectedAccount) {
       toast({ variant: "destructive", title: "계좌 없음", description: "먼저 계좌를 등록해주세요" });
       return;
     }
@@ -99,7 +104,7 @@ export default function Trading() {
       return;
     }
     orderMutation.mutate({
-      accountId: accounts[0].id,
+      accountId: selectedAccount.id,
       stockCode,
       stockName: stockPrice?.stockName || stockCode,
       orderType,
@@ -139,23 +144,53 @@ export default function Trading() {
         <p className="text-sm md:text-base text-muted-foreground">실시간 매매 및 차트 분석</p>
       </div>
 
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
-          <Label className="text-sm">종목 코드:</Label>
-          <Input
-            placeholder="종목코드 입력 (예: 005930)"
-            value={stockCode}
-            onChange={(e) => setStockCode(e.target.value)}
-            className="w-full sm:w-64"
-            data-testid="input-stock-code"
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 flex-wrap">
+            <Label className="text-sm">종목 코드:</Label>
+            <Input
+              placeholder="종목코드 입력 (예: 005930)"
+              value={stockCode}
+              onChange={(e) => setStockCode(e.target.value)}
+              className="w-full sm:w-64"
+              data-testid="input-stock-code"
+            />
+            {accounts.length > 1 && (
+              <>
+                <Label className="text-sm">계좌:</Label>
+                <Select
+                  value={selectedAccountId?.toString() || (accounts[0]?.id?.toString() ?? "")}
+                  onValueChange={(v) => setSelectedAccountId(parseInt(v))}
+                >
+                  <SelectTrigger className="w-full sm:w-56" data-testid="select-trading-account">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {accounts.map((acc) => (
+                      <SelectItem key={acc.id} value={acc.id.toString()}>
+                        {acc.accountName || acc.accountNumber} ({acc.accountType === "real" ? "실전" : "모의"})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </>
+            )}
+            {selectedAccount && (
+              <Badge
+                variant={tradingMode === "real" ? "default" : "secondary"}
+                data-testid="badge-trading-mode"
+              >
+                {tradingMode === "real" ? "실전투자" : "모의투자"}
+              </Badge>
+            )}
+          </div>
+          <ConnectionStatus
+            status={connectionStatus}
+            errorMessage={errorMessage}
+            retryCount={retryCount}
+            onReconnect={forceReconnect}
           />
         </div>
-        <ConnectionStatus
-          status={connectionStatus}
-          errorMessage={errorMessage}
-          retryCount={retryCount}
-          onReconnect={forceReconnect}
-        />
       </div>
 
       {stockPrice && (

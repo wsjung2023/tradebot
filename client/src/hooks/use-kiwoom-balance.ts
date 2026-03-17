@@ -9,6 +9,8 @@ export interface BalanceResult {
   totalAssets: number;
   todayProfit: number;
   todayProfitRate: number;
+  autoSwitched?: boolean;
+  usedAccountType?: "mock" | "real";
 }
 
 type Status = "idle" | "loading" | "success" | "network_blocked" | "cors_blocked" | "error";
@@ -17,6 +19,7 @@ interface UseKiwoomBalanceResult {
   status: Status;
   data: BalanceResult | null;
   error: string | null;
+  errorCode: string | null;
   fetch: (accountId: number, accountNumber: string, accountType: "mock" | "real") => Promise<void>;
 }
 
@@ -24,6 +27,7 @@ export function useKiwoomBalance(): UseKiwoomBalanceResult {
   const [status, setStatus] = useState<Status>("idle");
   const [data, setData] = useState<BalanceResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
 
   const fetchBalance = useCallback(async (
     accountId: number,
@@ -32,6 +36,7 @@ export function useKiwoomBalance(): UseKiwoomBalanceResult {
   ) => {
     setStatus("loading");
     setError(null);
+    setErrorCode(null);
 
     // 1단계: 서버사이드 프록시 시도
     try {
@@ -41,14 +46,20 @@ export function useKiwoomBalance(): UseKiwoomBalanceResult {
       if (res.ok) {
         setData(body);
         setStatus("success");
+        // 계좌 타입이 자동 전환되었으면 계좌 목록 캐시 무효화 (DB가 업데이트됨)
+        if (body.autoSwitched) {
+          queryClient.invalidateQueries({ queryKey: ["/api/accounts"] });
+        }
         queryClient.invalidateQueries({ queryKey: ["/api/accounts", accountId, "holdings"] });
         return;
       }
 
       // 서버가 네트워크 차단 에러를 반환한 경우 → 브라우저 직접 호출 폴백
-      if (body.error !== "KIWOOM_NETWORK_BLOCKED") {
+      const errCode = body.errorCode || "";
+      if (errCode !== "SERVER_UNREACHABLE" && body.error !== "KIWOOM_NETWORK_BLOCKED") {
         setStatus("error");
         setError(body.error || body.message || `HTTP ${res.status}`);
+        setErrorCode(errCode || null);
         setData(null);
         return;
       }
@@ -79,13 +90,15 @@ export function useKiwoomBalance(): UseKiwoomBalanceResult {
           "서버(미국)와 브라우저 모두 Kiwoom API 접근 불가. " +
           "한국 서버에 배포하거나 설정에서 API 키를 확인해주세요."
         );
+        setErrorCode("CORS_BLOCKED");
       } else {
         setStatus("error");
         setError(e.message || "Kiwoom API 연결 오류");
+        setErrorCode("UNKNOWN");
       }
       setData(null);
     }
   }, []);
 
-  return { status, data, error, fetch: fetchBalance };
+  return { status, data, error, errorCode, fetch: fetchBalance };
 }
