@@ -81,18 +81,6 @@ export default function Dashboard() {
     }
   }, [selectedAccountId]);
 
-  // autoSwitched 감지 → 토스트 경고
-  useEffect(() => {
-    if (kiwoom.status === "success" && kiwoom.data?.autoSwitched) {
-      const switched = kiwoom.data.usedAccountType;
-      toast({
-        variant: "destructive",
-        title: "계좌 타입 자동 전환됨",
-        description: `API 키가 ${switched === "mock" ? "모의투자" : "실전투자"} 서버에만 연결됩니다. 계좌 설정이 자동으로 "${switched === "mock" ? "모의투자" : "실전투자"}"로 변경되었습니다.`,
-      });
-    }
-  }, [kiwoom.status, kiwoom.data?.autoSwitched]);
-
   const handleRefresh = () => {
     if (!selectedAccount) return;
     kiwoom.fetch(

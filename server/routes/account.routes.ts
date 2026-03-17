@@ -193,21 +193,6 @@ export function registerAccountRoutes(app: Router) {
         return res.status(500).json({ error: msg || "잔고 조회 중 오류가 발생했습니다.", errorCode: "UNKNOWN" });
       }
 
-      // 8030 자동 전환 감지: 실제 사용된 서버 타입이 요청한 타입과 다른 경우
-      const usedAccountType: "mock" | "real" = data.usedAccountType || accountType;
-      let autoSwitched = false;
-
-      if (usedAccountType !== accountType) {
-        autoSwitched = true;
-        console.warn(`⚠️  [fetch-balance] 계좌 타입 자동 전환 감지: ${accountType} → ${usedAccountType}. DB 업데이트 중...`);
-        try {
-          await storage.updateKiwoomAccount(accountId, { accountType: usedAccountType });
-          console.log(`✅  [fetch-balance] accountType DB 업데이트 완료: ${usedAccountType}`);
-        } catch (dbErr: any) {
-          console.error("[fetch-balance] DB 업데이트 실패:", dbErr.message);
-        }
-      }
-
       // DB에 보유종목 동기화
       const output2 = data.output2 || [];
       for (const item of output2) {
@@ -240,8 +225,6 @@ export function registerAccountRoutes(app: Router) {
         totalAssets,
         todayProfit,
         todayProfitRate: totalAssets > 0 ? (todayProfit / totalAssets) * 100 : 0,
-        autoSwitched,
-        usedAccountType,
       });
     } catch (error: any) {
       console.error("[fetch-balance] 오류:", error.message);

@@ -9,8 +9,6 @@ export interface BalanceResult {
   totalAssets: number;
   todayProfit: number;
   todayProfitRate: number;
-  autoSwitched?: boolean;
-  usedAccountType?: "mock" | "real";
 }
 
 type Status = "idle" | "loading" | "success" | "network_blocked" | "cors_blocked" | "error";
@@ -46,10 +44,6 @@ export function useKiwoomBalance(): UseKiwoomBalanceResult {
       if (res.ok) {
         setData(body);
         setStatus("success");
-        // 계좌 타입이 자동 전환되었으면 계좌 목록 캐시 무효화 (DB가 업데이트됨)
-        if (body.autoSwitched) {
-          queryClient.invalidateQueries({ queryKey: ["/api/accounts"] });
-        }
         queryClient.invalidateQueries({ queryKey: ["/api/accounts", accountId, "holdings"] });
         return;
       }
