@@ -20,14 +20,36 @@ export function registerAccountRoutes(app: Router) {
     return account;
   };
 
-  const getUserApiKeys = async (userId: string) => {
+  // 계좌번호 기반 전용 키 조회 (KIWOOM_KEY_{번호} / KIWOOM_SECRET_{번호})
+  const getAccountSpecificKeys = (accountNumber: string) => {
+    const digits = accountNumber.replace(/\D/g, "").slice(0, 8); // 앞 8자리 기준
+    const appKey = process.env[`KIWOOM_KEY_${digits}`];
+    const appSecret = process.env[`KIWOOM_SECRET_${digits}`];
+    if (appKey && appSecret) return { appKey, appSecret };
+    return null;
+  };
+
+  const getUserApiKeys = async (userId: string, accountNumber?: string) => {
+    // 1순위: 계좌번호 전용 키 (실계좌별 분리)
+    if (accountNumber) {
+      const specific = getAccountSpecificKeys(accountNumber);
+      if (specific) return specific;
+    }
+    // 2순위: 사용자 설정에 저장된 키
     const settings = await storage.getUserSettings(userId);
     const hasUserKeys = !!settings?.kiwoomAppKey && !!settings?.kiwoomAppSecret;
+    if (hasUserKeys) {
+      return {
+        appKey: decrypt(settings!.kiwoomAppKey!),
+        appSecret: decrypt(settings!.kiwoomAppSecret!),
+      };
+    }
+    // 3순위: 서버 공통 환경변수 (모의 전용 폴백)
     const hasServerKeys = !!process.env.KIWOOM_APP_KEY && !!process.env.KIWOOM_APP_SECRET;
-    if (!hasUserKeys && !hasServerKeys) return null;
+    if (!hasServerKeys) return null;
     return {
-      appKey: hasUserKeys ? decrypt(settings!.kiwoomAppKey!) : process.env.KIWOOM_APP_KEY!,
-      appSecret: hasUserKeys ? decrypt(settings!.kiwoomAppSecret!) : process.env.KIWOOM_APP_SECRET!,
+      appKey: process.env.KIWOOM_APP_KEY!,
+      appSecret: process.env.KIWOOM_APP_SECRET!,
     };
   };
 
@@ -139,7 +161,8 @@ export function registerAccountRoutes(app: Router) {
       const account = await getAuthorizedAccount(user!.id, accountId);
       if (!account) return res.status(404).json({ error: "Account not found" });
 
-      const keys = await getUserApiKeys(user!.id);
+      const accountType = (account.accountType as "mock" | "real") || "real";
+      const keys = await getUserApiKeys(user!.id, account.accountNumber);
       if (!keys) {
         return res.status(400).json({
           error: "API 키 없음: 설정 페이지에서 키움 API 키를 입력해주세요.",
@@ -147,7 +170,6 @@ export function registerAccountRoutes(app: Router) {
         });
       }
 
-      const accountType = (account.accountType as "mock" | "real") || "real";
       const kiwoom = createKiwoomService({ ...keys, accountType });
 
       let data: any;

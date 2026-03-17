@@ -179,15 +179,11 @@ export class KiwoomBase {
     try {
       await this._doAuthenticate(this.baseURL);
     } catch (error: any) {
-      // 8030: 투자구분(실전/모의) 불일치 → 자동으로 반대 서버로 전환 후 재시도
+      // 8030: 실전/모의 API 키 불일치 → 자동전환 없이 명확한 에러 반환
       if (error.message?.includes("8030")) {
-        const otherBase = this.baseURL === KIWOOM_REAL_BASE ? KIWOOM_MOCK_BASE : KIWOOM_REAL_BASE;
-        console.warn(`⚠️  서버 타입 불일치(8030), 자동 전환: ${this.baseURL} → ${otherBase}`);
-        this.baseURL = otherBase;
-        this.api.defaults.baseURL = otherBase;
-        this.cacheKey = `${this.appKey}__${this.baseURL}`;
-        await this._doAuthenticate(this.baseURL);
-        return;
+        const serverType = this.baseURL === KIWOOM_REAL_BASE ? "실전" : "모의";
+        console.warn(`⚠️  Kiwoom 8030 오류: ${serverType} 서버에 맞지 않는 API 키`);
+        throw new Error(`8030: ${serverType} 서버용 API 키가 필요합니다. 계좌번호별 API 키를 확인하세요.`);
       }
       if (error.code === "ECONNABORTED" || error.message?.includes("timeout") ||
           error.code === "ECONNREFUSED" || error.code === "ENOTFOUND") {

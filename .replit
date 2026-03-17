@@ -47,3 +47,13 @@ integrations = ["javascript_auth_all_persistance:1.0.0", "javascript_database:1.
 [userenv]
 
 [userenv.shared]
+KIWOOM_KEY_39083177 = "sSp4Rxf5J0MZcbNAfzUp4fn9sC4HT4vB4lr9Wo-XaYg"
+KIWOOM_SECRET_39083177 = "QDV4f2z7apbsOtcUpMk2coK5T-FTUxaWwhVtprZgkmU"
+KIWOOM_KEY_59190647 = "9YkV36v4fYfjzGhyQHprlncSs2Ph1v4SgJbnBtK95CM"
+KIWOOM_SECRET_59190647 = "22kpakpjI0yXaY5OKRH9dHYQIBDsd0IxEf65cpz5jXc"
+KIWOOM_KEY_51342627 = "5q9PEVZ3T2KvvetOEm4XvmLU8oIaU6fzaoy2jr9eyjQ"
+KIWOOM_SECRET_51342627 = "uABD6OPr4ogo6svqJDwrLtLEzS9zFy8aCiFnVqONiWM"
+
+[postMerge]
+path = "scripts/post-merge.sh"
+timeoutMs = 20000
