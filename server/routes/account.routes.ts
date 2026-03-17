@@ -317,6 +317,33 @@ export function registerAccountRoutes(app: Router) {
     }
   });
 
+  // 자산 추이 조회 (최근 30일)
+  app.get("/api/accounts/:accountId/asset-snapshots", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const accountId = parseInt(req.params.accountId);
+      const account = await getAuthorizedAccount(user!.id, accountId);
+      if (!account) return res.status(404).json({ error: "Account not found" });
+
+      // TODO: asset_snapshots 테이블에서 조회 (백그라운드 job으로 매일 저장)
+      // 임시: 모의 데이터로 30일 차트 생성
+      const today = new Date();
+      const snapshots = [];
+      for (let i = 29; i >= 0; i--) {
+        const date = new Date(today);
+        date.setDate(date.getDate() - i);
+        snapshots.push({
+          date: date.toISOString().split('T')[0],
+          totalAssets: 10000000 + Math.random() * 500000,
+          profit: (Math.random() - 0.5) * 100000,
+        });
+      }
+      res.json(snapshots);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // 계좌별 주문 내역 조회
   app.get("/api/accounts/:accountId/orders", isAuthenticated, async (req, res) => {
     try {

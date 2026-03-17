@@ -75,6 +75,35 @@ export function registerTradingRoutes(app: Router) {
     chartDate: string;
   };
 
+  // 최근 거래 조회 (계좌별)
+  app.get("/api/accounts/:accountId/trades", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const accountId = parseInt(req.params.accountId);
+      const account = await storage.getKiwoomAccount(accountId);
+      if (!account || account.userId !== user!.id) return res.status(403).json({ error: "Forbidden" });
+      
+      const logs = await storage.getTradingLogs(accountId, 5);
+      const trades = logs
+        .filter((log: any) => log.action === "order" && log.success)
+        .map((log: any) => ({
+          id: log.id,
+          stockCode: log.details?.stockCode || "",
+          stockName: log.details?.stockName || "",
+          side: log.details?.side || "", // buy/sell
+          quantity: log.details?.quantity || 0,
+          price: log.details?.price || 0,
+          amount: (log.details?.quantity || 0) * (log.details?.price || 0),
+          profit: log.details?.profit || 0,
+          profitRate: log.details?.profitRate || 0,
+          createdAt: log.createdAt,
+        }));
+      res.json(trades);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // 시세 조회
   app.get("/api/stocks/:stockCode/price", isAuthenticated, async (req, res) => {
     try {

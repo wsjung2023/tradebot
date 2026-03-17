@@ -60,6 +60,16 @@ export default function Dashboard() {
     enabled: !!selectedAccountId,
   });
 
+  const { data: recentTrades = [] } = useQuery({
+    queryKey: ['/api/accounts', selectedAccountId, 'trades'],
+    enabled: !!selectedAccountId,
+  });
+
+  const { data: assetSnapshots = [] } = useQuery({
+    queryKey: ['/api/accounts', selectedAccountId, 'asset-snapshots'],
+    enabled: !!selectedAccountId,
+  });
+
   const kiwoom = useKiwoomBalance();
 
   const selectedAccount = accounts?.find((a: any) => a.id === selectedAccountId);
@@ -156,7 +166,11 @@ export default function Dashboard() {
   const hasError = kiwoom.status === "error" || kiwoom.status === "network_blocked" || kiwoom.status === "cors_blocked";
   const balance = kiwoom.data;
 
-  const assetHistory = cachedBalance?.assetHistory ?? [];
+  const assetHistory = assetSnapshots?.map((s: any) => ({
+    date: s.date,
+    totalAssets: s.totalAssets,
+    profit: s.profit,
+  })) ?? [];
 
   return (
     <div className="relative min-h-screen">
@@ -446,10 +460,37 @@ export default function Dashboard() {
               최근 거래
               <div className="w-2 h-2 rounded-full bg-[hsl(var(--neon-cyan))] animate-pulse-glow" />
             </CardTitle>
-            <CardDescription>거래 내역</CardDescription>
+            <CardDescription>최근 5건의 매매 내역</CardDescription>
           </CardHeader>
           <CardContent>
-            <p className="text-sm text-muted-foreground text-center py-8">거래 내역이 없습니다</p>
+            {recentTrades && recentTrades.length > 0 ? (
+              <div className="space-y-3">
+                {recentTrades.map((trade: any) => (
+                  <div key={trade.id} className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                    <div>
+                      <p className="text-sm font-semibold">{trade.stockName} ({trade.stockCode})</p>
+                      <p className="text-xs text-muted-foreground">
+                        {trade.side === 'buy' ? '매수' : '매도'} {trade.quantity}주 @ {parseInt(trade.price).toLocaleString()}원
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-semibold">
+                        {trade.profit >= 0 ? (
+                          <span className="text-green-600 dark:text-green-400">+{parseInt(trade.profit).toLocaleString()}</span>
+                        ) : (
+                          <span className="text-red-600 dark:text-red-400">{parseInt(trade.profit).toLocaleString()}</span>
+                        )}원
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {trade.profitRate >= 0 ? '+' : ''}{(trade.profitRate * 100).toFixed(2)}%
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground text-center py-8">거래 내역이 없습니다</p>
+            )}
           </CardContent>
         </Card>
       </div>
