@@ -1,161 +1,81 @@
-# 키움 AI 자동매매 플랫폼
+﻿# 키움 AI 자동매매 플랫폼
 
 ## Overview
-키움 AI 자동매매 플랫폼은 키움증권 REST API와 OpenAI GPT-4를 활용하여 전문가급 AI 기반 자동매매를 제공하는 플랫폼입니다. 실시간 거래, AI 기반 투자 분석, 자동매매 추천 기능을 통합합니다. 고신뢰성과 우수한 사용자 경험을 목표로 하며, 강력한 인증 시스템, 실시간 WebSocket 시장 데이터, PWA 지원, 모바일 최적화를 통해 상용 수준의 품질을 제공합니다.
+키움증권 REST API + OpenAI GPT-4 기반 AI 자동매매 플랫폼.
+실시간 거래, AI 투자 분석, 자동매매 추천, 조건검색, 차트 분석 기능 포함.
 
-## User Preferences
-- 자세한 설명을 선호합니다
-- 반복적 개발을 원합니다
-- 주요 변경 전 확인 필요
-- 폴더 Z 변경 금지
-- 파일 Y 변경 금지
+## Tech Stack
+- **Backend**: Node.js + Express + TypeScript
+- **Database**: PostgreSQL (Neon) + Drizzle ORM
+- **Auth**: Passport.js (Local, Google/Kakao OAuth)
+- **Realtime**: WebSocket
+- **Frontend**: React + TypeScript + Vite + Wouter + TanStack Query + Shadcn UI
 
-## System Architecture
+## Key Features
+1. **실시간 거래**: WebSocket 기반 실시간 시세 및 호가
+2. **조건검색**: 키움 WebSocket API (ka10171~ka10174)로 사용자 조건검색식 실행
+3. **AI 분석**: GPT-4 기반 종목 분석 및 포트폴리오 최적화
+4. **자동매매**: AI 모델 기반 자동매매 (shadow 모드 지원)
+5. **차트수식**: 사용자 정의 차트 지표 (MA, RSI, MACD 등)
+6. **관심종목**: 실시간 시세 모니터링
 
-### UI/UX 디자인 결정사항
-플랫폼은 "Neo-Fintech Storm UI" 디자인 시스템을 사용하며, 사이버펑크 색상 팔레트(네온 시안/퍼플/그린/레드)를 특징으로 합니다. `gradient-flow`, `pulse-glow`, `price-pulse`, `float-particle` 같은 CSS 애니메이션을 통해 동적인 시각적 피드백을 제공합니다. 글래스모피즘 카드, 네온 글로우 효과, 그라디언트 텍스트 등 디자인 요소를 포함하며, `prefers-reduced-motion` 접근성을 지원합니다.
+## Environment Variables Required
+```
+DATABASE_URL=
+SESSION_SECRET=
+OPENAI_API_KEY=
+KIWOOM_APP_KEY=
+KIWOOM_APP_SECRET=
+KIWOOM_IS_MOCK=false
+DART_API_KEY=
+ENABLE_AI_COUNCIL=false
+ENABLE_ENTRY_POINT_ENGINE=false
+ENABLE_ADVANCED_LEARNING=false
+```
 
-### 기술 구현
+## API Endpoints
+- `GET /api/kiwoom/conditions` — 키움 HTS 조건검색식 목록 (WebSocket ka10171)
+- `POST /api/kiwoom/conditions/:seq/run` — 조건검색 실행 (WebSocket ka10172)
+- `GET /api/chart-formulas` — 차트수식 목록
+- `POST /api/chart-formulas/:id/evaluate` — 차트수식 계산 및 오버레이 데이터 반환
+- `GET /api/stocks/search?q=keyword` — 종목명/코드 검색
+- `GET /api/watchlist` — 관심종목 목록 (키움 실시간 시세 포함)
+- `POST /api/watchlist/sync-kiwoom` — 관심종목 키움 시세 새로고침
 
-#### 백엔드
-- **프레임워크**: Node.js + Express + TypeScript
-- **데이터베이스**: PostgreSQL (Neon)
-- **인증**: Passport.js (로컬, Google/Kakao OAuth)
-- **ORM**: Drizzle ORM
-- **실시간**: WebSocket
+## Vibe Coding Rules (필수)
+- 파일 크기: 250~400줄 (최대 500줄)
+- 모든 파일 첫 줄: 파일 역할 한줄 주석
+- 모든 폴더: README.md 필수
+- 에러 핸들링: try-catch 필수
+- DB 접근: storage 함수 통해서만
+- 삭제 금지: _OLD 접미사로 이름 변경
+- 여러 파일 쓰기: 반드시 하나의 exec 호출로 배치 처리
 
-#### 프론트엔드
-- **프레임워크**: React + TypeScript + Vite
-- **라우팅**: Wouter
-- **상태 관리**: TanStack Query
-- **UI 컴포넌트**: Shadcn UI
-- **스타일링**: Tailwind CSS
-
-#### 데이터베이스 스키마
-사용자, 계좌, 보유 종목, 주문, AI 모델 및 추천, 관심종목, 알림, 사용자 설정, 거래 로그, 조건 검색 관련 데이터를 포함하는 스키마를 사용합니다.
-
-#### API 엔드포인트
-인증, 계좌 관리, 주문 실행, 주식 정보(실시간 시세, 차트, 재무제표), AI 분석, 관심종목 관리, 사용자 설정, 거래 로그, 조건 검색 기능을 지원합니다.
-
-#### AI 분석
-GPT-4를 활용하여 주식 분석, 포트폴리오 최적화, 신뢰도 점수 산출을 수행하며, 재무제표, 유동성, 레인보우 차트 분석, 테마 분석, 뉴스 분석, 기관 투자자 추적 기능을 통합합니다.
-
-#### AI 투자자문 위원회 (AI Council) — shadow 모드
-`server/services/ai-council.service.ts`에 구현. 기술·기본·감성 3인 AI 애널리스트가 독립적으로 분석 후 다수결로 최종 투자 의견(매수/매도/보유)을 결정한다. 현재 shadow 모드(실거래 미연동)로만 동작하며, `ENABLE_AI_COUNCIL=true` 환경변수 설정 시 자동매매 워커에 연동된다.
-
-#### 피처 플래그 시스템
-`server/config/feature-flags.ts`에 구현. 환경변수로 실험적 기능을 ON/OFF 제어한다.
-- `ENABLE_AI_COUNCIL` (기본: false) — AI 위원회 자동매매 연동
-- `ENABLE_ENTRY_POINT_ENGINE` (기본: false) — 진입점 탐색 엔진
-- `ENABLE_ADVANCED_LEARNING` (기본: false) — 고급 학습 시스템
-- `ENABLE_PRICE_ALERTS_IN_TRADING_CYCLE` (기본: true) — 가격 알림 자동 체크
-
-#### 자동매매 시스템
-AI 모델의 CRUD, 활성화/비활성화, 추천 생성 및 10선 레인보우 차트 전략 기반 자동 실행을 지원합니다. 거래 성과 분석 및 AI 모델 파라미터 자동 최적화 학습 시스템을 포함합니다. 매 1분 사이클마다 가격 알림 자동 체크(`checkPriceAlerts`) 실행.
-
-#### 실시간 시스템
-지수 백오프 및 하트비트 기능을 갖춘 WebSocket을 통해 실시간 시장 데이터를 제공합니다.
-
-#### PWA
-`manifest.json`과 서비스 워커(v4-passthrough, 캐싱 없음)를 통해 PWA 지원. 빈 화면 버그 방지를 위해 캐싱을 비활성화함.
-
-#### 보안
-세션 기반 인증, CSRF 방어, API 키의 AES-256-GCM 암호화, 속도 제한, XSS/클릭재킹 방어 및 HTTPS 강제를 위한 보안 헤더를 구현합니다.
-
-#### 조건 검색 시스템
-**백엔드**: 수식 파싱 및 평가 엔진, 차트 시그널 생성, 재무 데이터 조회, 시장 이슈 추적, 키움 조건식 직접 연동(`/api/kiwoom/conditions`)
-**프론트엔드**: 커스텀/키움 조건식 탭 전환 UI, 실시간 스크리닝, 차트 시그널 오버레이, 조건 편집기
-
-#### 레인보우 차트 시스템
-2년 고가/저가 기준의 10선 레인보우 차트를 구현하며, 5번 라인은 50% 되돌림(주력 매수 구간)을 나타냅니다. 주력 매수/매도 구간 식별 및 자동 추천을 생성합니다.
-
-#### 차트 시그널 오버레이
-`GET /api/stocks/:code/chart-signals` — 사용자 조건식 결과를 차트에 매수/보유 시그널로 표시. matchScore ≥ 70이면 buy 시그널.
-
-#### 관심종목 HTS 동기화
-`POST /api/watchlist/sync/kiwoom` — 키움 HTS에서 관심종목을 직접 받아와 `watchlist_sync_snapshots` 테이블에 저장.
-`GET /api/watchlist/sync-snapshots` — 동기화된 스냅샷 목록 조회.
-
-#### 뉴스+재무+기술 통합 분석
-`POST /api/ai/integrated-analysis` — 네이버 뉴스 API 감성 분석 + 재무지표 + 기술적 분석을 GPT-4로 통합하여 종합 점수 산출.
-
-#### DART 공시 서비스
-`server/services/dart.service.ts`에 구현. 금감원 전자공시시스템(DART) API 연동으로 기업 공시 자료를 수집한다. `DART_API_KEY` 환경변수 필요. 없으면 graceful degradation (빈 배열 반환). `DART_CORP_CODE_MAP`으로 종목코드→DART 고유번호 매핑.
-
-#### AI 모델 학습 서비스
-`server/services/learning.service.ts`에 구현. 거래 이력 기반 성과 분석(승률·수익률·샤프비율·최대낙폭)과 패턴 인사이트(최적 진입/청산 라인·파라미터 최적화)를 제공한다.
-
-#### 분석 재료 수집 시스템
-`POST /api/stocks/:code/sync-materials` — DART 공시 + 뉴스 + 재무 데이터를 한 번에 수집하여 `analysis_material_snapshots` 테이블에 저장.
-`GET /api/stocks/:code/materials` — 저장된 분석 재료 조회.
-
-### 기능 사양
-- **사용자 인증**: 로컬 이메일/비밀번호, Google OAuth, Kakao OAuth
-- **키움 계좌 연동**: CRUD 작업, 잔고/보유종목 조회
-- **실시간 대시보드**: 포트폴리오 파이 차트, 30일 자산 추이
-- **거래 인터페이스**: 실시간 시세, 일봉 차트 + 시그널 오버레이, 10단계 호가창, 주문 패널
-- **AI 분석 대시보드**: GPT-4 종목 분석, 포트폴리오 최적화, 신뢰도 점수, 뉴스+재무+기술 통합 분석
-- **AI 투자자문 위원회**: 기술/기본/감성 3인 다수결 분석 (shadow 모드)
-- **자동매매 시스템**: AI 모델 CRUD, 활성화/비활성화, 추천 생성, 학습 시스템, 피처 플래그 제어
-- **거래 내역 및 로그**: 주문/체결 상세, 거래 로그, 통계 대시보드
-- **관심종목**: 실시간 시세 병합, 키움 HTS 동기화, 가격 알림
-- **조건검색**: 커스텀/키움 조건식 양방향, 차트 시그널 오버레이
-- **분석 재료 수집**: DART 공시 + 뉴스 + 재무 통합 수집·조회
-- **AI 모델 학습**: 성과 분석, 패턴 인사이트, 파라미터 자동 최적화
-- **PWA 모바일 최적화**
-
-### 주요 파일 구조 (핵심)
+## Architecture
 ```
 server/
-  config/feature-flags.ts        # 피처 플래그 ON/OFF
+  routes/          # 도메인별 라우터 (account, ai, auth, autotrading, formula, trading, watchlist)
   services/
-    ai-council.service.ts        # AI 3인 위원회 (shadow 모드)
-    ai.service.ts                # GPT-4 분석
-    dart.service.ts              # 금감원 전자공시(DART) API
-    learning.service.ts          # 학습·성과분석·파라미터 최적화
-    news.service.ts              # 네이버 뉴스 + 감성분석
-    kiwoom/
-      kiwoom.condition.ts        # 조건검색 WebSocket
-      kiwoom.market.ts           # 시세·차트·관심종목
-      kiwoom.financial.ts        # 재무지표
-  routes/
-    trading.routes.ts            # 차트 시그널 포함
-    watchlist.routes.ts          # HTS 동기화 포함
-    ai.routes.ts                 # Council·학습·분석재료 엔드포인트
-    formula.routes.ts            # 키움 조건식 연동
-  auto-trading-worker.ts         # 자동매매 루프
-  storage/
-    interface.ts                 # 스토리지 인터페이스
-    postgres-core.storage.ts     # PostgreSQL 구현
+    kiwoom/        # 키움 API (base, account, market, order, condition, financial)
+    ai.service.ts
+    ai-council.service.ts
+    dart.service.ts
+    news.service.ts
+    trade-executor.service.ts
+  storage/         # DB 접근 레이어 (interface, postgres-core, postgres)
+  config/
+    feature-flags.ts
+  job-manager.ts   # 백그라운드 잡 관리
+  auto-trading-worker.ts
+
 client/src/
-  components/
-    auto-trading/
-      AutoTradingLearningRecords.tsx  # 학습 기록 UI
-    ai-analysis/
-      IntegratedAnalysis.tsx     # 통합분석 (분석재료 포함)
-scripts/
-  replit-readiness.mjs           # Replit 환경 준비상태 점검
-shared/schema.ts                 # DB 스키마 (27개 테이블)
+  pages/           # 17개 페이지
+  components/      # 도메인별 컴포넌트
+  hooks/
+  lib/
 ```
 
-### 환경변수 (선택)
-| 변수 | 용도 | 없을 때 |
-|------|------|---------|
-| `DART_API_KEY` | 금감원 DART 공시 조회 | 빈 배열 반환 (graceful) |
-| `DART_CORP_CODE_MAP` | 종목코드→DART 고유번호 매핑 | 공시 조회 불가 |
-| `ENABLE_AI_COUNCIL` | AI 위원회 자동매매 연동 | false (shadow 모드만) |
-| `ENABLE_ENTRY_POINT_ENGINE` | 진입점 탐색 엔진 | false |
-| `ENABLE_ADVANCED_LEARNING` | 고급 학습 시스템 | false |
-
-### 주의사항
-- `getFinancialRatios()` 반환값: `output`이 단일 객체 `{ per, pbr, eps, bps, roe, roa, debt_ratio, reserve_ratio }` (배열 아님)
-- `conditionSeq`로 통일 (conditionName 아님)
-- `client/public/sw.js`는 v4-passthrough (fetch 핸들러 없음, 캐싱 없음)
-- DB 읽기/쓰기 풀 분리: `server/db.ts`의 `readonlyPool`(SELECT) vs `db`(DML)
-
-## External Dependencies
-- **키움증권 REST API**: 주식 거래 및 시장 데이터
-- **OpenAI API (GPT-4)**: AI 기반 투자 분석
-- **Google OAuth**: 사용자 인증
-- **Kakao OAuth**: 사용자 인증
-- **Neon (PostgreSQL)**: 관리형 PostgreSQL 데이터베이스
+## Deployment (Replit)
+- `npm run dev` — 개발 서버 (Vite + Express)
+- `npm run build` — 프로덕션 빌드
+- `npm start` — 프로덕션 서버
