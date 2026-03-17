@@ -13,6 +13,7 @@ import { registerWatchlistRoutes } from "./watchlist.routes";
 import { registerFormulaRoutes } from "./formula.routes";
 import { registerAutoTradingRoutes } from "./autotrading.routes";
 import { registerAdminRoutes } from "./admin.routes";
+import { registerSettingsRoutes } from "./settings.routes";
 
 export async function registerRoutes(app: Express, httpServer: Server, sessionMiddleware: any): Promise<void> {
   const kiwoomService = getKiwoomService();
@@ -27,6 +28,7 @@ export async function registerRoutes(app: Express, httpServer: Server, sessionMi
   registerFormulaRoutes(app as any);
   registerAutoTradingRoutes(app as any);
   registerAdminRoutes(app as any);
+  registerSettingsRoutes(app as any);
 
   // 레인보우 차트 라우터
   app.use("/api/rainbow", rainbowRouter);
