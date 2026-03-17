@@ -34,10 +34,12 @@ export class KiwoomAccount extends KiwoomBase {
 
     try {
       // ① 계좌평가잔고내역요청: api-id kt00018
-      //    qry_tp: "2"=개별, "1"=합산  /  dmst_stex_tp: "%"=전체, "KRX"=KRX
+      //    qry_tp: "2"=개별, "1"=합산
+      //    dmst_stex_tp: 실서버="KRX"(한국거래소) / 모의서버="%"(전체)
+      const dmst_stex_tp = accountType === "mock" ? "%" : "KRX";
       const balResp = await this.api.post<any>(
         "/api/dostk/acnt",
-        { qry_tp: "2", dmst_stex_tp: "%" },
+        { qry_tp: "2", dmst_stex_tp },
         { headers: { "api-id": "kt00018" } }
       );
       const balData = balResp.data;
