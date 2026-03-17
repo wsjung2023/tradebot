@@ -380,4 +380,35 @@ export function registerFormulaRoutes(app: Router) {
       res.status(500).json({ error: error.message });
     }
   });
+  // 키움 HTS 조건검색식 목록을 가져와서 tradebot 조건식으로 저장
+  app.get("/api/conditions/hts-list", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const htsConditions = await kiwoomService.getConditionList();
+      const list = htsConditions?.output ?? htsConditions ?? [];
+      if (!Array.isArray(list) || list.length === 0) {
+        return res.json({ imported: 0, conditions: [] });
+      }
+      const existing = await storage.getConditionFormulas(user!.id);
+      const existingNames = new Set(existing.map((c) => c.conditionName));
+      const toImport = list.filter((c: any) => !existingNames.has(c.condition_name));
+      const imported = await Promise.all(
+        toImport.map((c: any) =>
+          storage.createConditionFormula({
+            conditionName: c.condition_name,
+            description: `HTS 조건검색식 (seq: ${c.condition_index})`,
+            marketType: "ALL",
+            rawFormula: `hts:${c.condition_index}`,
+            isActive: false,
+            isRealTimeMonitoring: false,
+            userId: user!.id,
+            formulaAst: { type: "hts", seq: c.condition_index },
+          })
+        )
+      );
+      res.json({ imported: imported.length, conditions: imported });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
 }
