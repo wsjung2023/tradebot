@@ -191,6 +191,12 @@ export function registerAccountRoutes(app: Router) {
         if (msg.includes("8030") || msg.includes("계좌 타입") || msg.includes("투자구분")) {
           return res.status(400).json({ error: "계좌 타입 불일치: 계좌의 실전/모의 설정이 API 키와 맞지 않습니다.", errorCode: "ACCOUNT_TYPE_MISMATCH" });
         }
+        if (msg.includes("8050") || msg.includes("지정단말기")) {
+          return res.status(401).json({
+            error: "IP 미등록(8050): 키움 OpenAPI 포털에서 서버 IP(136.118.168.239)를 지정단말기로 등록해주세요.",
+            errorCode: "IP_NOT_REGISTERED",
+          });
+        }
         if (msg.includes("인증 실패") || msg.includes("auth error")) {
           return res.status(401).json({ error: "인증 실패: API 키가 올바르지 않습니다. 키움 OpenAPI 페이지에서 확인하세요.", errorCode: "AUTH_FAILED" });
         }
