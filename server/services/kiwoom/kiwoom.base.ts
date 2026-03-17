@@ -210,6 +210,7 @@ export class KiwoomBase {
     const data = response.data as { access_token?: string; token?: string; expires_in?: number; return_code?: number; return_msg?: string };
 
     if (data.return_code && data.return_code !== 0) {
+      console.error(`[Kiwoom Auth FAIL] baseURL=${baseURL} return_code=${data.return_code} return_msg=${data.return_msg}`);
       throw new Error(`Kiwoom auth error: ${data.return_msg} (code: ${data.return_code})`);
     }
 

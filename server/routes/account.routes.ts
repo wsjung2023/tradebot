@@ -162,6 +162,9 @@ export function registerAccountRoutes(app: Router) {
       if (!account) return res.status(404).json({ error: "Account not found" });
 
       const accountType = (account.accountType as "mock" | "real") || "real";
+      const digits = account.accountNumber.replace(/\D/g, "").slice(0, 8);
+      const hasSpecificKey = !!(process.env[`KIWOOM_KEY_${digits}`] && process.env[`KIWOOM_SECRET_${digits}`]);
+      console.log(`[fetch-balance] 계좌=${account.accountNumber} digits=${digits} 전용키=${hasSpecificKey ? "있음" : "없음"} type=${accountType}`);
       const keys = await getUserApiKeys(user!.id, account.accountNumber);
       if (!keys) {
         return res.status(400).json({
@@ -169,6 +172,7 @@ export function registerAccountRoutes(app: Router) {
           errorCode: "NO_API_KEY",
         });
       }
+      console.log(`[fetch-balance] 사용 키 앞 8자리=${keys.appKey.slice(0, 8)}... 계좌타입=${accountType}`);
 
       const kiwoom = createKiwoomService({ ...keys, accountType });
 
