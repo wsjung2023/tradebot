@@ -1,4 +1,4 @@
-// kiwoom.market.ts — 키움증권 REST API 시세·차트·호가 조회 (공식 api-id 사용)
+﻿// kiwoom.market.ts — 키움증권 REST API 시세·차트·호가 조회 (공식 api-id 사용)
 import {
   KiwoomBase,
   type StockPriceResponse,
@@ -294,3 +294,4 @@ export class KiwoomMarket extends KiwoomBase {
     throw new Error("테마별 종목 조회는 현재 지원하지 않습니다.");
   }
 }
+
