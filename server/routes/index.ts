@@ -1,4 +1,4 @@
-// index.ts — 모든 도메인 라우터를 Express 앱에 등록하는 진입점
+﻿// index.ts ??紐⑤뱺 ?꾨찓???쇱슦?곕? Express ?깆뿉 ?깅줉?섎뒗 吏꾩엯??
 import type { Express } from "express";
 import { type Server } from "http";
 import { WebSocketServer } from "ws";
@@ -19,7 +19,7 @@ export async function registerRoutes(app: Express, httpServer: Server, sessionMi
   const kiwoomService = getKiwoomService();
   const marketHub = new MarketDataHub(kiwoomService);
 
-  // 도메인별 라우터 등록
+  // ?꾨찓?몃퀎 ?쇱슦???깅줉
   registerAuthRoutes(app as any);
   registerAccountRoutes(app as any);
   registerTradingRoutes(app as any);
@@ -30,10 +30,10 @@ export async function registerRoutes(app: Express, httpServer: Server, sessionMi
   registerAdminRoutes(app as any);
   registerSettingsRoutes(app as any);
 
-  // 레인보우 차트 라우터
+  // ?덉씤蹂댁슦 李⑦듃 ?쇱슦??
   app.use("/api/rainbow", rainbowRouter);
 
-  // WebSocket — 이미 생성된 httpServer에 연결
+  // WebSocket ???대? ?앹꽦??httpServer???곌껐
   const wss = new WebSocketServer({ noServer: true });
 
   wss.on("connection", (ws) => {
@@ -58,3 +58,4 @@ export async function registerRoutes(app: Express, httpServer: Server, sessionMi
     });
   });
 }
+
