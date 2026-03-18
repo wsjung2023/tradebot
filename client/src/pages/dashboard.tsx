@@ -84,7 +84,7 @@ export default function Dashboard() {
   useEffect(() => {
     if (selectedAccount) {
       // 거래 모드를 선택한 계좌의 accountType과 동기화
-      apiRequest('PATCH', '/api/settings', { tradingMode: selectedAccount.accountType });
+      syncTradingModeMutation.mutate(selectedAccount.accountType);
       
       // 잔고 조회
       if (kiwoom.status === "idle") {
@@ -150,6 +150,19 @@ export default function Dashboard() {
     },
     onError: (error: any) => {
       toast({ variant: "destructive", title: "계좌 삭제 실패", description: error.message });
+    },
+  });
+
+  const syncTradingModeMutation = useMutation({
+    mutationFn: async (tradingMode: "mock" | "real") => {
+      const res = await apiRequest('PATCH', '/api/settings', { tradingMode });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/settings'] });
+    },
+    onError: (error: any) => {
+      toast({ variant: "destructive", title: "거래 모드 동기화 실패", description: error.message });
     },
   });
 
