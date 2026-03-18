@@ -112,6 +112,23 @@ export function registerWatchlistRoutes(app: Router) {
       const priceMap: Record<string, any> = {};
       for (const price of priceList) { priceMap[price.stockCode] = price; }
       const result = list.map((item) => ({ ...item, kiwoomData: priceMap[item.stockCode] ?? null }));
+      
+      // DB에 스냅샷 저장
+      for (const item of result) {
+        const syncedPrice = priceMap[item.stockCode];
+        if (syncedPrice) {
+          await storage.upsertWatchlistSyncSnapshot({
+            userId: user!.id,
+            stockCode: item.stockCode,
+            stockName: item.stockName || "",
+            syncedPrice: syncedPrice.price || "0",
+            rawPayload: syncedPrice,
+            source: "kiwoom_api",
+            syncedAt: new Date(),
+          });
+        }
+      }
+      
       res.json({ message: "키움 시세 새로고침 완료", updated: result.length, items: result });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
