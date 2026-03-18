@@ -80,16 +80,14 @@ export default function Dashboard() {
     }
   }, [accounts, accountsLoading, selectedAccountId]);
 
-  // 계좌 선택 시 잔고 조회
+  // 계좌 선택 시 잔고 조회 (계좌 바뀌면 항상 즉시 fetch)
   useEffect(() => {
     if (selectedAccount) {
-      if (kiwoom.status === "idle") {
-        kiwoom.fetch(
-          selectedAccount.id,
-          selectedAccount.accountNumber,
-          selectedAccount.accountType as "mock" | "real"
-        );
-      }
+      kiwoom.fetch(
+        selectedAccount.id,
+        selectedAccount.accountNumber,
+        selectedAccount.accountType as "mock" | "real"
+      );
     }
   }, [selectedAccountId]);
 
