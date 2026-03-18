@@ -43,12 +43,21 @@ export function registerKiwoomAgentRoutes(app: Express): void {
         res.status(401).json({ error: "사용자 정보를 확인할 수 없습니다" });
         return;
       }
-      const parsed = insertKiwoomJobSchema.safeParse({ ...req.body, userId });
+      // jobType과 payload만 클라이언트에서 수신 — status/result/agentId는 서버에서 강제 설정
+      const bodySchema = insertKiwoomJobSchema.pick({ jobType: true, payload: true });
+      const parsed = bodySchema.safeParse(req.body);
       if (!parsed.success) {
         res.status(400).json({ error: "잘못된 요청", details: parsed.error.errors });
         return;
       }
-      const job = await storage.createKiwoomJob(parsed.data);
+      const job = await storage.createKiwoomJob({
+        ...parsed.data,
+        userId,
+        status: "pending",
+        result: null,
+        errorMessage: null,
+        agentId: null,
+      });
       res.json({ jobId: job.id, status: job.status });
     } catch (err) {
       console.error("[kiwoom-agent] 작업 등록 실패:", err);
