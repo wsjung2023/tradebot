@@ -6,6 +6,22 @@ import { insertKiwoomAccountSchema } from "@shared/schema";
 import { decrypt } from "../utils/crypto";
 import { createKiwoomService } from "../services/kiwoom";
 import { z } from "zod";
+import axios from "axios";
+
+let _cachedPublicIP: string | null = null;
+let _lastIPFetch = 0;
+async function getPublicIP(): Promise<string> {
+  const now = Date.now();
+  if (_cachedPublicIP && now - _lastIPFetch < 60 * 1000) return _cachedPublicIP;
+  try {
+    const res = await axios.get("https://api.ipify.org?format=json", { timeout: 3000 });
+    _cachedPublicIP = res.data.ip;
+    _lastIPFetch = now;
+    return _cachedPublicIP!;
+  } catch {
+    return _cachedPublicIP || "IP 조회 실패";
+  }
+}
 
 export function registerAccountRoutes(app: Router) {
   // 계좌번호 정규화: 숫자만 추출 후, 정확히 8자리이면 주식 상품코드 "11" 자동 추가
@@ -203,9 +219,11 @@ export function registerAccountRoutes(app: Router) {
           return res.status(400).json({ error: "계좌 타입 불일치: 계좌의 실전/모의 설정이 API 키와 맞지 않습니다.", errorCode: "ACCOUNT_TYPE_MISMATCH" });
         }
         if (msg.includes("8050") || msg.includes("지정단말기")) {
+          const currentIP = await getPublicIP();
           return res.status(401).json({
-            error: "IP 미등록(8050): 키움 OpenAPI 포털에서 서버 IP(136.118.168.239)를 지정단말기로 등록해주세요.",
+            error: `IP 미등록(8050): 키움 OpenAPI 포털에서 서버 IP(${currentIP})를 지정단말기로 등록해주세요.`,
             errorCode: "IP_NOT_REGISTERED",
+            serverIP: currentIP,
           });
         }
         if (msg.includes("인증 실패") || msg.includes("auth error")) {
