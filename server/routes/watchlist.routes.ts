@@ -131,6 +131,12 @@ export function registerWatchlistRoutes(app: Router) {
       
       res.json({ message: "키움 시세 새로고침 완료", updated: result.length, items: result });
     } catch (error: any) {
+      if (isMissingWatchlistSyncTableError(error)) {
+        return res.status(503).json({
+          error: "watchlist_sync_snapshots 테이블이 없습니다. `npm run db:push` 후 서버를 재시작하세요.",
+          code: "WATCHLIST_SYNC_TABLE_MISSING",
+        });
+      }
       res.status(500).json({ error: error.message });
     }
   });
