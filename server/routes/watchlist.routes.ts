@@ -121,7 +121,7 @@ export function registerWatchlistRoutes(app: Router) {
             userId: user!.id,
             stockCode: item.stockCode,
             stockName: item.stockName || "",
-            syncedPrice: syncedPrice.price || "0",
+            syncedPrice: (syncedPrice.currentPrice || syncedPrice.price || "0").toString(),
             rawPayload: syncedPrice,
             source: "kiwoom_api",
             syncedAt: new Date(),
