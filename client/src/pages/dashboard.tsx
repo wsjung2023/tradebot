@@ -80,14 +80,20 @@ export default function Dashboard() {
     }
   }, [accounts, accountsLoading, selectedAccountId]);
 
-  // 계좌 선택 시 자동으로 잔고 조회
+  // 계좌 선택 시 거래 모드 자동 동기화 및 잔고 조회
   useEffect(() => {
-    if (selectedAccount && kiwoom.status === "idle") {
-      kiwoom.fetch(
-        selectedAccount.id,
-        selectedAccount.accountNumber,
-        selectedAccount.accountType as "mock" | "real"
-      );
+    if (selectedAccount) {
+      // 거래 모드를 선택한 계좌의 accountType과 동기화
+      apiRequest('PATCH', '/api/settings', { tradingMode: selectedAccount.accountType });
+      
+      // 잔고 조회
+      if (kiwoom.status === "idle") {
+        kiwoom.fetch(
+          selectedAccount.id,
+          selectedAccount.accountNumber,
+          selectedAccount.accountType as "mock" | "real"
+        );
+      }
     }
   }, [selectedAccountId]);
 
