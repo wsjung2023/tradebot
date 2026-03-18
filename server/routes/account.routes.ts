@@ -30,12 +30,14 @@ export function registerAccountRoutes(app: Router) {
   };
 
   const getUserApiKeys = async (userId: string, accountNumber?: string, accountType?: "mock" | "real") => {
-    // 1순위: 계좌번호 전용 키 (실계좌only)
-    if (accountType === "real" && accountNumber) {
+    // 실계좌는 계좌별 전용 키 필수 (폴백 금지 / strict mode)
+    if (accountType === "real") {
+      if (!accountNumber) return null;
       const specific = getAccountSpecificKeys(accountNumber);
-      if (specific) return specific;
+      return specific; // 있으면 반환, 없으면 null (폴백 금지)
     }
-    // 2순위: 사용자 설정에 저장된 키
+    
+    // 모의계좌는 사용자 키 → 글로벌 키 순 폴백 가능
     const settings = await storage.getUserSettings(userId);
     const hasUserKeys = !!settings?.kiwoomAppKey && !!settings?.kiwoomAppSecret;
     if (hasUserKeys) {
@@ -44,7 +46,7 @@ export function registerAccountRoutes(app: Router) {
         appSecret: decrypt(settings!.kiwoomAppSecret!),
       };
     }
-    // 3순위: 서버 공통 환경변수 (모의 전용 폴백)
+    // 글로벌 서버 환경변수 (모의 전용)
     const hasServerKeys = !!process.env.KIWOOM_APP_KEY && !!process.env.KIWOOM_APP_SECRET;
     if (!hasServerKeys) return null;
     return {
