@@ -467,6 +467,31 @@ export const analysisMaterialSnapshots = pgTable("analysis_material_snapshots", 
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// ==================== Kiwoom Agent Job Queue ====================
+
+// 집 PC 에이전트가 폴링해서 처리할 작업 큐
+// 구조: Replit(작업 등록) → 집 PC 에이전트(폴링+키움 호출) → Replit(결과 저장)
+export const kiwoomJobs = pgTable("kiwoom_jobs", {
+  id: serial("id").primaryKey(),
+  jobType: text("job_type").notNull(), // 'watchlist.get', 'order.buy', 'order.sell', 'balance.get' 등
+  payload: jsonb("payload").notNull().default({}), // 작업 파라미터
+  status: text("status").notNull().default('pending'), // 'pending', 'processing', 'done', 'error'
+  result: jsonb("result"), // 집 PC 에이전트가 올린 결과
+  errorMessage: text("error_message"), // 실패 시 에러 메시지
+  agentKey: text("agent_key"), // 어느 에이전트가 처리했는지
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  processedAt: timestamp("processed_at"), // 처리 완료 시각
+});
+
+export const insertKiwoomJobSchema = createInsertSchema(kiwoomJobs, {
+  jobType: z.string().min(1),
+  payload: z.any(),
+}).omit({ id: true, createdAt: true, updatedAt: true });
+
+export type KiwoomJob = typeof kiwoomJobs.$inferSelect;
+export type InsertKiwoomJob = z.infer<typeof insertKiwoomJobSchema>;
+
 // ==================== Insert Schemas ====================
 
 export const insertUserSchema = createInsertSchema(users, {

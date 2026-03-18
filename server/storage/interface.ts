@@ -26,6 +26,7 @@ import {
   type CompanyFiling, type InsertCompanyFiling,
   type NewsArticleRecord, type InsertNewsArticleRecord,
   type AnalysisMaterialSnapshot, type InsertAnalysisMaterialSnapshot,
+  type KiwoomJob, type InsertKiwoomJob,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -170,6 +171,13 @@ export interface IStorage {
   // 분석 재료 스냅샷
   getAnalysisMaterialSnapshots(userId: string, stockCode: string, limit?: number): Promise<AnalysisMaterialSnapshot[]>;
   createAnalysisMaterialSnapshot(snapshot: InsertAnalysisMaterialSnapshot): Promise<AnalysisMaterialSnapshot>;
+
+  // 키움 에이전트 작업 큐
+  createKiwoomJob(job: InsertKiwoomJob): Promise<KiwoomJob>;
+  getNextPendingJob(agentKey: string): Promise<KiwoomJob | undefined>;
+  updateKiwoomJobResult(id: number, status: string, result?: unknown, errorMessage?: string): Promise<KiwoomJob | undefined>;
+  getKiwoomJobStatus(id: number): Promise<KiwoomJob | undefined>;
+  getRecentKiwoomJobs(limit?: number): Promise<KiwoomJob[]>;
 
   // 헬퍼
   getActiveAiModels(): Promise<AiModel[]>;

@@ -79,3 +79,40 @@ client/src/
 - `npm run dev` — 개발 서버 (Vite + Express)
 - `npm run build` — 프로덕션 빌드
 - `npm start` — 프로덕션 서버
+
+## 키움 API 고정 IP 솔루션 — 집 PC 폴링 에이전트
+
+### 배경
+키움 REST API는 허용된 공인 IP에서만 호출 가능. Replit은 유동 IP라 키움을 직접 호출 불가.
+
+### 아키텍처
+```
+사용자 브라우저 → Replit (작업 등록) → kiwoom_jobs 테이블
+집 PC 에이전트 → Replit GET /api/kiwoom-agent/jobs/next → 키움 REST 호출 → Replit POST result
+사용자 브라우저 → GET /api/kiwoom-agent/jobs/:id/status → 결과 표시
+```
+
+- **Replit**: 화면 + 작업 큐 역할 (고정 IP 불필요)
+- **집 PC**: 실제 키움 API 호출 (집 공인 IP를 키움에 등록)
+- 포트포워딩/도메인/외부 공개 전혀 불필요
+
+### API 엔드포인트
+- `POST /api/kiwoom-agent/jobs` — 작업 등록 (인증된 사용자)
+- `GET /api/kiwoom-agent/jobs/next?agent_key=xxx` — 에이전트 작업 폴링
+- `POST /api/kiwoom-agent/jobs/:jobId/result` — 에이전트 결과 업로드
+- `GET /api/kiwoom-agent/jobs/:jobId/status` — 작업 상태 조회
+- `GET /api/kiwoom-agent/jobs` — 최근 작업 목록
+
+### 설정 방법
+1. Replit Secrets에 `AGENT_KEY` 추가 (랜덤 문자열)
+2. 키움 포털에서 집 PC 공인 IP 등록
+3. 집 PC에서 `python agent/kiwoom-agent.py` 실행
+4. `agent/.env` 파일에 REPLIT_URL, AGENT_KEY, KIWOOM_APP_KEY/SECRET 설정
+
+### 집 PC 에이전트 실행
+```bash
+pip install requests python-dotenv
+python agent/kiwoom-agent.py
+```
+
+자세한 내용: `agent/README.md`

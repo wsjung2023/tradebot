@@ -11,6 +11,7 @@
 - **autotrading.routes.ts** — 자동매매 전략 설정
 - **admin.routes.ts** — 관리자 전용 엔드포인트
 - **settings.routes.ts** — 서버 정보 조회 (IP 감지 등)
+- **kiwoom-agent.routes.ts** — 집 PC 에이전트 작업 큐 API (폴링 방식 키움 API 호출 브릿지)
 
 ## 라우트 등록
 

@@ -14,6 +14,7 @@ import { registerFormulaRoutes } from "./formula.routes";
 import { registerAutoTradingRoutes } from "./autotrading.routes";
 import { registerAdminRoutes } from "./admin.routes";
 import { registerSettingsRoutes } from "./settings.routes";
+import { registerKiwoomAgentRoutes } from "./kiwoom-agent.routes";
 
 export async function registerRoutes(app: Express, httpServer: Server, sessionMiddleware: any): Promise<void> {
   const kiwoomService = getKiwoomService();
@@ -29,6 +30,7 @@ export async function registerRoutes(app: Express, httpServer: Server, sessionMi
   registerAutoTradingRoutes(app as any);
   registerAdminRoutes(app as any);
   registerSettingsRoutes(app as any);
+  registerKiwoomAgentRoutes(app as any);
 
   // ?덉씤蹂댁슦 李⑦듃 ?쇱슦??
   app.use("/api/rainbow", rainbowRouter);

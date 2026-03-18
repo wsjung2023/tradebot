@@ -21,6 +21,7 @@ import type {
   CompanyFiling, InsertCompanyFiling,
   NewsArticleRecord, InsertNewsArticleRecord,
   AnalysisMaterialSnapshot, InsertAnalysisMaterialSnapshot,
+  KiwoomJob, InsertKiwoomJob,
 } from '@shared/schema';
 
 export class PostgreSQLCoreStorage {
@@ -470,5 +471,51 @@ export class PostgreSQLCoreStorage {
       and(eq(schema.alerts.isTriggered, true), lt(schema.alerts.triggeredAt, cutoffDate))
     );
     return result.rowCount || 0;
+  }
+
+  // ==================== Kiwoom Agent Job Queue ====================
+
+  async createKiwoomJob(job: InsertKiwoomJob): Promise<KiwoomJob> {
+    const result = await db.insert(schema.kiwoomJobs).values([job]).returning();
+    return result[0];
+  }
+
+  async getNextPendingJob(agentKey: string): Promise<KiwoomJob | undefined> {
+    // pending 상태의 가장 오래된 작업을 processing으로 변경 후 반환
+    const pending = await db.select().from(schema.kiwoomJobs)
+      .where(eq(schema.kiwoomJobs.status, 'pending'))
+      .orderBy(schema.kiwoomJobs.createdAt)
+      .limit(1);
+    if (!pending[0]) return undefined;
+    const result = await db.update(schema.kiwoomJobs)
+      .set({ status: 'processing', agentKey, updatedAt: new Date() })
+      .where(eq(schema.kiwoomJobs.id, pending[0].id))
+      .returning();
+    return result[0];
+  }
+
+  async updateKiwoomJobResult(id: number, status: string, result?: unknown, errorMessage?: string): Promise<KiwoomJob | undefined> {
+    const updated = await db.update(schema.kiwoomJobs)
+      .set({
+        status,
+        result: result ?? null,
+        errorMessage: errorMessage ?? null,
+        updatedAt: new Date(),
+        processedAt: new Date(),
+      })
+      .where(eq(schema.kiwoomJobs.id, id))
+      .returning();
+    return updated[0];
+  }
+
+  async getKiwoomJobStatus(id: number): Promise<KiwoomJob | undefined> {
+    const result = await db.select().from(schema.kiwoomJobs).where(eq(schema.kiwoomJobs.id, id)).limit(1);
+    return result[0];
+  }
+
+  async getRecentKiwoomJobs(limit: number = 50): Promise<KiwoomJob[]> {
+    return db.select().from(schema.kiwoomJobs)
+      .orderBy(desc(schema.kiwoomJobs.createdAt))
+      .limit(limit);
   }
 }
