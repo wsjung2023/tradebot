@@ -97,6 +97,17 @@ export default function Dashboard() {
     }
   }, [selectedAccountId]);
 
+  // ACCOUNT_TYPE_MISMATCH 에러 토스트 표시 (실계좌 API 키 없음)
+  useEffect(() => {
+    if (kiwoom.errorCode === "ACCOUNT_TYPE_MISMATCH" && selectedAccount?.accountType === "real") {
+      toast({
+        variant: "destructive",
+        title: "실계좌 API 키가 등록되지 않았습니다",
+        description: `${selectedAccount.accountNumber || "선택한 계좌"}의 전용 API 키를 설정해주세요.`,
+      });
+    }
+  }, [kiwoom.errorCode, selectedAccount?.id]);
+
   const handleRefresh = () => {
     if (!selectedAccount) return;
     kiwoom.fetch(

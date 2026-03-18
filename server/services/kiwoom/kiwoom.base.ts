@@ -179,11 +179,13 @@ export class KiwoomBase {
     try {
       await this._doAuthenticate(this.baseURL);
     } catch (error: any) {
-      // 8030: 실전/모의 API 키 불일치 → 자동전환 없이 명확한 에러 반환
+      // 8030: 실전/모의 API 키 불일치 → ACCOUNT_TYPE_MISMATCH 에러 코드
       if (error.message?.includes("8030")) {
         const serverType = this.baseURL === KIWOOM_REAL_BASE ? "실전" : "모의";
         console.warn(`⚠️  Kiwoom 8030 오류: ${serverType} 서버에 맞지 않는 API 키`);
-        throw new Error(`8030: ${serverType} 서버용 API 키가 필요합니다. 계좌번호별 API 키를 확인하세요.`);
+        const err = new Error(`8030: ${serverType} 서버용 API 키가 필요합니다. 계좌번호별 API 키를 확인하세요.`);
+        (err as any).code = "ACCOUNT_TYPE_MISMATCH";
+        throw err;
       }
       if (error.code === "ECONNABORTED" || error.message?.includes("timeout") ||
           error.code === "ECONNREFUSED" || error.code === "ENOTFOUND") {

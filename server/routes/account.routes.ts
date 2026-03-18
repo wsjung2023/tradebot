@@ -29,9 +29,9 @@ export function registerAccountRoutes(app: Router) {
     return null;
   };
 
-  const getUserApiKeys = async (userId: string, accountNumber?: string) => {
-    // 1순위: 계좌번호 전용 키 (실계좌별 분리)
-    if (accountNumber) {
+  const getUserApiKeys = async (userId: string, accountNumber?: string, accountType?: "mock" | "real") => {
+    // 1순위: 계좌번호 전용 키 (실계좌only)
+    if (accountType === "real" && accountNumber) {
       const specific = getAccountSpecificKeys(accountNumber);
       if (specific) return specific;
     }
@@ -165,7 +165,7 @@ export function registerAccountRoutes(app: Router) {
       const digits = account.accountNumber.replace(/\D/g, "").slice(0, 8);
       const hasSpecificKey = !!(process.env[`KIWOOM_KEY_${digits}`] && process.env[`KIWOOM_SECRET_${digits}`]);
       console.log(`[fetch-balance] 계좌=${account.accountNumber} digits=${digits} 전용키=${hasSpecificKey ? "있음" : "없음"} type=${accountType}`);
-      const keys = await getUserApiKeys(user!.id, account.accountNumber);
+      const keys = await getUserApiKeys(user!.id, account.accountNumber, accountType);
       if (!keys) {
         return res.status(400).json({
           error: "API 키 없음: 설정 페이지에서 키움 API 키를 입력해주세요.",
