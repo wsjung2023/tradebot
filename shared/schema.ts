@@ -473,18 +473,20 @@ export const analysisMaterialSnapshots = pgTable("analysis_material_snapshots", 
 // 구조: Replit(작업 등록) → 집 PC 에이전트(폴링+키움 호출) → Replit(결과 저장)
 export const kiwoomJobs = pgTable("kiwoom_jobs", {
   id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }), // 작업 소유자
   jobType: text("job_type").notNull(), // 'watchlist.get', 'order.buy', 'order.sell', 'balance.get' 등
   payload: jsonb("payload").notNull().default({}), // 작업 파라미터
   status: text("status").notNull().default('pending'), // 'pending', 'processing', 'done', 'error'
   result: jsonb("result"), // 집 PC 에이전트가 올린 결과
   errorMessage: text("error_message"), // 실패 시 에러 메시지
-  agentKey: text("agent_key"), // 어느 에이전트가 처리했는지
+  agentId: text("agent_id"), // 처리한 에이전트 식별자 (AGENT_KEY 아님 — 안전한 식별값만 저장)
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
   processedAt: timestamp("processed_at"), // 처리 완료 시각
 });
 
 export const insertKiwoomJobSchema = createInsertSchema(kiwoomJobs, {
+  userId: z.string().min(1),
   jobType: z.string().min(1),
   payload: z.any(),
 }).omit({ id: true, createdAt: true, updatedAt: true });
