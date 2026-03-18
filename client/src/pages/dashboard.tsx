@@ -272,12 +272,18 @@ export default function Dashboard() {
               </Select>
               {selectedAccountId && selectedAccount && (
                 <>
-                  <Badge
-                    variant={selectedAccount.accountType === "real" ? "default" : "secondary"}
-                    data-testid="badge-account-type"
-                  >
-                    {selectedAccount.accountType === "real" ? "실전" : "모의"}
-                  </Badge>
+                  {kiwoom.errorCode === "ACCOUNT_TYPE_MISMATCH" && selectedAccount.accountType === "real" ? (
+                    <Badge variant="destructive" data-testid="badge-account-type-error">
+                      API 키 오류
+                    </Badge>
+                  ) : (
+                    <Badge
+                      variant={selectedAccount.accountType === "real" ? "default" : "secondary"}
+                      data-testid="badge-account-type"
+                    >
+                      {selectedAccount.accountType === "real" ? "실전" : "모의"}
+                    </Badge>
+                  )}
                   <Button
                     variant="ghost"
                     size="icon"
