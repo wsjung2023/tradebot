@@ -195,6 +195,11 @@ export class KiwoomBase {
         console.warn(`⚠️  Kiwoom 8030 오류: ${serverType} 서버에 맞지 않는 API 키`);
         throw new KiwoomAuthError("ACCOUNT_TYPE_MISMATCH", `8030: ${serverType} 서버용 API 키가 필요합니다. 계좌번호별 API 키를 확인하세요.`);
       }
+      // 8050: 서버 IP 미등록 → IP_NOT_REGISTERED 에러 코드
+      if (error.message?.includes("8050")) {
+        console.warn("⚠️  Kiwoom 8050 오류: 서버 IP가 키움 OpenAPI 포털에 미등록됨");
+        throw new KiwoomAuthError("IP_NOT_REGISTERED", `8050: 서버 IP가 키움 OpenAPI 포털에 등록되어야 합니다. 설정에서 현재 IP를 확인하고 키움 포털의 지정단말기 IP로 등록하세요.`);
+      }
       if (error.code === "ECONNABORTED" || error.message?.includes("timeout") ||
           error.code === "ECONNREFUSED" || error.code === "ENOTFOUND") {
         console.warn("⚠️  Kiwoom API 연결 불가 (네트워크), stub 모드 전환");

@@ -97,13 +97,21 @@ export default function Dashboard() {
     }
   }, [selectedAccountId]);
 
-  // ACCOUNT_TYPE_MISMATCH 에러 토스트 표시 (실계좌 API 키 없음)
+  // ACCOUNT_TYPE_MISMATCH / IP_NOT_REGISTERED 에러 토스트 표시
   useEffect(() => {
-    if (kiwoom.errorCode === "ACCOUNT_TYPE_MISMATCH" && selectedAccount?.accountType === "real") {
+    if (selectedAccount?.accountType !== "real") return;
+    
+    if (kiwoom.errorCode === "ACCOUNT_TYPE_MISMATCH") {
       toast({
         variant: "destructive",
         title: "실계좌 API 키가 등록되지 않았습니다",
         description: `${selectedAccount.accountNumber || "선택한 계좌"}의 전용 API 키를 설정해주세요.`,
+      });
+    } else if (kiwoom.errorCode === "IP_NOT_REGISTERED") {
+      toast({
+        variant: "destructive",
+        title: "서버 IP가 키움 포털에 등록되지 않았습니다",
+        description: "설정 페이지에서 현재 IP를 확인하고 키움 OpenAPI 포털의 지정단말기 IP로 등록하세요.",
       });
     }
   }, [kiwoom.errorCode, selectedAccount?.id]);
@@ -272,9 +280,9 @@ export default function Dashboard() {
               </Select>
               {selectedAccountId && selectedAccount && (
                 <>
-                  {kiwoom.errorCode === "ACCOUNT_TYPE_MISMATCH" && selectedAccount.accountType === "real" ? (
+                  {selectedAccount.accountType === "real" && (kiwoom.errorCode === "ACCOUNT_TYPE_MISMATCH" || kiwoom.errorCode === "IP_NOT_REGISTERED") ? (
                     <Badge variant="destructive" data-testid="badge-account-type-error">
-                      API 키 오류
+                      {kiwoom.errorCode === "ACCOUNT_TYPE_MISMATCH" ? "API 키 오류" : "IP 미등록"}
                     </Badge>
                   ) : (
                     <Badge
