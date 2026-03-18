@@ -101,7 +101,7 @@ export function registerWatchlistRoutes(app: Router) {
 
   // 관심종목 삭제
   // 키움 시세 새로고침 (반드시 /:id 라우트보다 앞에 위치)
-  app.post("/api/watchlist/sync-kiwoom", isAuthenticated, async (req, res) => {
+  app.post("/api/watchlist/sync/kiwoom", isAuthenticated, async (req, res) => {
     try {
       const user = getCurrentUser(req);
       const list = await storage.getWatchlist(user!.id);
