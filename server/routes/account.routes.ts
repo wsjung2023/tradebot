@@ -167,9 +167,11 @@ export function registerAccountRoutes(app: Router) {
       console.log(`[fetch-balance] 계좌=${account.accountNumber} digits=${digits} 전용키=${hasSpecificKey ? "있음" : "없음"} type=${accountType}`);
       const keys = await getUserApiKeys(user!.id, account.accountNumber, accountType);
       if (!keys) {
+        // 실계좌에서 API 키가 없으면 ACCOUNT_TYPE_MISMATCH로 통일 (일관된 UX)
+        const errorCode = accountType === "real" ? "ACCOUNT_TYPE_MISMATCH" : "NO_API_KEY";
         return res.status(400).json({
           error: "API 키 없음: 설정 페이지에서 키움 API 키를 입력해주세요.",
-          errorCode: "NO_API_KEY",
+          errorCode,
         });
       }
       console.log(`[fetch-balance] 사용 키 앞 8자리=${keys.appKey.slice(0, 8)}... 계좌타입=${accountType}`);

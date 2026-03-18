@@ -26,6 +26,16 @@ function saveTokenCache(cache: Record<string, { token: string; expiry: number }>
 export const KIWOOM_REAL_BASE = "https://api.kiwoom.com";
 export const KIWOOM_MOCK_BASE = "https://mockapi.kiwoom.com";
 
+export class KiwoomAuthError extends Error {
+  code: string;
+  constructor(code: string, message: string) {
+    super(message);
+    this.code = code;
+    this.name = "KiwoomAuthError";
+    Object.setPrototypeOf(this, KiwoomAuthError.prototype);
+  }
+}
+
 export interface KiwoomConfig {
   appKey: string;
   appSecret: string;
@@ -183,9 +193,7 @@ export class KiwoomBase {
       if (error.message?.includes("8030")) {
         const serverType = this.baseURL === KIWOOM_REAL_BASE ? "실전" : "모의";
         console.warn(`⚠️  Kiwoom 8030 오류: ${serverType} 서버에 맞지 않는 API 키`);
-        const err = new Error(`8030: ${serverType} 서버용 API 키가 필요합니다. 계좌번호별 API 키를 확인하세요.`);
-        (err as any).code = "ACCOUNT_TYPE_MISMATCH";
-        throw err;
+        throw new KiwoomAuthError("ACCOUNT_TYPE_MISMATCH", `8030: ${serverType} 서버용 API 키가 필요합니다. 계좌번호별 API 키를 확인하세요.`);
       }
       if (error.code === "ECONNABORTED" || error.message?.includes("timeout") ||
           error.code === "ECONNREFUSED" || error.code === "ENOTFOUND") {
