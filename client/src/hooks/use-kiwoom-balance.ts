@@ -1,6 +1,7 @@
-// use-kiwoom-balance.ts — 서버사이드 프록시 우선, 실패 시 브라우저 직접 호출 폴백
+// use-kiwoom-balance.ts — 클라이언트 job 등록 방식 (에이전트 폴링)
 import { useState, useCallback } from "react";
 import { queryClient } from "@/lib/queryClient";
+import { useAgentJob } from "./use-agent-job";
 import { fetchKiwoomBalance } from "@/lib/kiwoom-client";
 
 export interface BalanceResult {
@@ -11,7 +12,7 @@ export interface BalanceResult {
   todayProfitRate: number;
 }
 
-type Status = "idle" | "loading" | "success" | "network_blocked" | "cors_blocked" | "error";
+type Status = "idle" | "loading" | "success" | "network_blocked" | "cors_blocked" | "error" | "agent_timeout";
 
 interface UseKiwoomBalanceResult {
   status: Status;
@@ -26,6 +27,7 @@ export function useKiwoomBalance(): UseKiwoomBalanceResult {
   const [data, setData] = useState<BalanceResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<string | null>(null);
+  const agentJob = useAgentJob();
 
   const fetchBalance = useCallback(async (
     accountId: number,
@@ -36,33 +38,43 @@ export function useKiwoomBalance(): UseKiwoomBalanceResult {
     setError(null);
     setErrorCode(null);
 
-    // 1단계: 서버사이드 프록시 시도
+    // 1단계: 집 PC 에이전트를 통해 키움 API 호출
     try {
-      const res = await fetch(`/api/accounts/${accountId}/fetch-balance`);
-      const body = await res.json();
+      const result = await agentJob.submitJob(
+        "balance.get",
+        { accountNumber, accountType },
+        30000
+      );
 
-      if (res.ok) {
-        setData(body);
+      // submitJob이 완료되었고 결과가 있음
+      if (result?.status === "done" && result.result) {
+        const agentResult = result.result;
+        // 에이전트 응답을 BalanceResult 형식으로 변환
+        const balanceResult: BalanceResult = {
+          output1: agentResult.output1 || {},
+          output2: agentResult.output2 || [],
+          totalAssets: parseFloat(agentResult.totalEvaluationAmount || "0"),
+          todayProfit: parseFloat(agentResult.todayProfit || "0"),
+          todayProfitRate: parseFloat(agentResult.todayProfitRate || "0"),
+        };
+        setData(balanceResult);
         setStatus("success");
         queryClient.invalidateQueries({ queryKey: ["/api/accounts", accountId, "holdings"] });
         return;
       }
 
-      // 서버가 네트워크 차단 에러를 반환한 경우 → 브라우저 직접 호출 폴백
-      const errCode = body.errorCode || "";
-      if (errCode !== "SERVER_UNREACHABLE" && body.error !== "KIWOOM_NETWORK_BLOCKED") {
-        setStatus("error");
-        setError(body.error || body.message || `HTTP ${res.status}`);
-        setErrorCode(errCode || null);
-        setData(null);
-        return;
-      }
-    } catch {
-      // 서버 자체 에러 → 폴백 진행
+      // 에이전트 에러 발생
+      setStatus("error");
+      setError(result?.errorMessage || "에이전트 처리 중 오류 발생");
+      setErrorCode("AGENT_ERROR");
+      setData(null);
+      return;
+    } catch (e: any) {
+      // 에이전트 실패 → 폴백: 브라우저 직접 호출
+      console.log("[Kiwoom] 에이전트 실패 → 브라우저 직접 호출 시도...", e.message);
     }
 
-    // 2단계: 브라우저에서 Kiwoom API 직접 호출 (한국 IP에서 CORS 가능성)
-    console.log("[Kiwoom] 서버 프록시 실패 → 브라우저 직접 호출 시도...");
+    // 2단계: 브라우저에서 Kiwoom API 직접 호출 (폴백)
     try {
       const result = await fetchKiwoomBalance(accountNumber, accountType);
       setData(result);
@@ -92,7 +104,7 @@ export function useKiwoomBalance(): UseKiwoomBalanceResult {
       }
       setData(null);
     }
-  }, []);
+  }, [agentJob]);
 
   return { status, data, error, errorCode, fetch: fetchBalance };
 }
