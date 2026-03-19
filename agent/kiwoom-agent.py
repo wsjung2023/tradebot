@@ -291,9 +291,47 @@ def handle_ping(_payload):
         "pong": True,
         "agentTime": time.time(),
         "mode": "mock" if KIWOOM_IS_MOCK else "real",
-        "version": "2.1",
-        "features": ["accountType-routing", "raw-output1"],
+        "version": "2.2",
+        "features": ["accountType-routing", "raw-output1", "token-test"],
     }
+
+
+def handle_token_test(payload):
+    """실계좌/모의 토큰 발급 테스트 — 키움 /oauth2/token 직접 호출"""
+    account_type = payload.get("accountType", "real")
+    is_mock = account_type == "mock"
+    key = "mock" if is_mock else "real"
+    base_url = KIWOOM_MOCK_BASE if is_mock else KIWOOM_REAL_BASE
+    url = f"{base_url}/oauth2/token"
+    req_body = {
+        "grant_type": "client_credentials",
+        "appkey": KIWOOM_APP_KEY,
+        "secretkey": KIWOOM_APP_SECRET,
+    }
+    try:
+        resp = requests.post(
+            url,
+            json=req_body,
+            headers={"Content-Type": "application/json;charset=UTF-8"},
+            timeout=10
+        )
+        data = resp.json()
+        return {
+            "accountType": account_type,
+            "url": url,
+            "httpStatus": resp.status_code,
+            "returnCode": data.get("return_code"),
+            "returnMsg": data.get("return_msg"),
+            "hasToken": bool(data.get("access_token") or data.get("token")),
+            "raw": data,
+        }
+    except Exception as e:
+        return {
+            "accountType": account_type,
+            "url": url,
+            "error": str(e),
+            "hasToken": False,
+        }
 
 
 JOB_HANDLERS = {
@@ -307,6 +345,7 @@ JOB_HANDLERS = {
     "order.buy": handle_order_buy,
     "order.sell": handle_order_sell,
     "ping": handle_ping,
+    "token.test": handle_token_test,
 }
 
 
