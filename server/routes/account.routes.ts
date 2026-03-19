@@ -130,11 +130,42 @@ export function registerAccountRoutes(app: Router) {
         accountType: account.accountType || "real",
       });
 
-      // 에이전트 응답: { output1, output2, raw }
-      const output2: any[] = result?.output2 || result?.holdings || [];
-      const output1: any = result?.output1 || {};
+      // 에이전트 응답: { output1, output2, raw, totalEvaluationAmount, depositAmount, todayProfit }
+      // raw가 최우선: 구버전 에이전트는 output1={}로 반환하지만 raw에는 실제 데이터가 있음
+      const raw: any = result?.raw || {};
+      const output1: any = Object.keys(result?.output1 || {}).length > 0
+        ? result.output1
+        : raw;
+      const output2: any[] = (result?.output2 && result.output2.length > 0)
+        ? result.output2
+        : (result?.holdings || raw.acnt_evlt_remn_indv_tot || []);
 
-      // DB 보유종목 동기화 (키움 API 필드명 다중 폴백)
+      // 숫자 파싱 헬퍼 (0 문자열 폴백 지원)
+      const parseNum = (...fields: (string | undefined | null)[]): number => {
+        for (const v of fields) {
+          if (v && v !== "0") return parseFloat(v);
+        }
+        return 0;
+      };
+
+      // raw 최상위 필드 우선 → output1 → 에이전트가 계산한 totalEvaluationAmount 순
+      const totalAssets = parseNum(
+        raw.tot_evlt_amt, raw.tot_evlu_amt, raw.acnt_tot_evlu_amt,
+        output1.tot_evlt_amt, output1.tot_evlu_amt,
+        result?.totalEvaluationAmount,
+      );
+      const depositAmount = parseNum(
+        raw.prsm_dpst_aset_amt, raw.dnca_tot_amt,
+        output1.prsm_dpst_aset_amt, output1.dnca_tot_amt,
+        result?.depositAmount,
+      );
+      const todayProfit = parseNum(
+        raw.tot_evlt_pl, raw.tot_evlu_pfls,
+        output1.tot_evlt_pl, output1.evlu_pfls_smtl_amt, output1.tot_evlu_pfls,
+        result?.todayProfit,
+      );
+
+      // DB 보유종목 동기화
       for (const item of output2) {
         const stockCode = item.acnt_pdno || item.pdno || item.stk_cd || item.stockCode;
         if (!stockCode) continue;
@@ -151,19 +182,17 @@ export function registerAccountRoutes(app: Router) {
         else await storage.createHolding({ accountId: account.id, stockCode, ...updates });
       }
 
-      const totalAssets = parseFloat(
-        result?.totalEvaluationAmount || output1.tot_evlt_amt || output1.tot_evlu_amt || output1.acnt_tot_evlu_amt || "0",
-      );
-      const todayProfit = parseFloat(
-        result?.todayProfit || output1.tot_evlt_pl || output1.evlu_pfls_smtl_amt || output1.tot_evlu_pfls || "0",
-      );
+      // 총 자산 = 주식 평가금액 + 예수금
+      const totalAssetsWithDeposit = totalAssets + depositAmount;
 
       res.json({
         output1,
         output2,
-        totalAssets,
+        totalAssets: totalAssetsWithDeposit,
+        stockEvalAmount: totalAssets,
+        depositAmount,
         todayProfit,
-        todayProfitRate: totalAssets > 0 ? (todayProfit / totalAssets) * 100 : 0,
+        todayProfitRate: totalAssetsWithDeposit > 0 ? (todayProfit / totalAssetsWithDeposit) * 100 : 0,
       });
     } catch (err: any) {
       console.error("[fetch-balance] 오류:", err.message);
