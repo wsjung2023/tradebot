@@ -80,7 +80,9 @@ export default function Dashboard() {
     }
   }, [accounts, accountsLoading, selectedAccountId]);
 
-  // 계좌 선택 시 잔고 조회 (계좌 바뀌면 항상 즉시 fetch)
+  // 계좌 선택 or accountType 변경 시 잔고 즉시 재조회
+  // selectedAccountId: 다른 계좌 선택 시
+  // selectedAccount?.accountType: 같은 계좌에서 실계좌↔모의계좌 토글 시
   useEffect(() => {
     if (selectedAccount) {
       kiwoom.fetch(
@@ -89,7 +91,7 @@ export default function Dashboard() {
         selectedAccount.accountType as "mock" | "real"
       );
     }
-  }, [selectedAccountId]);
+  }, [selectedAccountId, selectedAccount?.accountType]);
 
   // ACCOUNT_TYPE_MISMATCH / IP_NOT_REGISTERED 에러 토스트 표시
   useEffect(() => {
