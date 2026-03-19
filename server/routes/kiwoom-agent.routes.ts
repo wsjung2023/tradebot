@@ -110,6 +110,7 @@ export function registerKiwoomAgentRoutes(app: Express): void {
   });
 
   // 작업 상태 조회 — 본인 소유 작업만 조회 가능 (IDOR 방지)
+  // 캐시 비활성화: 상태가 자주 변경되므로 항상 최신 상태 반환
   app.get("/api/kiwoom-agent/jobs/:jobId/status", async (req: Request, res: Response) => {
     try {
       if (!req.isAuthenticated()) {
@@ -131,6 +132,9 @@ export function registerKiwoomAgentRoutes(app: Express): void {
         res.status(404).json({ error: "작업을 찾을 수 없습니다" });
         return;
       }
+      res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+      res.set("Pragma", "no-cache");
+      res.set("Expires", "0");
       res.json({ job: sanitizeJob(job) });
     } catch (err) {
       console.error("[kiwoom-agent] 상태 조회 실패:", err);

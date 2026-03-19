@@ -57,7 +57,9 @@ export function useAgentJob() {
             }
 
             try {
-              const statusRes = await fetch(`/api/kiwoom-agent/jobs/${jobId}/status`);
+              const statusRes = await fetch(`/api/kiwoom-agent/jobs/${jobId}/status`, {
+                cache: "no-store",
+              });
               if (!statusRes.ok) return; // 아직 준비 안 됨
 
               const { job: statusJob } = await statusRes.json();
