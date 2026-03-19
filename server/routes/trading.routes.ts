@@ -3,7 +3,7 @@ import type { Router } from "express";
 import { storage } from "../storage";
 import { isAuthenticated, getCurrentUser } from "../auth";
 import { insertOrderSchema } from "@shared/schema";
-import { getKiwoomService } from "../services/kiwoom";
+import { callViaAgent, AgentTimeoutError } from "../services/agent-proxy.service";
 
 // BackAttack 레인보우 라인 계산 (BackAttackLine.md 수식 기반)
 function calcRainbowLines(chartItems: { date: string; high: number; low: number; close: number }[]): Record<string, number> | null {
@@ -60,7 +60,6 @@ function calcRainbowLines(chartItems: { date: string; high: number; low: number;
 }
 
 export function registerTradingRoutes(app: Router) {
-  const kiwoomService = getKiwoomService();
 
   type ChartSignalOverlay = {
     id: number;
@@ -107,9 +106,11 @@ export function registerTradingRoutes(app: Router) {
   // 시세 조회
   app.get("/api/stocks/:stockCode/price", isAuthenticated, async (req, res) => {
     try {
-      const price = await kiwoomService.getStockPrice(req.params.stockCode);
+      const user = getCurrentUser(req);
+      const price = await callViaAgent(user!.id, "price.get", { stockCode: req.params.stockCode });
       res.json(price);
     } catch (error: any) {
+      if (error instanceof AgentTimeoutError) return res.status(503).json({ error: error.message });
       res.status(500).json({ error: error.message });
     }
   });
@@ -117,9 +118,11 @@ export function registerTradingRoutes(app: Router) {
   // 호가 조회
   app.get("/api/stocks/:stockCode/orderbook", isAuthenticated, async (req, res) => {
     try {
-      const orderbook = await kiwoomService.getStockOrderbook(req.params.stockCode);
+      const user = getCurrentUser(req);
+      const orderbook = await callViaAgent(user!.id, "orderbook.get", { stockCode: req.params.stockCode });
       res.json(orderbook);
     } catch (error: any) {
+      if (error instanceof AgentTimeoutError) return res.status(503).json({ error: error.message });
       res.status(500).json({ error: error.message });
     }
   });
@@ -127,10 +130,12 @@ export function registerTradingRoutes(app: Router) {
   // 차트 조회
   app.get("/api/stocks/:stockCode/chart", isAuthenticated, async (req, res) => {
     try {
+      const user = getCurrentUser(req);
       const period = (req.query.period as string) || "D";
-      const chart = await kiwoomService.getStockChart(req.params.stockCode, period);
+      const chart = await callViaAgent(user!.id, "chart.get", { stockCode: req.params.stockCode, period });
       res.json(chart);
     } catch (error: any) {
+      if (error instanceof AgentTimeoutError) return res.status(503).json({ error: error.message });
       res.status(500).json({ error: error.message });
     }
   });
@@ -138,13 +143,14 @@ export function registerTradingRoutes(app: Router) {
   // 레인보우 라인 조회 (BackAttack Line, 수식: BackAttackLine.md)
   app.get("/api/stocks/:stockCode/rainbow-lines", isAuthenticated, async (req, res) => {
     try {
-      const chartItems = await kiwoomService.getStockChart(req.params.stockCode, "D", 260);
-      if (!Array.isArray(chartItems) || chartItems.length < 10) {
-        return res.json({ lines: null, message: "데이터 부족" });
-      }
+      const user = getCurrentUser(req);
+      const result = await callViaAgent(user!.id, "chart.get", { stockCode: req.params.stockCode, period: "D", count: 260 });
+      const chartItems: any[] = Array.isArray(result) ? result : (result?.items || []);
+      if (chartItems.length < 10) return res.json({ lines: null, message: "데이터 부족" });
       const lines = calcRainbowLines(chartItems);
       res.json({ lines, dataPoints: chartItems.length });
     } catch (error: any) {
+      if (error instanceof AgentTimeoutError) return res.status(503).json({ error: error.message });
       res.status(500).json({ error: error.message });
     }
   });
@@ -152,11 +158,13 @@ export function registerTradingRoutes(app: Router) {
   // 종목 검색
   app.get("/api/stocks/search", isAuthenticated, async (req, res) => {
     try {
+      const user = getCurrentUser(req);
       const keyword = (req.query.query ?? req.query.q ?? "") as string;
       if (!keyword.trim()) return res.json([]);
-      const results = await kiwoomService.searchStock(keyword);
-      res.json(results);
+      const results = await callViaAgent(user!.id, "stock.search", { keyword });
+      res.json(Array.isArray(results) ? results : (results?.items || []));
     } catch (error: any) {
+      if (error instanceof AgentTimeoutError) return res.status(503).json({ error: error.message });
       res.status(500).json({ error: error.message });
     }
   });
@@ -164,9 +172,11 @@ export function registerTradingRoutes(app: Router) {
   // 종목 기본정보 조회 (자동완성)
   app.get("/api/stocks/:stockCode/info", isAuthenticated, async (req, res) => {
     try {
-      const info = await kiwoomService.getStockInfo(req.params.stockCode);
+      const user = getCurrentUser(req);
+      const info = await callViaAgent(user!.id, "stock.info", { stockCode: req.params.stockCode });
       res.json(info);
     } catch (error: any) {
+      if (error instanceof AgentTimeoutError) return res.status(503).json({ error: error.message });
       res.status(404).json({ error: error.message });
     }
   });
@@ -227,17 +237,18 @@ export function registerTradingRoutes(app: Router) {
       const account = await storage.getKiwoomAccount(orderData.accountId);
       if (!account) return res.status(404).json({ error: "Account not found" });
 
-      const kiwoomOrder = await kiwoomService.placeOrder({
-        accountNumber: account.accountNumber,
+      const user = getCurrentUser(req);
+      const jobType = orderData.orderType === "buy" ? "order.buy" : "order.sell";
+      const kiwoomOrder = await callViaAgent(user!.id, jobType, {
         stockCode: orderData.stockCode,
-        orderType: orderData.orderType,
-        orderQuantity: orderData.orderQuantity,
-        orderPrice: orderData.orderPrice ? parseFloat(orderData.orderPrice) : undefined,
-        orderMethod: orderData.orderMethod as "market" | "limit",
+        orderType: orderData.orderMethod || "market",
+        quantity: orderData.orderQuantity,
+        price: orderData.orderPrice ? parseFloat(orderData.orderPrice) : 0,
+        accountNumber: account.accountNumber,
       });
 
       const updatedOrder = await storage.updateOrder(order.id, {
-        orderNumber: kiwoomOrder.output?.ODNO || kiwoomOrder.output?.ord_no,
+        orderNumber: kiwoomOrder?.ord_no || kiwoomOrder?.ODNO || kiwoomOrder?.orderNumber,
       });
 
       await storage.createTradingLog({

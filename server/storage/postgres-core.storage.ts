@@ -522,4 +522,11 @@ export class PostgreSQLCoreStorage {
       .orderBy(desc(schema.kiwoomJobs.createdAt))
       .limit(limit);
   }
+
+  async getKiwoomJobByIdInternal(id: number): Promise<KiwoomJob | undefined> {
+    const result = await db.select().from(schema.kiwoomJobs)
+      .where(eq(schema.kiwoomJobs.id, id))
+      .limit(1);
+    return result[0];
+  }
 }

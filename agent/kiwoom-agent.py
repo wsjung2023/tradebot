@@ -22,7 +22,6 @@ import logging
 import requests
 from dotenv import load_dotenv
 
-# ===== 설정 로드 =====
 load_dotenv()
 
 REPLIT_URL = os.getenv("REPLIT_URL", "").rstrip("/")
@@ -32,7 +31,6 @@ KIWOOM_APP_SECRET = os.getenv("KIWOOM_APP_SECRET", "")
 KIWOOM_IS_MOCK = os.getenv("KIWOOM_IS_MOCK", "false").lower() == "true"
 POLL_INTERVAL = int(os.getenv("POLL_INTERVAL", "2"))
 
-# ===== 로깅 설정 =====
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -40,7 +38,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger("kiwoom-agent")
 
-# ===== 키움 REST API 기본값 =====
 KIWOOM_REAL_BASE = "https://api.kiwoom.com"
 KIWOOM_MOCK_BASE = "https://mockapi.kiwoom.com"
 
@@ -49,7 +46,7 @@ def get_kiwoom_base_url():
     return KIWOOM_MOCK_BASE if KIWOOM_IS_MOCK else KIWOOM_REAL_BASE
 
 
-# ===== 키움 REST API 토큰 관리 =====
+# ===== 키움 토큰 관리 =====
 _kiwoom_token = None
 _token_expires_at = 0
 
@@ -93,7 +90,7 @@ def get_kiwoom_token():
 
 def kiwoom_post(path, api_id, body=None):
     """
-    키움 REST API POST 요청 (공식 패턴)
+    키움 REST API POST 요청
     - Content-Type: application/json;charset=UTF-8
     - Authorization: Bearer {token}
     - api-id: {api_id}  ← 필수 헤더
@@ -117,7 +114,7 @@ def kiwoom_post(path, api_id, body=None):
 # ===== 작업 핸들러 =====
 
 def handle_watchlist_get(payload):
-    """관심종목 시세 조회 — POST /api/dostk/mrkcond api-id: ka10007 (현재가)"""
+    """관심종목 시세 조회 — ka10007 (현재가) 반복 호출"""
     stock_codes = payload.get("stockCodes", [])
     results = []
     for code in stock_codes:
@@ -125,10 +122,15 @@ def handle_watchlist_get(payload):
             data = kiwoom_post("/api/dostk/mrkcond", "ka10007", {"stk_cd": code})
             results.append({
                 "stockCode": code,
+                "stockName": data.get("stk_nm", ""),
                 "currentPrice": data.get("cur_prc", "0"),
                 "changeRate": data.get("flu_rt", "0"),
+                "change": data.get("prc_diff", "0"),
+                "changeSign": data.get("prdy_vrss_sign", ""),
                 "volume": data.get("acc_trde_qty", "0"),
-                "stockName": data.get("stk_nm", ""),
+                "high": data.get("hgpr", "0"),
+                "low": data.get("lwpr", "0"),
+                "open": data.get("oppr", "0"),
                 "raw": data,
             })
         except Exception as e:
@@ -136,33 +138,119 @@ def handle_watchlist_get(payload):
     return {"items": results}
 
 
-def handle_balance_get(payload):
-    """계좌 잔고 조회 — POST /api/dostk/acnt api-id: kt00018"""
-    dmst_stex_tp = "%" if KIWOOM_IS_MOCK else "KRX"
-    data = kiwoom_post("/api/dostk/acnt", "kt00018", {"qry_tp": "2", "dmst_stex_tp": dmst_stex_tp})
-    holdings = data.get("acnt_evlt_remn_indv_tot", [])
+def handle_price_get(payload):
+    """단일 종목 현재가 조회 — ka10007"""
+    code = payload.get("stockCode", "")
+    data = kiwoom_post("/api/dostk/mrkcond", "ka10007", {"stk_cd": code})
     return {
-        "totalEvaluationAmount": data.get("tot_evlu_amt", "0"),
-        "depositAmount": data.get("dnca_tot_amt", "0"),
-        "holdings": [
-            {
-                "stockCode": h.get("stk_cd", ""),
-                "stockName": h.get("stk_nm", ""),
-                "quantity": h.get("rmnd_qty", "0"),
-                "averagePrice": h.get("avg_pric", "0"),
-                "currentPrice": h.get("cur_prc", "0"),
-            }
-            for h in holdings
-        ],
+        "stockCode": code,
+        "stockName": data.get("stk_nm", ""),
+        "currentPrice": data.get("cur_prc", "0"),
+        "changeRate": data.get("flu_rt", "0"),
+        "change": data.get("prc_diff", "0"),
+        "volume": data.get("acc_trde_qty", "0"),
+        "high": data.get("hgpr", "0"),
+        "low": data.get("lwpr", "0"),
+        "open": data.get("oppr", "0"),
+        "raw": data,
+    }
+
+
+def handle_orderbook_get(payload):
+    """호가 조회 — ka10004"""
+    code = payload.get("stockCode", "")
+    data = kiwoom_post("/api/dostk/mrkcond", "ka10004", {"stk_cd": code})
+    return {"stockCode": code, "raw": data}
+
+
+def handle_chart_get(payload):
+    """일봉/주봉/월봉 차트 조회 — ka10081(일), ka10082(주), ka10083(월)"""
+    code = payload.get("stockCode", "")
+    period = payload.get("period", "D").upper()
+    count = int(payload.get("count", 100))
+
+    api_id_map = {"D": "ka10081", "W": "ka10082", "M": "ka10083"}
+    api_id = api_id_map.get(period, "ka10081")
+
+    today = time.strftime("%Y%m%d")
+    data = kiwoom_post("/api/dostk/chart", api_id, {
+        "stk_cd": code,
+        "base_dt": today,
+        "updn_bnd_cd": "0",
+    })
+
+    raw_items = data.get("stk_dt_pole_chart_qry", []) or []
+    items = []
+    for item in raw_items[:count]:
+        items.append({
+            "date": item.get("dt", ""),
+            "open": float(item.get("oppr", "0") or "0"),
+            "high": float(item.get("hgpr", "0") or "0"),
+            "low": float(item.get("lwpr", "0") or "0"),
+            "close": float(item.get("cur_prc", "0") or "0"),
+            "volume": int(item.get("trde_qty", "0") or "0"),
+        })
+    return items
+
+
+def handle_stock_info(payload):
+    """종목 기본정보 조회 — ka10001"""
+    code = payload.get("stockCode", "")
+    data = kiwoom_post("/api/dostk/stkinfo", "ka10001", {"stk_cd": code})
+    return {
+        "stockCode": code,
+        "name": data.get("stk_nm", ""),
+        "marketName": data.get("mrkt_cls_nm", ""),
+        "state": data.get("mang_stk_cls_nm", ""),
+        "raw": data,
+    }
+
+
+def handle_stock_search(payload):
+    """종목명/코드 검색 — ka10002 (종목정보 검색)"""
+    keyword = payload.get("keyword", "")
+    try:
+        data = kiwoom_post("/api/dostk/stkinfo", "ka10002", {"stk_nm": keyword})
+        raw_items = data.get("stk_info", []) or []
+        results = []
+        for item in raw_items[:20]:
+            results.append({
+                "stockCode": item.get("stk_cd", ""),
+                "stockName": item.get("stk_nm", ""),
+                "currentPrice": item.get("cur_prc", "0"),
+                "marketName": item.get("mrkt_cls_nm", ""),
+            })
+        return results
+    except Exception as e:
+        logger.warning(f"stock.search 실패: {e}")
+        return []
+
+
+def handle_balance_get(payload):
+    """계좌 잔고 조회 — kt00018 (계좌평가잔고내역)"""
+    dmst_stex_tp = "%" if KIWOOM_IS_MOCK else "KRX"
+    data = kiwoom_post("/api/dostk/acnt", "kt00018", {
+        "qry_tp": "2",
+        "dmst_stex_tp": dmst_stex_tp,
+    })
+    # output1: 계좌요약, output2: 보유종목 목록 (routes에서 기존 매핑 그대로 사용 가능하도록)
+    output1 = data.get("acnt_evlt_remn_indv", {}) or {}
+    output2 = data.get("acnt_evlt_remn_indv_tot", []) or []
+    return {
+        "output1": output1,
+        "output2": output2,
+        "totalEvaluationAmount": str(output1.get("tot_evlu_amt", "0")),
+        "depositAmount": str(output1.get("dnca_tot_amt", "0")),
+        "raw": data,
     }
 
 
 def handle_order_buy(payload):
-    """매수 주문 — POST /api/dostk/ordr api-id: kt10000"""
-    ord_tp = "2" if payload.get("orderType") == "limit" else "1"  # 1:시장가, 2:지정가
+    """매수 주문 — kt10000"""
+    ord_tp = "2" if payload.get("orderType") == "limit" else "1"
     body = {
         "stk_cd": payload.get("stockCode"),
-        "buy_sel_tp": "1",  # 1:매수
+        "buy_sel_tp": "1",
         "ord_tp": ord_tp,
         "ord_qty": str(payload.get("quantity", 0)),
         "ord_prc": str(payload.get("price", 0)),
@@ -171,11 +259,11 @@ def handle_order_buy(payload):
 
 
 def handle_order_sell(payload):
-    """매도 주문 — POST /api/dostk/ordr api-id: kt10000"""
+    """매도 주문 — kt10000"""
     ord_tp = "2" if payload.get("orderType") == "limit" else "1"
     body = {
         "stk_cd": payload.get("stockCode"),
-        "buy_sel_tp": "2",  # 2:매도
+        "buy_sel_tp": "2",
         "ord_tp": ord_tp,
         "ord_qty": str(payload.get("quantity", 0)),
         "ord_prc": str(payload.get("price", 0)),
@@ -188,9 +276,13 @@ def handle_ping(_payload):
     return {"pong": True, "agentTime": time.time(), "mode": "mock" if KIWOOM_IS_MOCK else "real"}
 
 
-# 작업 타입별 핸들러 매핑
 JOB_HANDLERS = {
     "watchlist.get": handle_watchlist_get,
+    "price.get": handle_price_get,
+    "orderbook.get": handle_orderbook_get,
+    "chart.get": handle_chart_get,
+    "stock.info": handle_stock_info,
+    "stock.search": handle_stock_search,
     "balance.get": handle_balance_get,
     "order.buy": handle_order_buy,
     "order.sell": handle_order_sell,
@@ -201,7 +293,6 @@ JOB_HANDLERS = {
 # ===== Replit 통신 =====
 
 def fetch_next_job():
-    """Replit 서버에서 다음 작업 가져오기"""
     url = f"{REPLIT_URL}/api/kiwoom-agent/jobs/next"
     resp = requests.get(
         url,
@@ -214,7 +305,6 @@ def fetch_next_job():
 
 
 def submit_result(job_id, status, result=None, error_message=None):
-    """Replit 서버에 결과 업로드"""
     url = f"{REPLIT_URL}/api/kiwoom-agent/jobs/{job_id}/result"
     body = {"status": status}
     if result is not None:
@@ -233,7 +323,6 @@ def submit_result(job_id, status, result=None, error_message=None):
 # ===== 메인 루프 =====
 
 def process_job(job):
-    """작업 하나를 처리"""
     job_id = job["id"]
     job_type = job["jobType"]
     payload = job.get("payload") or {}
@@ -257,7 +346,6 @@ def process_job(job):
 
 
 def validate_config():
-    """시작 전 설정 확인"""
     if not REPLIT_URL:
         raise ValueError("REPLIT_URL 환경변수가 없습니다. .env 파일을 확인하세요.")
     if not AGENT_KEY:
@@ -267,12 +355,13 @@ def validate_config():
 
 
 def main():
-    logger.info("=" * 50)
+    logger.info("=" * 55)
     logger.info("키움 에이전트 시작")
     logger.info(f"  Replit URL: {REPLIT_URL}")
     logger.info(f"  모드: {'모의투자 (mockapi.kiwoom.com)' if KIWOOM_IS_MOCK else '실계좌 (api.kiwoom.com)'}")
+    logger.info(f"  지원 jobType: {', '.join(JOB_HANDLERS.keys())}")
     logger.info(f"  폴링 간격: {POLL_INTERVAL}초")
-    logger.info("=" * 50)
+    logger.info("=" * 55)
 
     try:
         validate_config()
@@ -280,7 +369,6 @@ def main():
         logger.error(str(e))
         return
 
-    # 키움 토큰 초기 발급
     if KIWOOM_APP_KEY and KIWOOM_APP_SECRET:
         refresh_kiwoom_token()
 

@@ -5,7 +5,7 @@ import { isAuthenticated, getCurrentUser } from "../auth";
 import { insertWatchlistSchema, insertAlertSchema, insertWatchlistSignalSchema } from "@shared/schema";
 import { encrypt } from "../utils/crypto";
 import { z } from "zod";
-import { getKiwoomService } from "../services/kiwoom";
+import { callViaAgent, AgentTimeoutError } from "../services/agent-proxy.service";
 
 export function registerWatchlistRoutes(app: Router) {
   const isMissingWatchlistSyncTableError = (error: any) => {
@@ -33,17 +33,16 @@ export function registerWatchlistRoutes(app: Router) {
       if (list.length === 0) return res.json([]);
 
       try {
-        const kiwoom = getKiwoomService();
         const codes = list.map((item) => item.stockCode);
-        const priceList = await kiwoom.getWatchlistInfo(codes);
+        const agentResult = await callViaAgent(user!.id, "watchlist.get", { stockCodes: codes });
+        const priceList: any[] = agentResult?.items || [];
         const priceMap: Record<string, any> = {};
         for (const price of priceList) {
           priceMap[price.stockCode] = price;
         }
-
         return res.json(list.map((item) => ({ ...item, kiwoomData: priceMap[item.stockCode] ?? null })));
       } catch (kiwoomError) {
-        console.warn("[Watchlist] Kiwoom 시세 조회 실패, DB 데이터만 반환:", kiwoomError);
+        console.warn("[Watchlist] 에이전트 시세 조회 실패, DB 데이터만 반환:", kiwoomError);
         return res.json(list);
       }
     } catch (error: any) {
@@ -59,9 +58,8 @@ export function registerWatchlistRoutes(app: Router) {
 
       if (stockCode && (!stockName || stockName === stockCode)) {
         try {
-          const kiwoom = getKiwoomService();
-          const info = await kiwoom.getStockInfo(String(stockCode));
-          if (info.name) stockName = info.name;
+          const info = await callViaAgent(user!.id, "stock.info", { stockCode: String(stockCode) });
+          if (info?.name) stockName = info.name;
         } catch {
           stockName = stockName || stockCode;
         }
@@ -106,9 +104,9 @@ export function registerWatchlistRoutes(app: Router) {
       const user = getCurrentUser(req);
       const list = await storage.getWatchlist(user!.id);
       if (list.length === 0) return res.json({ message: "관심종목이 없습니다", updated: 0 });
-      const kiwoom = getKiwoomService();
       const codes = list.map((item) => item.stockCode);
-      const priceList = await kiwoom.getWatchlistInfo(codes);
+      const agentResult = await callViaAgent(user!.id, "watchlist.get", { stockCodes: codes });
+      const priceList: any[] = agentResult?.items || [];
       const priceMap: Record<string, any> = {};
       for (const price of priceList) { priceMap[price.stockCode] = price; }
       const result = list.map((item) => ({ ...item, kiwoomData: priceMap[item.stockCode] ?? null }));

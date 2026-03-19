@@ -3,28 +3,10 @@ import type { Router } from "express";
 import { storage } from "../storage";
 import { isAuthenticated, getCurrentUser } from "../auth";
 import { insertKiwoomAccountSchema } from "@shared/schema";
-import { decrypt } from "../utils/crypto";
-import { createKiwoomService } from "../services/kiwoom";
 import { z } from "zod";
-import axios from "axios";
-
-let _cachedPublicIP: string | null = null;
-let _lastIPFetch = 0;
-async function getPublicIP(): Promise<string> {
-  const now = Date.now();
-  if (_cachedPublicIP && now - _lastIPFetch < 60 * 1000) return _cachedPublicIP;
-  try {
-    const res = await axios.get("https://api.ipify.org?format=json", { timeout: 3000 });
-    _cachedPublicIP = res.data.ip;
-    _lastIPFetch = now;
-    return _cachedPublicIP!;
-  } catch {
-    return _cachedPublicIP || "IP 조회 실패";
-  }
-}
+import { callViaAgent, AgentTimeoutError } from "../services/agent-proxy.service";
 
 export function registerAccountRoutes(app: Router) {
-  // 계좌번호 정규화: 숫자만 추출 후, 정확히 8자리이면 주식 상품코드 "11" 자동 추가
   const normalizeAccountNumber = (accountNumber: string) => {
     const digits = accountNumber.replace(/\D/g, "");
     return digits.length === 8 ? digits + "11" : digits;
@@ -34,48 +16,6 @@ export function registerAccountRoutes(app: Router) {
     const account = await storage.getKiwoomAccount(accountId);
     if (!account || account.userId !== userId) return null;
     return account;
-  };
-
-  // 계좌번호 기반 전용 키 조회 (KIWOOM_KEY_{번호} / KIWOOM_SECRET_{번호})
-  const getAccountSpecificKeys = (accountNumber: string) => {
-    const digits = accountNumber.replace(/\D/g, "").slice(0, 8); // 앞 8자리 기준
-    const appKey = process.env[`KIWOOM_KEY_${digits}`];
-    const appSecret = process.env[`KIWOOM_SECRET_${digits}`];
-    if (appKey && appSecret) return { appKey, appSecret };
-    return null;
-  };
-
-  const getUserApiKeys = async (userId: string, accountNumber?: string, accountType?: "mock" | "real") => {
-    // 실계좌: 계좌별 키 우선, 없으면 글로벌 키 폴백
-    if (accountType === "real") {
-      if (!accountNumber) return null;
-      const specific = getAccountSpecificKeys(accountNumber);
-      if (specific) return specific;
-      // 폴백: 글로벌 서버 환경변수
-      const hasServerKeys = !!process.env.KIWOOM_APP_KEY && !!process.env.KIWOOM_APP_SECRET;
-      if (!hasServerKeys) return null;
-      return {
-        appKey: process.env.KIWOOM_APP_KEY!,
-        appSecret: process.env.KIWOOM_APP_SECRET!,
-      };
-    }
-    
-    // 모의계좌: 사용자 키 → 글로벌 키 순 폴백 가능
-    const settings = await storage.getUserSettings(userId);
-    const hasUserKeys = !!settings?.kiwoomAppKey && !!settings?.kiwoomAppSecret;
-    if (hasUserKeys) {
-      return {
-        appKey: decrypt(settings!.kiwoomAppKey!),
-        appSecret: decrypt(settings!.kiwoomAppSecret!),
-      };
-    }
-    // 글로벌 서버 환경변수
-    const hasServerKeys = !!process.env.KIWOOM_APP_KEY && !!process.env.KIWOOM_APP_SECRET;
-    if (!hasServerKeys) return null;
-    return {
-      appKey: process.env.KIWOOM_APP_KEY!,
-      appSecret: process.env.KIWOOM_APP_SECRET!,
-    };
   };
 
   // 계좌 목록 조회
@@ -177,8 +117,7 @@ export function registerAccountRoutes(app: Router) {
     }
   });
 
-  // ── 서버사이드 잔고 조회 (서버가 Kiwoom API 직접 호출) ──────────────────────
-  // 이전의 클라이언트사이드 CORS 방식 대체
+  // ── 잔고 조회 — 집 PC 에이전트를 통해 키움 REST 호출 ──────────────────────
   app.get("/api/accounts/:accountId/fetch-balance", isAuthenticated, async (req, res) => {
     try {
       const user = getCurrentUser(req);
@@ -186,76 +125,35 @@ export function registerAccountRoutes(app: Router) {
       const account = await getAuthorizedAccount(user!.id, accountId);
       if (!account) return res.status(404).json({ error: "Account not found" });
 
-      const accountType = (account.accountType as "mock" | "real") || "real";
-      const digits = account.accountNumber.replace(/\D/g, "").slice(0, 8);
-      const hasSpecificKey = !!(process.env[`KIWOOM_KEY_${digits}`] && process.env[`KIWOOM_SECRET_${digits}`]);
-      console.log(`[fetch-balance] 계좌=${account.accountNumber} digits=${digits} 전용키=${hasSpecificKey ? "있음" : "없음"} type=${accountType}`);
-      const keys = await getUserApiKeys(user!.id, account.accountNumber, accountType);
-      if (!keys) {
-        // 실계좌에서 API 키가 없으면 ACCOUNT_TYPE_MISMATCH로 통일 (일관된 UX)
-        const errorCode = accountType === "real" ? "ACCOUNT_TYPE_MISMATCH" : "NO_API_KEY";
-        return res.status(400).json({
-          error: "API 키 없음: 설정 페이지에서 키움 API 키를 입력해주세요.",
-          errorCode,
-        });
-      }
-      console.log(`[fetch-balance] 사용 키 앞 8자리=${keys.appKey.slice(0, 8)}... 계좌타입=${accountType}`);
+      const result = await callViaAgent(user!.id, "balance.get", {
+        accountNumber: account.accountNumber,
+        accountType: account.accountType || "real",
+      });
 
-      const kiwoom = createKiwoomService({ ...keys, accountType });
+      // 에이전트 응답: { output1, output2, raw }
+      const output2: any[] = result?.output2 || result?.holdings || [];
+      const output1: any = result?.output1 || {};
 
-      let data: any;
-      try {
-        data = await kiwoom.getAccountBalance(account.accountNumber, accountType);
-      } catch (err: any) {
-        const msg = err.message || "";
-        // 특정 에러 원인별 구체적 메시지
-        if (msg.includes("API 키가 설정되지 않았습니다")) {
-          return res.status(400).json({ error: "API 키 없음: 설정 페이지에서 키움 API 키를 입력해주세요.", errorCode: "NO_API_KEY" });
-        }
-        if (msg.includes("ECONNREFUSED") || msg.includes("ENOTFOUND") || msg.includes("timeout") || msg.includes("ECONNABORTED")) {
-          return res.status(503).json({ error: "서버 미연결: Kiwoom API 서버에 연결할 수 없습니다. 네트워크를 확인하세요.", errorCode: "SERVER_UNREACHABLE" });
-        }
-        if (msg.includes("8030") || msg.includes("계좌 타입") || msg.includes("투자구분")) {
-          return res.status(400).json({ error: "계좌 타입 불일치: 계좌의 실전/모의 설정이 API 키와 맞지 않습니다.", errorCode: "ACCOUNT_TYPE_MISMATCH" });
-        }
-        if (msg.includes("8050") || msg.includes("지정단말기")) {
-          const currentIP = await getPublicIP();
-          return res.status(401).json({
-            error: `IP 미등록(8050): 키움 OpenAPI 포털에서 서버 IP(${currentIP})를 지정단말기로 등록해주세요.`,
-            errorCode: "IP_NOT_REGISTERED",
-            serverIP: currentIP,
-          });
-        }
-        if (msg.includes("인증 실패") || msg.includes("auth error")) {
-          return res.status(401).json({ error: "인증 실패: API 키가 올바르지 않습니다. 키움 OpenAPI 페이지에서 확인하세요.", errorCode: "AUTH_FAILED" });
-        }
-        return res.status(500).json({ error: msg || "잔고 조회 중 오류가 발생했습니다.", errorCode: "UNKNOWN" });
-      }
-
-      // DB에 보유종목 동기화
-      const output2 = data.output2 || [];
+      // DB 보유종목 동기화 (키움 API 필드명 다중 폴백)
       for (const item of output2) {
-        // Kiwoom REST API: acnt_pdno, KIS fallback: pdno
-        const stockCode = item.acnt_pdno || item.pdno || item.stk_cd;
+        const stockCode = item.acnt_pdno || item.pdno || item.stk_cd || item.stockCode;
         if (!stockCode) continue;
         const updates = {
-          stockName: item.prdt_name || item.stk_nm || "",
-          quantity: parseInt(item.hldg_qty || item.rmnd_qty || "0", 10),
-          averagePrice: item.pchs_avg_pric || item.avg_pric || "0",
-          currentPrice: item.prpr || item.cur_prc || "0",
+          stockName: item.prdt_name || item.stk_nm || item.stockName || "",
+          quantity: parseInt(item.hldg_qty || item.rmnd_qty || String(item.quantity ?? "0"), 10),
+          averagePrice: item.pchs_avg_pric || item.avg_pric || item.averagePrice || "0",
+          currentPrice: item.prpr || item.cur_prc || item.currentPrice || "0",
           profitLoss: item.evlu_pfls_amt || item.evlu_pfls || "0",
           profitLossRate: item.evlu_pfls_rt || item.pfls_rt || "0",
         };
         const existing = await storage.getHoldingByStock(account.id, stockCode);
-        if (existing) {
-          await storage.updateHolding(existing.id, updates);
-        } else {
-          await storage.createHolding({ accountId: account.id, stockCode, ...updates });
-        }
+        if (existing) await storage.updateHolding(existing.id, updates);
+        else await storage.createHolding({ accountId: account.id, stockCode, ...updates });
       }
 
-      const output1 = data.output1 || {} as any;
-      const totalAssets = parseFloat(output1.tot_evlu_amt || output1.acnt_tot_evlu_amt || "0");
+      const totalAssets = parseFloat(
+        result?.totalEvaluationAmount || output1.tot_evlu_amt || output1.acnt_tot_evlu_amt || "0",
+      );
       const todayProfit = parseFloat(output1.evlu_pfls_smtl_amt || output1.tot_evlu_pfls || "0");
 
       res.json({
@@ -265,28 +163,24 @@ export function registerAccountRoutes(app: Router) {
         todayProfit,
         todayProfitRate: totalAssets > 0 ? (todayProfit / totalAssets) * 100 : 0,
       });
-    } catch (error: any) {
-      console.error("[fetch-balance] 오류:", error.message);
-      res.status(500).json({ error: error.message });
+    } catch (err: any) {
+      console.error("[fetch-balance] 오류:", err.message);
+      if (err instanceof AgentTimeoutError) {
+        return res.status(503).json({ error: err.message, errorCode: "AGENT_TIMEOUT" });
+      }
+      res.status(500).json({ error: err.message || "잔고 조회 중 오류가 발생했습니다.", errorCode: "UNKNOWN" });
     }
   });
 
-  // ── Kiwoom API 연결 테스트 (api.kiwoom.com 443 포트) ──
+  // ── 에이전트 연결 테스트 (집 PC 에이전트 ping) ──
   app.get("/api/kiwoom/test-connection", isAuthenticated, async (req, res) => {
-    const axios = (await import("axios")).default;
     const start = Date.now();
     try {
-      const r = await axios.post(
-        "https://api.kiwoom.com/oauth2/token",
-        { grant_type: "client_credentials", appkey: "test", secretkey: "test" },
-        { timeout: 5000, headers: { "Content-Type": "application/json;charset=UTF-8" } }
-      );
-      const ms = Date.now() - start;
-      const code = (r.data as any)?.return_code;
-      // return_code 3 = "인증 실패" — 서버 도달 성공을 의미
-      res.json({ connected: true, ms, host: "api.kiwoom.com", port: 443, note: (r.data as any)?.return_msg });
-    } catch (e: any) {
-      res.json({ connected: false, ms: Date.now() - start, error: e.code || e.message, host: "api.kiwoom.com", port: 443 });
+      const user = getCurrentUser(req);
+      const result = await callViaAgent(user!.id, "ping", {}, 8000);
+      res.json({ connected: true, ms: Date.now() - start, mode: result?.mode, agent: true });
+    } catch (err: any) {
+      res.json({ connected: false, ms: Date.now() - start, error: err.message, agent: true });
     }
   });
 
