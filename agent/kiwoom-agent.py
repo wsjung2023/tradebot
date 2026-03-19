@@ -287,7 +287,13 @@ def handle_order_sell(payload):
 
 def handle_ping(_payload):
     """연결 테스트 — 키움 API 호출 없음"""
-    return {"pong": True, "agentTime": time.time(), "mode": "mock" if KIWOOM_IS_MOCK else "real"}
+    return {
+        "pong": True,
+        "agentTime": time.time(),
+        "mode": "mock" if KIWOOM_IS_MOCK else "real",
+        "version": "2.1",
+        "features": ["accountType-routing", "raw-output1"],
+    }
 
 
 JOB_HANDLERS = {
