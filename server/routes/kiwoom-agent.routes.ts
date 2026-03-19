@@ -189,6 +189,16 @@ export function registerKiwoomAgentRoutes(app: Express): void {
 
   // ─── 에이전트 앱키 제공 (집 PC에서 Replit Secrets의 앱키를 자동으로 받음) ───
   // AGENT_KEY 인증된 에이전트에게만 앱키를 반환
+  //
+  // ⚠️  우선순위 변경 금지 (재발 방지 2025)
+  // 실계좌 앱키 우선순위: KIWOOM_APP_KEY_REAL → KIWOOM_KEY_59190647 → KIWOOM_APP_KEY
+  //   - KIWOOM_APP_KEY_REAL: 실계좌 전용으로 발급된 앱키 (api.kiwoom.com)
+  //   - KIWOOM_KEY_59190647: 계좌번호 기반 명칭의 실계좌 앱키 (fallback)
+  //   - KIWOOM_APP_KEY: 모의계좌 앱키를 마지막 fallback으로 사용 (8030 오류 가능성)
+  //
+  // 에이전트(v2.5+)는 시작 시 이 엔드포인트를 호출해 실계좌/모의계좌 앱키를 분리 수신한다.
+  // 이 엔드포인트가 없거나 우선순위가 잘못되면 에이전트가 모의계좌 앱키로 실계좌 API를
+  // 호출하게 되어 8030 오류(투자구분 불일치)가 발생한다.
   app.get("/api/kiwoom-agent/appkeys", (req: Request, res: Response) => {
     if (!requireAgentKey(req, res)) return;
     const realKey =

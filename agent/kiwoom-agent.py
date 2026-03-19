@@ -506,8 +506,25 @@ def main():
         logger.error(str(e))
         return
 
-    # 실계좌/모의계좌 전용 키가 명시적으로 없으면 항상 서버에서 자동 수신
-    # (공통 KIWOOM_APP_KEY만 있는 경우도 서버에서 분리된 키를 받아옴)
+    # ──────────────────────────────────────────────────────────────────────
+    # ⚠️  앱키 수신 로직 — 변경 금지 (재발 방지 2025)
+    # ──────────────────────────────────────────────────────────────────────
+    # 반드시 환경변수 이름으로만 체크해야 한다.
+    # KIWOOM_APP_KEY_REAL 변수값으로 체크하면 안 된다.
+    #
+    # 이유: 로컬 .env에 KIWOOM_APP_KEY만 있어도
+    #   KIWOOM_APP_KEY_REAL = os.getenv("KIWOOM_APP_KEY_REAL", _APP_KEY_COMMON)
+    #   → KIWOOM_APP_KEY_REAL에 모의계좌 앱키가 복사됨
+    #   → if not KIWOOM_APP_KEY_REAL → False (이미 값이 있으므로)
+    #   → fetch_appkeys_from_server() 호출 안 됨
+    #   → 모의계좌 앱키로 실계좌 API 호출 → 8030 오류
+    #
+    # ❌ 절대 이렇게 하지 말 것:
+    #   if not KIWOOM_APP_KEY_REAL or not KIWOOM_APP_KEY_MOCK:
+    #
+    # ✅ 반드시 이렇게 유지:
+    #   _has_real_specific = bool(os.getenv("KIWOOM_APP_KEY_REAL"))
+    # ──────────────────────────────────────────────────────────────────────
     _has_real_specific = bool(os.getenv("KIWOOM_APP_KEY_REAL"))
     _has_mock_specific = bool(os.getenv("KIWOOM_APP_KEY_MOCK"))
     if not _has_real_specific or not _has_mock_specific:

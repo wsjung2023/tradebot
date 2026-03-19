@@ -130,6 +130,30 @@ export function registerAccountRoutes(app: Router) {
         accountType: account.accountType || "real",
       });
 
+      // ────────────────────────────────────────────────────────────────────
+      // ⚠️  잔고 파싱 로직 — 변경 금지 (재발 방지 2025)
+      // ────────────────────────────────────────────────────────────────────
+      // 키움 API는 실계좌/모의계좌에 따라 응답 필드명이 다르다.
+      // 에이전트 버전에 따라 raw / output1 / result 위치도 다를 수 있다.
+      // 아래 우선순위를 임의로 바꾸면 특정 계좌에서 0원이 표시된다.
+      //
+      // 실계좌 주요 필드:
+      //   주식 평가금액: raw.tot_evlt_amt
+      //   예수금:        raw.prsm_dpst_aset_amt
+      //   평가손익:      raw.tot_evlt_pl
+      //   보유종목 목록: raw.acnt_evlt_remn_indv_tot (배열)
+      //     종목코드: stk_cd / 종목명: stk_nm / 수량: rmnd_qty / 현재가: cur_prc
+      //
+      // 모의계좌 주요 필드:
+      //   주식 평가금액: raw.tot_evlu_amt
+      //   예수금:        raw.dnca_tot_amt
+      //   평가손익:      raw.tot_evlu_pfls
+      //     종목코드: acnt_pdno / 종목명: prdt_name / 수량: hldg_qty / 현재가: prpr
+      //
+      // 총 자산 = tot_evlt_amt(주식평가) + prsm_dpst_aset_amt(예수금)
+      // 주식 평가금액만 totalAssets로 쓰면 예수금이 빠진다 → 절대 금지
+      // ────────────────────────────────────────────────────────────────────
+
       // 에이전트 응답: { output1, output2, raw, totalEvaluationAmount, depositAmount, todayProfit }
       // raw가 최우선: 구버전 에이전트는 output1={}로 반환하지만 raw에는 실제 데이터가 있음
       const raw: any = result?.raw || {};
