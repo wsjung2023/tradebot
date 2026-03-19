@@ -312,7 +312,7 @@ def handle_ping(_payload):
         "pong": True,
         "agentTime": time.time(),
         "mode": "mock" if KIWOOM_IS_MOCK else "real",
-        "version": "2.4",
+        "version": "2.5",
         "features": ["accountType-routing", "raw-output1", "token-test", "split-appkey", "server-appkey"],
     }
 
@@ -506,11 +506,14 @@ def main():
         logger.error(str(e))
         return
 
-    # 로컬 .env에 앱키 없으면 서버에서 자동 수신
-    if not KIWOOM_APP_KEY_REAL or not KIWOOM_APP_KEY_MOCK:
+    # 실계좌/모의계좌 전용 키가 명시적으로 없으면 항상 서버에서 자동 수신
+    # (공통 KIWOOM_APP_KEY만 있는 경우도 서버에서 분리된 키를 받아옴)
+    _has_real_specific = bool(os.getenv("KIWOOM_APP_KEY_REAL"))
+    _has_mock_specific = bool(os.getenv("KIWOOM_APP_KEY_MOCK"))
+    if not _has_real_specific or not _has_mock_specific:
         fetch_appkeys_from_server()
     else:
-        logger.info("로컬 .env 앱키 사용")
+        logger.info("로컬 .env 전용 앱키 사용 (실계좌/모의계좌 분리됨)")
 
     if KIWOOM_APP_KEY_REAL or KIWOOM_APP_KEY_MOCK:
         refresh_kiwoom_token(is_mock=False)
