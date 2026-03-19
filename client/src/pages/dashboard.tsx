@@ -195,7 +195,7 @@ export default function Dashboard() {
 
   const isLoading = kiwoom.status === "loading";
   const isSuccess = kiwoom.status === "success";
-  const hasError = kiwoom.status === "error" || kiwoom.status === "network_blocked" || kiwoom.status === "cors_blocked";
+  const hasError = kiwoom.status === "error" || kiwoom.status === "agent_timeout";
   const balance = kiwoom.data;
 
   const assetHistory = assetSnapshots?.map((s: any) => ({
