@@ -142,6 +142,51 @@ export function registerKiwoomAgentRoutes(app: Express): void {
     }
   });
 
+  // ─── 개발 전용: 에이전트 없이 ping/simulate job 즉시 처리 ───────────────────
+  // 개발 환경(NODE_ENV !== 'production')에서만 활성화
+  // 특정 jobType을 서버 자체에서 처리하여 폴링 없이 테스트 가능
+  app.post("/api/kiwoom-agent/dev/simulate", async (req: Request, res: Response) => {
+    if (!requireAgentKey(req, res)) return;
+
+    const { jobType = "ping", payload = {} } = req.body;
+    const DEV_SIMULATABLE = ["ping"];
+    if (!DEV_SIMULATABLE.includes(jobType)) {
+      res.status(400).json({ error: `개발 시뮬레이션은 ${DEV_SIMULATABLE.join(", ")} 타입만 지원합니다` });
+      return;
+    }
+
+    try {
+      // 개발용 첫 번째 사용자 ID로 job 등록 (mainstop@naver.com)
+      const devUserId = "654fe369-2258-46e0-8048-768bd8849ad1";
+      const job = await storage.createKiwoomJob({
+        jobType,
+        payload,
+        userId: devUserId,
+        status: "pending",
+        result: null,
+        errorMessage: null,
+        agentId: null,
+      });
+
+      // 서버 자체에서 즉시 처리 (ping만 지원)
+      let simulatedResult: Record<string, unknown> = {};
+      if (jobType === "ping") {
+        simulatedResult = { pong: true, serverTime: Date.now(), mode: "dev-simulate" };
+      }
+
+      const updated = await storage.updateKiwoomJobResult(job.id, "done", simulatedResult, null);
+      res.json({
+        success: true,
+        jobId: job.id,
+        result: simulatedResult,
+        job: updated ? sanitizeJob(updated) : null,
+      });
+    } catch (err) {
+      console.error("[kiwoom-agent] dev simulate 실패:", err);
+      res.status(500).json({ error: "시뮬레이션 실패", detail: String(err) });
+    }
+  });
+
   // 본인 최근 작업 목록 — 본인 작업만 반환
   app.get("/api/kiwoom-agent/jobs", async (req: Request, res: Response) => {
     try {
