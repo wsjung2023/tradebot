@@ -187,6 +187,22 @@ export function registerKiwoomAgentRoutes(app: Express): void {
     }
   });
 
+  // ─── 에이전트 최신 파일 다운로드 (집 PC에서 항상 최신 버전 받기) ────────────
+  app.get("/api/kiwoom-agent/download", async (req: Request, res: Response) => {
+    if (!requireAgentKey(req, res)) return;
+    const fs = await import("fs");
+    const path = await import("path");
+    const agentPath = path.join(process.cwd(), "agent", "kiwoom-agent.py");
+    try {
+      const content = fs.readFileSync(agentPath, "utf-8");
+      res.setHeader("Content-Type", "text/plain; charset=utf-8");
+      res.setHeader("Content-Disposition", "attachment; filename=kiwoom-agent.py");
+      res.send(content);
+    } catch (err) {
+      res.status(500).json({ error: "에이전트 파일을 찾을 수 없습니다" });
+    }
+  });
+
   // 본인 최근 작업 목록 — 본인 작업만 반환
   app.get("/api/kiwoom-agent/jobs", async (req: Request, res: Response) => {
     try {
