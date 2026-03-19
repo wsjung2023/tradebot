@@ -32,6 +32,7 @@ export function useKiwoomBalance(): UseKiwoomBalanceResult {
     _accountType: "mock" | "real"
   ) => {
     setStatus("loading");
+    setData(null);   // 계좌 전환 시 이전 데이터 즉시 초기화 (다른 계좌 데이터가 보이는 버그 방지)
     setError(null);
     setErrorCode(null);
 
