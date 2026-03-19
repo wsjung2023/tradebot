@@ -187,6 +187,30 @@ export function registerKiwoomAgentRoutes(app: Express): void {
     }
   });
 
+  // ─── 에이전트 앱키 제공 (집 PC에서 Replit Secrets의 앱키를 자동으로 받음) ───
+  // AGENT_KEY 인증된 에이전트에게만 앱키를 반환
+  app.get("/api/kiwoom-agent/appkeys", (req: Request, res: Response) => {
+    if (!requireAgentKey(req, res)) return;
+    const realKey =
+      process.env.KIWOOM_APP_KEY_REAL ||
+      process.env.KIWOOM_KEY_59190647 ||
+      process.env.KIWOOM_APP_KEY || "";
+    const realSecret =
+      process.env.KIWOOM_APP_SECRET_REAL ||
+      process.env.KIWOOM_SECRET_59190647 ||
+      process.env.KIWOOM_APP_SECRET || "";
+    const mockKey =
+      process.env.KIWOOM_APP_KEY_MOCK ||
+      process.env.KIWOOM_APP_KEY || "";
+    const mockSecret =
+      process.env.KIWOOM_APP_SECRET_MOCK ||
+      process.env.KIWOOM_APP_SECRET || "";
+    res.json({
+      real: { appKey: realKey, appSecret: realSecret },
+      mock: { appKey: mockKey, appSecret: mockSecret },
+    });
+  });
+
   // ─── 에이전트 최신 파일 다운로드 (집 PC에서 항상 최신 버전 받기) ────────────
   app.get("/api/kiwoom-agent/download", async (req: Request, res: Response) => {
     if (!requireAgentKey(req, res)) return;

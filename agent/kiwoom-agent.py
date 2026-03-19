@@ -44,18 +44,14 @@ REPLIT_URLS = [u.strip().rstrip("/") for u in _raw_urls.split(",") if u.strip()]
 REPLIT_URL = REPLIT_URLS[0] if REPLIT_URLS else ""  # 하위 호환성
 AGENT_KEY = os.getenv("AGENT_KEY", "")
 
-# 실계좌/모의계좌 앱키 분리 지원
-# 실계좌: KIWOOM_APP_KEY_REAL / KIWOOM_APP_SECRET_REAL
-# 모의계좌: KIWOOM_APP_KEY_MOCK / KIWOOM_APP_SECRET_MOCK
-# 미설정 시 공통 KIWOOM_APP_KEY / KIWOOM_APP_SECRET 사용 (하위 호환)
+# 실계좌/모의계좌 앱키 — 로컬 .env 또는 서버에서 자동 수신
+# 우선순위: 로컬 .env > 서버 /api/kiwoom-agent/appkeys 자동 수신
 _APP_KEY_COMMON = os.getenv("KIWOOM_APP_KEY", "")
 _APP_SECRET_COMMON = os.getenv("KIWOOM_APP_SECRET", "")
 KIWOOM_APP_KEY_REAL = os.getenv("KIWOOM_APP_KEY_REAL", _APP_KEY_COMMON)
 KIWOOM_APP_SECRET_REAL = os.getenv("KIWOOM_APP_SECRET_REAL", _APP_SECRET_COMMON)
 KIWOOM_APP_KEY_MOCK = os.getenv("KIWOOM_APP_KEY_MOCK", _APP_KEY_COMMON)
 KIWOOM_APP_SECRET_MOCK = os.getenv("KIWOOM_APP_SECRET_MOCK", _APP_SECRET_COMMON)
-
-# 하위 호환용 (단일 앱키 사용 시)
 KIWOOM_APP_KEY = _APP_KEY_COMMON
 KIWOOM_APP_SECRET = _APP_SECRET_COMMON
 
@@ -316,8 +312,8 @@ def handle_ping(_payload):
         "pong": True,
         "agentTime": time.time(),
         "mode": "mock" if KIWOOM_IS_MOCK else "real",
-        "version": "2.3",
-        "features": ["accountType-routing", "raw-output1", "token-test", "split-appkey"],
+        "version": "2.4",
+        "features": ["accountType-routing", "raw-output1", "token-test", "split-appkey", "server-appkey"],
     }
 
 
@@ -453,13 +449,45 @@ def process_job(job):
         submit_result(job_id, "error", error_message=error_msg)
 
 
+def fetch_appkeys_from_server():
+    """서버 Replit Secrets에서 실계좌/모의계좌 앱키를 자동으로 받아옴"""
+    global KIWOOM_APP_KEY_REAL, KIWOOM_APP_SECRET_REAL
+    global KIWOOM_APP_KEY_MOCK, KIWOOM_APP_SECRET_MOCK
+    global KIWOOM_APP_KEY, KIWOOM_APP_SECRET
+
+    for base_url in REPLIT_URLS:
+        try:
+            resp = requests.get(
+                f"{base_url}/api/kiwoom-agent/appkeys",
+                params={"agent_key": AGENT_KEY},
+                headers={"x-agent-key": AGENT_KEY},
+                timeout=8
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                real = data.get("real", {})
+                mock = data.get("mock", {})
+                if real.get("appKey"):
+                    KIWOOM_APP_KEY_REAL = real["appKey"]
+                    KIWOOM_APP_SECRET_REAL = real["appSecret"]
+                if mock.get("appKey"):
+                    KIWOOM_APP_KEY_MOCK = mock["appKey"]
+                    KIWOOM_APP_SECRET_MOCK = mock["appSecret"]
+                    KIWOOM_APP_KEY = mock["appKey"]
+                    KIWOOM_APP_SECRET = mock["appSecret"]
+                logger.info(f"서버에서 앱키 수신 완료 (실계좌: {'있음' if real.get('appKey') else '없음'}, 모의: {'있음' if mock.get('appKey') else '없음'})")
+                return True
+        except Exception as e:
+            logger.debug(f"앱키 수신 실패 ({base_url}): {e}")
+    logger.warning("서버에서 앱키 수신 실패 — 로컬 .env 값 사용")
+    return False
+
+
 def validate_config():
     if not REPLIT_URLS:
         raise ValueError("REPLIT_URL 또는 REPLIT_URLS 환경변수가 없습니다. .env 파일을 확인하세요.")
     if not AGENT_KEY:
         raise ValueError("AGENT_KEY 환경변수가 없습니다. .env 파일을 확인하세요.")
-    if not KIWOOM_APP_KEY or not KIWOOM_APP_SECRET:
-        logger.warning("KIWOOM_APP_KEY/SECRET 없음 — ping 테스트는 가능하나 실제 키움 API 호출 불가")
 
 
 def main():
@@ -478,8 +506,15 @@ def main():
         logger.error(str(e))
         return
 
-    if KIWOOM_APP_KEY and KIWOOM_APP_SECRET:
-        refresh_kiwoom_token()
+    # 로컬 .env에 앱키 없으면 서버에서 자동 수신
+    if not KIWOOM_APP_KEY_REAL or not KIWOOM_APP_KEY_MOCK:
+        fetch_appkeys_from_server()
+    else:
+        logger.info("로컬 .env 앱키 사용")
+
+    if KIWOOM_APP_KEY_REAL or KIWOOM_APP_KEY_MOCK:
+        refresh_kiwoom_token(is_mock=False)
+        refresh_kiwoom_token(is_mock=True)
 
     logger.info("폴링 시작 — Ctrl+C로 종료")
     consecutive_errors = 0
