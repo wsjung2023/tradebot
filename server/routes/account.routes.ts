@@ -152,9 +152,11 @@ export function registerAccountRoutes(app: Router) {
       }
 
       const totalAssets = parseFloat(
-        result?.totalEvaluationAmount || output1.tot_evlu_amt || output1.acnt_tot_evlu_amt || "0",
+        result?.totalEvaluationAmount || output1.tot_evlt_amt || output1.tot_evlu_amt || output1.acnt_tot_evlu_amt || "0",
       );
-      const todayProfit = parseFloat(output1.evlu_pfls_smtl_amt || output1.tot_evlu_pfls || "0");
+      const todayProfit = parseFloat(
+        result?.todayProfit || output1.tot_evlt_pl || output1.evlu_pfls_smtl_amt || output1.tot_evlu_pfls || "0",
+      );
 
       res.json({
         output1,

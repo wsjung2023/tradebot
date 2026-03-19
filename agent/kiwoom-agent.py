@@ -54,16 +54,17 @@ def get_kiwoom_base_url():
     return KIWOOM_MOCK_BASE if KIWOOM_IS_MOCK else KIWOOM_REAL_BASE
 
 
-# ===== 키움 토큰 관리 =====
-_kiwoom_token = None
-_token_expires_at = 0
+# ===== 키움 토큰 관리 (모의/실계좌 분리) =====
+_tokens = {"real": None, "mock": None}
+_token_expires = {"real": 0, "mock": 0}
 
 
-def refresh_kiwoom_token():
+def refresh_kiwoom_token(is_mock=False):
     """키움 REST API 액세스 토큰 발급 — POST /oauth2/token"""
-    global _kiwoom_token, _token_expires_at
+    key = "mock" if is_mock else "real"
+    base_url = KIWOOM_MOCK_BASE if is_mock else KIWOOM_REAL_BASE
     try:
-        url = f"{get_kiwoom_base_url()}/oauth2/token"
+        url = f"{base_url}/oauth2/token"
         payload = {
             "grant_type": "client_credentials",
             "appkey": KIWOOM_APP_KEY,
@@ -79,37 +80,40 @@ def refresh_kiwoom_token():
         data = resp.json()
         if data.get("return_code") and data["return_code"] != 0:
             raise ValueError(f"토큰 발급 실패: {data.get('return_msg')} (code: {data['return_code']})")
-        _kiwoom_token = data.get("access_token") or data.get("token")
+        _tokens[key] = data.get("access_token") or data.get("token")
         expires_in = int(data.get("expires_in", 86400))
-        _token_expires_at = time.time() + expires_in - 60
-        logger.info("키움 토큰 갱신 완료")
+        _token_expires[key] = time.time() + expires_in - 60
+        logger.info(f"키움 토큰 갱신 완료 ({'모의' if is_mock else '실계좌'})")
         return True
     except Exception as e:
-        logger.error(f"키움 토큰 갱신 실패: {e}")
+        logger.error(f"키움 토큰 갱신 실패 ({'모의' if is_mock else '실계좌'}): {e}")
         return False
 
 
-def get_kiwoom_token():
-    global _kiwoom_token, _token_expires_at
-    if not _kiwoom_token or time.time() >= _token_expires_at:
-        refresh_kiwoom_token()
-    return _kiwoom_token
+def get_kiwoom_token(is_mock=False):
+    key = "mock" if is_mock else "real"
+    if not _tokens[key] or time.time() >= _token_expires[key]:
+        refresh_kiwoom_token(is_mock=is_mock)
+    return _tokens[key]
 
 
-def kiwoom_post(path, api_id, body=None):
+def kiwoom_post(path, api_id, body=None, is_mock=None):
     """
     키움 REST API POST 요청
     - Content-Type: application/json;charset=UTF-8
     - Authorization: Bearer {token}
     - api-id: {api_id}  ← 필수 헤더
+    - is_mock: None이면 KIWOOM_IS_MOCK 전역 설정 사용, True/False 이면 강제 적용
     """
-    token = get_kiwoom_token()
+    use_mock = KIWOOM_IS_MOCK if is_mock is None else is_mock
+    token = get_kiwoom_token(is_mock=use_mock)
+    base_url = KIWOOM_MOCK_BASE if use_mock else KIWOOM_REAL_BASE
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json;charset=UTF-8",
         "api-id": api_id,
     }
-    url = f"{get_kiwoom_base_url()}{path}"
+    url = f"{base_url}{path}"
     resp = requests.post(url, headers=headers, json=body or {}, timeout=10)
     resp.raise_for_status()
     data = resp.json()
@@ -236,19 +240,21 @@ def handle_stock_search(payload):
 
 def handle_balance_get(payload):
     """계좌 잔고 조회 — kt00018 (계좌평가잔고내역)"""
-    dmst_stex_tp = "%" if KIWOOM_IS_MOCK else "KRX"
+    account_type = payload.get("accountType", "real")
+    is_mock = account_type == "mock"
+    dmst_stex_tp = "%" if is_mock else "KRX"
     data = kiwoom_post("/api/dostk/acnt", "kt00018", {
         "qry_tp": "2",
         "dmst_stex_tp": dmst_stex_tp,
-    })
-    # output1: 계좌요약, output2: 보유종목 목록 (routes에서 기존 매핑 그대로 사용 가능하도록)
-    output1 = data.get("acnt_evlt_remn_indv", {}) or {}
-    output2 = data.get("acnt_evlt_remn_indv_tot", []) or []
+    }, is_mock=is_mock)
+    # 키움 API는 tot_evlt_amt 등을 raw 최상위에 직접 반환
+    holdings = data.get("acnt_evlt_remn_indv_tot", []) or []
     return {
-        "output1": output1,
-        "output2": output2,
-        "totalEvaluationAmount": str(output1.get("tot_evlu_amt", "0")),
-        "depositAmount": str(output1.get("dnca_tot_amt", "0")),
+        "totalEvaluationAmount": str(data.get("tot_evlt_amt", data.get("tot_evlu_amt", "0"))),
+        "depositAmount": str(data.get("prsm_dpst_aset_amt", data.get("dnca_tot_amt", "0"))),
+        "todayProfit": str(data.get("tot_evlt_pl", data.get("tot_evlu_pfls", "0"))),
+        "output1": data,
+        "output2": holdings,
         "raw": data,
     }
 
