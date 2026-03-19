@@ -1,53 +1,113 @@
-# 키움 에이전트 (집 PC 실행용)
+﻿# 키움 에이전트 설치 가이드
 
-집 PC의 고정 공인 IP에서 키움 REST API를 호출하는 폴링 에이전트입니다.
+집 PC에서 키움 REST API를 호출하는 에이전트 설치 방법입니다.
 
-## 아키텍처
+---
 
-```
-사용자 브라우저 → Replit (작업 등록) → DB 저장
-집 PC 에이전트 → Replit (작업 조회) → 키움 API 호출 → Replit (결과 저장)
-사용자 브라우저 → Replit (결과 조회) → 화면 표시
-```
-
-## 설치 및 실행
-
-```bash
-pip install requests python-dotenv
-```
-
-`.env` 파일을 `agent/` 폴더 또는 프로젝트 루트에 생성:
+## 구조
 
 ```
-REPLIT_URL=https://your-replit-app.replit.app
-AGENT_KEY=랜덤_비밀키_여기에_입력
-KIWOOM_APP_KEY=키움_앱키
-KIWOOM_APP_SECRET=키움_앱시크릿
-KIWOOM_IS_MOCK=false
-POLL_INTERVAL=2
+사용자 → Replit 앱 → 집 PC 에이전트 → 키움 REST API
 ```
 
-실행:
+- **Replit**: UI / 작업 접수
+- **집 PC**: 키움 REST 전용 호출기 (이 에이전트)
 
-```bash
-python agent/kiwoom-agent.py
+---
+
+## 사전 준비
+
+### 1. 키움 오픈API 허용 IP 등록
+
+1. [키움 오픈API 포털](https://openapi.kiwoom.com) 로그인
+2. **마이페이지 → 앱 관리 → 허용 IP** 에 집 공인IP 등록
+3. 집 공인IP 확인: [https://api.ipify.org](https://api.ipify.org)
+
+> ⚠️ 인터넷 공유기 교체 시 공인IP가 바뀔 수 있으므로 재등록 필요
+
+---
+
+## 에이전트 설치 (신규 PC)
+
+### PowerShell 한 줄로 설치
+
+1. Windows 키 + X → **Windows PowerShell (관리자)** 실행
+2. 아래 명령어 붙여넣기 후 엔터:
+
+```powershell
+irm https://raw.githubusercontent.com/wsjung2023/tradebot/main/agent/install-agent.ps1 | iex
 ```
 
-## 지원 작업 타입
+설치가 완료되면:
+- ✅ Python 자동 설치
+- ✅ 에이전트 최신버전 자동 다운로드
+- ✅ PC 시작 시 자동 실행 등록 (Task Scheduler)
+- ✅ 에이전트 즉시 가동
 
-| jobType | 설명 |
-|---------|------|
-| `ping` | 연결 테스트 |
-| `watchlist.get` | 관심종목 시세 조회 |
-| `balance.get` | 계좌 잔고 조회 |
-| `order.buy` | 매수 주문 |
-| `order.sell` | 매도 주문 |
+---
 
-## 키움 IP 등록
+## OpenClaw 설치 (Joy AI 어시스턴트)
 
-집 PC 공인 IP를 [키움증권 포털](https://www1.kiwoom.com/)에 등록해야 합니다.
-- 로그인 → OpenAPI → 사용신청/관리 → 지정단말기 IP 등록
+Joy는 에이전트를 원격으로 관리하고 모니터링하는 AI 어시스턴트입니다.
 
-## Replit 설정
+### 1. OpenClaw 설치
 
-Replit Secrets에 `AGENT_KEY` 추가 (집 PC `.env`와 동일한 값 입력)
+```powershell
+npm install -g openclaw
+```
+
+> Node.js가 없으면 먼저 설치: https://nodejs.org
+
+### 2. OpenClaw 설정
+
+```powershell
+openclaw setup
+```
+
+설정 항목:
+- Anthropic API 키 입력
+- Telegram 봇 토큰 입력 (선택)
+
+### 3. OpenClaw 시작
+
+```powershell
+openclaw gateway start
+```
+
+### 4. 에이전트 원격 제어 (Telegram)
+
+OpenClaw가 실행되면 Telegram에서:
+- `"에이전트 상태 확인해줘"` → 실행 여부 확인
+- `"깃풀하고 재기동해"` → 최신버전으로 업데이트
+- `"로그 확인해줘"` → 최근 로그 조회
+
+---
+
+## PC 교체 / 네트워크 변경 시
+
+| 상황 | 해야 할 일 |
+|------|-----------|
+| PC 교체 | PowerShell 한 줄 재실행 |
+| 공인IP 변경 | 키움 포털 허용 IP 재등록 |
+| 에이전트 업데이트 | Joy에게 "깃풀하고 재기동해" |
+
+---
+
+## 파일 위치
+
+```
+C:\kiwoom-agent\
+├── kiwoom-agent.py   ← 에이전트 본체 (서버에서 자동 다운로드)
+├── .env              ← 설정 파일 (REPLIT_URLS, AGENT_KEY)
+└── agent.log         ← 실행 로그
+```
+
+---
+
+## 문제 해결
+
+| 증상 | 원인 | 해결 |
+|------|------|------|
+| 토큰 발급 실패 8030 | 허용 IP 미등록 | 키움 포털에서 IP 등록 |
+| 에이전트 연결 안됨 | Replit 서버 다운 | 잠시 후 재시도 |
+| PC 시작 후 안 돌아감 | Task Scheduler 오류 | install-agent.ps1 재실행 |
