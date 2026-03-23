@@ -60,12 +60,12 @@ export default function Dashboard() {
     enabled: !!selectedAccountId,
   });
 
-  const { data: recentTrades = [] } = useQuery({
+  const { data: recentTrades = [] } = useQuery<any[]>({
     queryKey: ['/api/accounts', selectedAccountId, 'trades'],
     enabled: !!selectedAccountId,
   });
 
-  const { data: assetSnapshots = [] } = useQuery({
+  const { data: assetSnapshots = [] } = useQuery<any[]>({
     queryKey: ['/api/accounts', selectedAccountId, 'asset-snapshots'],
     enabled: !!selectedAccountId,
   });

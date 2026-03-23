@@ -1,4 +1,3 @@
-// ai-analysis.tsx — AI 분석 페이지 (종목 분석 / 포트폴리오 분석 / 통합 분석 탭)
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -8,12 +7,11 @@ import { AIStockAnalysis } from "@/components/ai-analysis/AIStockAnalysis";
 import { AIPortfolioAnalysis } from "@/components/ai-analysis/AIPortfolioAnalysis";
 import { IntegratedAnalysis } from "@/components/ai-analysis/IntegratedAnalysis";
 import { Zap } from "lucide-react";
+import type { SelectedStock } from "@/lib/stocks";
 
 export default function AIAnalysis() {
   const { toast } = useToast();
-  const [stockCode, setStockCode] = useState("");
-  const [stockName, setStockName] = useState("");
-  const [currentPrice, setCurrentPrice] = useState("");
+  const [selectedStock, setSelectedStock] = useState<SelectedStock | null>(null);
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
   const [analysis, setAnalysis] = useState<any>(null);
   const [portfolioAnalysis, setPortfolioAnalysis] = useState<any>(null);
@@ -23,25 +21,36 @@ export default function AIAnalysis() {
   const analyzeStockMutation = useMutation({
     mutationFn: async (data: any) => (await apiRequest("POST", "/api/ai/analyze-stock", data)).json(),
     onSuccess: (data) => { setAnalysis(data); toast({ title: "분석 완료", description: "AI 종목 분석이 완료되었습니다" }); },
-    onError: (e: any) => toast({ variant: "destructive", title: "분석 실패", description: e.message }),
+    onError: (error: any) => toast({ variant: "destructive", title: "분석 실패", description: error.message }),
   });
 
   const analyzePortfolioMutation = useMutation({
     mutationFn: async (accountId: number) => (await apiRequest("POST", "/api/ai/analyze-portfolio", { accountId })).json(),
     onSuccess: (data) => { setPortfolioAnalysis(data); toast({ title: "포트폴리오 분석 완료" }); },
-    onError: (e: any) => toast({ variant: "destructive", title: "분석 실패", description: e.message }),
+    onError: (error: any) => toast({ variant: "destructive", title: "분석 실패", description: error.message }),
   });
 
   const handleStockAnalysis = () => {
-    if (!stockCode || !stockName || !currentPrice) {
-      toast({ variant: "destructive", title: "입력 오류", description: "모든 필드를 입력해주세요" }); return;
+    if (!selectedStock?.stockCode || !selectedStock.stockName || !selectedStock.currentPrice) {
+      toast({
+        variant: "destructive",
+        title: "종목 선택 필요",
+        description: "검색 결과에서 종목을 선택해 코드, 종목명, 현재가를 함께 연결해주세요.",
+      });
+      return;
     }
-    analyzeStockMutation.mutate({ stockCode, stockName, currentPrice: parseFloat(currentPrice) });
+
+    analyzeStockMutation.mutate({
+      stockCode: selectedStock.stockCode,
+      stockName: selectedStock.stockName,
+      currentPrice: selectedStock.currentPrice,
+    });
   };
 
   const handlePortfolioAnalysis = () => {
     if (!selectedAccountId) {
-      toast({ variant: "destructive", title: "계좌 선택 필요", description: "분석할 계좌를 선택해주세요" }); return;
+      toast({ variant: "destructive", title: "계좌 선택 필요", description: "분석할 계좌를 선택해주세요" });
+      return;
     }
     analyzePortfolioMutation.mutate(selectedAccountId);
   };
@@ -67,15 +76,22 @@ export default function AIAnalysis() {
         </TabsContent>
 
         <AIStockAnalysis
-          stockCode={stockCode} stockName={stockName} currentPrice={currentPrice}
-          analysis={analysis} isPending={analyzeStockMutation.isPending}
-          onStockCodeChange={setStockCode} onStockNameChange={setStockName}
-          onCurrentPriceChange={setCurrentPrice} onAnalyze={handleStockAnalysis}
+          selectedStock={selectedStock}
+          analysis={analysis}
+          isPending={analyzeStockMutation.isPending}
+          onSelectedStockChange={(stock) => {
+            setSelectedStock(stock);
+            setAnalysis(null);
+          }}
+          onAnalyze={handleStockAnalysis}
         />
         <AIPortfolioAnalysis
-          accounts={accountsData} selectedAccountId={selectedAccountId}
-          portfolioAnalysis={portfolioAnalysis} isPending={analyzePortfolioMutation.isPending}
-          onAccountChange={setSelectedAccountId} onAnalyze={handlePortfolioAnalysis}
+          accounts={accountsData}
+          selectedAccountId={selectedAccountId}
+          portfolioAnalysis={portfolioAnalysis}
+          isPending={analyzePortfolioMutation.isPending}
+          onAccountChange={setSelectedAccountId}
+          onAnalyze={handlePortfolioAnalysis}
         />
       </Tabs>
     </div>

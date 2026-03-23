@@ -10,17 +10,24 @@ import {
 } from "@shared/schema";
 import { parseFormula } from "../services/formula/parser";
 import { FormulaEvaluator } from "../services/formula/evaluator";
+import { AgentTimeoutError } from "../services/agent-proxy.service";
 import { getKiwoomService } from "../services/kiwoom";
+import { getUserKiwoomService } from "../services/user-kiwoom.service";
 import { z } from "zod";
 
 export function registerFormulaRoutes(app: Router) {
+  const userKiwoomService = getUserKiwoomService();
   const kiwoomService = getKiwoomService();
 
+  const getConditionListForUser = async (userId: string) => userKiwoomService.getConditionList(userId);
+  const getConditionSearchResultsForUser = async (userId: string, seq: string) => userKiwoomService.runCondition(userId, seq);
+
   // 키움 조건식 목록
-  app.get("/api/kiwoom/conditions", isAuthenticated, async (_req, res) => {
+  app.get("/api/kiwoom/conditions", isAuthenticated, async (req, res) => {
     try {
-      const conditions = await kiwoomService.getConditionList();
-      res.json(conditions?.output ?? conditions);
+      const user = getCurrentUser(req);
+      const conditions = await getConditionListForUser(user!.id);
+      res.json(conditions);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -29,8 +36,9 @@ export function registerFormulaRoutes(app: Router) {
   // 키움 조건검색 실행
   app.post("/api/kiwoom/conditions/:seq/run", isAuthenticated, async (req, res) => {
     try {
-      const results = await kiwoomService.getConditionSearchResults(req.params.seq, 0);
-      res.json(results?.output1 ?? results?.output ?? results);
+      const user = getCurrentUser(req);
+      const results = await getConditionSearchResultsForUser(user!.id, req.params.seq);
+      res.json(results);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -79,8 +87,7 @@ export function registerFormulaRoutes(app: Router) {
   app.get("/api/conditions/hts-list", isAuthenticated, async (req, res) => {
     try {
       const user = getCurrentUser(req);
-      const htsConditions = await kiwoomService.getConditionList();
-      const list = htsConditions?.output ?? htsConditions ?? [];
+      const list = await getConditionListForUser(user!.id);
       if (!Array.isArray(list) || list.length === 0) {
         return res.json({ imported: 0, conditions: [] });
       }
@@ -178,8 +185,7 @@ export function registerFormulaRoutes(app: Router) {
       let conditionSeq = String((condition as any).kiwoomSeq ?? "").trim();
       if (!conditionSeq) {
         try {
-          const conditionList = await kiwoomService.getConditionList();
-          const rows = conditionList?.output ?? [];
+          const rows = await getConditionListForUser(user!.id);
           const matched = rows.find((row: any) => row.condition_name === condition.conditionName);
           if (matched) {
             conditionSeq = String(matched.condition_index);
@@ -192,8 +198,7 @@ export function registerFormulaRoutes(app: Router) {
         conditionSeq = String(condition.id);
       }
 
-      const searchResponse = await kiwoomService.getConditionSearchResults(conditionSeq, 0);
-      const results = searchResponse?.output1 || searchResponse?.output || [];
+      const results = await getConditionSearchResultsForUser(user!.id, conditionSeq);
 
       for (const result of results) {
         const stockCode = (result as any).stock_code || (result as any).stck_cd;
@@ -317,14 +322,15 @@ export function registerFormulaRoutes(app: Router) {
       const { stockCode, period = "D" } = req.body;
       if (!stockCode) return res.status(400).json({ error: "Stock code is required" });
 
-      const chartData = await kiwoomService.getStockChart(stockCode, period);
-      const ohlcvData = (chartData.output2 || []).map((c: any) => ({
-        date: c.stck_bsop_date || "",
-        open: parseFloat(c.stck_oprc) || 0,
-        high: parseFloat(c.stck_hgpr) || 0,
-        low: parseFloat(c.stck_lwpr) || 0,
-        close: parseFloat(c.stck_clpr) || 0,
-        volume: parseInt(c.acml_vol) || 0,
+      const chartData = await userKiwoomService.getChart(user!.id, stockCode, period, 250);
+      const rows = Array.isArray(chartData) ? chartData : (chartData.output2 || chartData.output1 || chartData.output || []);
+      const ohlcvData = rows.map((c: any) => ({
+        date: c.date || c.stck_bsop_date || c.dt || "",
+        open: parseFloat(c.open || c.stck_oprc || 0) || 0,
+        high: parseFloat(c.high || c.stck_hgpr || 0) || 0,
+        low: parseFloat(c.low || c.stck_lwpr || 0) || 0,
+        close: parseFloat(c.close || c.stck_clpr || 0) || 0,
+        volume: parseInt(c.volume || c.acml_vol || 0) || 0,
       }));
 
       const evaluator = new FormulaEvaluator();

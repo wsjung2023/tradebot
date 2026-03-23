@@ -6,6 +6,7 @@ import { insertAiModelSchema, updateAiModelSchema } from "@shared/schema";
 import { getAIService } from "../services/ai.service";
 import { getNewsService } from "../services/news.service";
 import { getKiwoomService } from "../services/kiwoom";
+import { getUserKiwoomService } from "../services/user-kiwoom.service";
 import { getAICouncilService } from "../services/ai-council.service";
 import { getFeatureFlags } from "../config/feature-flags";
 import { getDartService } from "../services/dart.service";
@@ -17,6 +18,7 @@ export function registerAiRoutes(app: Router) {
   const aiCouncilService = getAICouncilService();
   const featureFlags = getFeatureFlags();
   const dartService = getDartService();
+  const userKiwoomService = getUserKiwoomService();
 
 
   const collectAndPersistMaterials = async ({
@@ -201,7 +203,7 @@ export function registerAiRoutes(app: Router) {
       const [news, financialRatios, priceHistory, filings, marketIssues, materialSnapshots] = await Promise.allSettled([
         newsService.getStockNews(stockCode, stockName, 10),
         kiwoomService.getFinancialRatios(stockCode).catch(() => null),
-        kiwoomService.getStockChart(stockCode, 'D').catch(() => null),
+        userKiwoomService.getChart(user!.id, stockCode, "D", 120).catch(() => null),
         storage.getCompanyFilings(stockCode, 10).catch(() => []),
         storage.getMarketIssuesByStock(stockCode).catch(() => []),
         storage.getAnalysisMaterialSnapshots(user!.id, stockCode, 1).catch(() => []),
@@ -211,11 +213,7 @@ export function registerAiRoutes(app: Router) {
       const ratiosOutput = financialRatios.status === 'fulfilled' ? financialRatios.value?.output : undefined;
       const ratiosData = Array.isArray(ratiosOutput) ? ratiosOutput[0] : ratiosOutput;
       const chartData = priceHistory.status === 'fulfilled' && priceHistory.value
-        ? (priceHistory.value as any[]).slice(0, 30).map((c: any) => ({
-            date: c.dt || c.date || '',
-            price: Number(c.cls_prc || c.close || 0),
-            volume: Number(c.trde_qty || c.volume || 0),
-          }))
+        ? userKiwoomService.normalizeChartForPriceHistory(priceHistory.value as any[])
         : undefined;
 
       const result = await aiService.integratedAnalysis({

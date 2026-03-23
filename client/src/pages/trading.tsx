@@ -1,5 +1,4 @@
-﻿// trading.tsx - 실시간 거래 페이지 (차트 + 레인보우 오버레이 + 주문)
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,14 +9,16 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import {
   ComposedChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, ReferenceLine, ReferenceDot, Legend,
+  ResponsiveContainer, ReferenceLine, ReferenceDot,
 } from "recharts";
-import { TrendingUp, DollarSign } from "lucide-react";
+import { TrendingUp, DollarSign, AlertCircle, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useMarketStream } from "@/hooks/use-market-stream";
 import { ConnectionStatus } from "@/components/connection-status";
 import type { KiwoomAccount } from "@shared/schema";
+import { StockSelector } from "@/components/stocks/StockSelector";
+import type { SelectedStock } from "@/lib/stocks";
 
 type ChartSignal = {
   id: number;
@@ -25,6 +26,15 @@ type ChartSignal = {
   currentPrice: number | null;
   createdAt: string;
   chartDate?: string;
+};
+
+type ChartPoint = {
+  date: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
 };
 
 type RainbowLine = { price: number; label: string; color: string; width: number };
@@ -35,9 +45,22 @@ type RainbowData = {
   CL: number;
 } | null;
 
+function ChartStatusMessage({ title, description }: { title: string; description?: string }) {
+  return (
+    <div className="flex min-h-[250px] flex-col items-center justify-center gap-2 text-center text-muted-foreground md:min-h-[400px]">
+      <AlertCircle className="h-5 w-5" />
+      <p className="text-sm font-medium text-foreground">{title}</p>
+      {description && <p className="max-w-md text-xs md:text-sm">{description}</p>}
+    </div>
+  );
+}
+
 export default function Trading() {
   const { toast } = useToast();
-  const [stockCode, setStockCode] = useState("005930");
+  const [selectedStock, setSelectedStock] = useState<SelectedStock | null>({
+    stockCode: "005930",
+    stockName: "삼성전자",
+  });
   const [orderType, setOrderType] = useState<"buy" | "sell">("buy");
   const [priceType, setPriceType] = useState<"market" | "limit">("market");
   const [quantity, setQuantity] = useState("");
@@ -45,44 +68,68 @@ export default function Trading() {
   const [showRainbow, setShowRainbow] = useState(false);
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
 
+  const stockCode = selectedStock?.stockCode ?? "";
+  const stockName = selectedStock?.stockName ?? stockCode;
+
   const { prices, orderbooks, connectionStatus, errorMessage, retryCount, forceReconnect } =
-    useMarketStream([stockCode], ["price", "orderbook"]);
+    useMarketStream(stockCode ? [stockCode] : [], ["price", "orderbook"]);
 
-  const stockPrice = prices[stockCode];
-  const orderbook = orderbooks[stockCode];
+  const stockPrice = stockCode ? prices[stockCode] : undefined;
+  const orderbook = stockCode ? orderbooks[stockCode] : undefined;
 
-  const { data: chartData = [] } = useQuery<any[]>({
-    queryKey: ["/api/stocks", stockCode, "chart"],
+  useEffect(() => {
+    if (stockPrice?.currentPrice && priceType === "market") {
+      setPrice(String(stockPrice.currentPrice));
+    }
+  }, [stockPrice?.currentPrice, priceType]);
+
+  const { data: chartData = [], isPending: isChartLoading, error: chartError } = useQuery<ChartPoint[]>({
+    queryKey: ["stock-chart", stockCode],
     enabled: !!stockCode,
+    queryFn: async () => {
+      const response = await apiRequest("GET", `/api/stocks/${stockCode}/chart`);
+      const data = await response.json();
+      return Array.isArray(data) ? data : [];
+    },
   });
 
   const { data: accounts = [] } = useQuery<KiwoomAccount[]>({
     queryKey: ["/api/accounts"],
   });
 
-  // 선택된 계좌 (없으면 첫번째 계좌)
   const selectedAccount = accounts.find((a) => a.id === selectedAccountId) || accounts[0] || null;
   const tradingMode: "mock" | "real" = selectedAccount?.accountType as "mock" | "real" || "mock";
 
   const { data: chartSignals = [] } = useQuery<ChartSignal[]>({
-    queryKey: ["/api/stocks", stockCode, "chart-signals"],
+    queryKey: ["stock-chart-signals", stockCode],
     enabled: !!stockCode,
+    queryFn: async () => {
+      const response = await apiRequest("GET", `/api/stocks/${stockCode}/chart-signals`);
+      const data = await response.json();
+      return Array.isArray(data) ? data : [];
+    },
   });
 
   const { data: rainbowData, isFetching: rainbowLoading } = useQuery<RainbowData>({
-    queryKey: ["/api/stocks", stockCode, "rainbow-lines"],
+    queryKey: ["stock-rainbow", stockCode],
     enabled: !!stockCode && showRainbow,
+    queryFn: async () => {
+      const response = await apiRequest("GET", `/api/stocks/${stockCode}/rainbow-lines`);
+      return response.json();
+    },
   });
 
   const orderMutation = useMutation({
     mutationFn: async (orderData: any) => {
-      const res = await apiRequest("POST", "/api/orders", orderData);
-      return res.json();
+      const response = await apiRequest("POST", "/api/orders", orderData);
+      return response.json();
     },
     onSuccess: () => {
       toast({ title: "주문 성공", description: `${orderType === "buy" ? "매수" : "매도"} 주문이 접수되었습니다.` });
       setQuantity("");
-      setPrice("");
+      if (priceType !== "market") {
+        setPrice("");
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
     },
     onError: (error: any) => {
@@ -95,6 +142,10 @@ export default function Trading() {
       toast({ variant: "destructive", title: "계좌 없음", description: "먼저 계좌를 등록해주세요" });
       return;
     }
+    if (!stockCode || !stockName) {
+      toast({ variant: "destructive", title: "종목 선택 필요", description: "검색 결과에서 종목을 먼저 선택해주세요" });
+      return;
+    }
     if (!quantity || parseInt(quantity) <= 0) {
       toast({ variant: "destructive", title: "수량 오류", description: "수량을 입력해주세요" });
       return;
@@ -103,10 +154,11 @@ export default function Trading() {
       toast({ variant: "destructive", title: "가격 오류", description: "가격을 입력해주세요" });
       return;
     }
+
     orderMutation.mutate({
       accountId: selectedAccount.id,
       stockCode,
-      stockName: stockPrice?.stockName || stockCode,
+      stockName,
       orderType,
       orderMethod: priceType,
       orderQuantity: parseInt(quantity),
@@ -121,7 +173,7 @@ export default function Trading() {
     return `₩${value.toLocaleString("ko-KR")}`;
   };
 
-  const normalizedSignalDots = chartSignals
+  const normalizedSignalDots = useMemo(() => chartSignals
     .map((signal) => ({
       ...signal,
       chartDate:
@@ -132,10 +184,20 @@ export default function Trading() {
           ? signal.currentPrice
           : stockPrice?.currentPrice || 0,
     }))
-    .filter((s) => s.chartDate && s.chartPrice > 0)
-    .slice(-200);
+    .filter((signal) => signal.chartDate && signal.chartPrice > 0)
+    .slice(-200), [chartSignals, stockPrice?.currentPrice]);
 
   const rainbowLines = rainbowData?.lines ? Object.values(rainbowData.lines) : [];
+
+  const chartState = !stockCode
+    ? "empty"
+    : isChartLoading
+      ? "loading"
+      : chartError
+        ? "error"
+        : chartData.length === 0
+          ? "no-data"
+          : "ready";
 
   return (
     <div className="p-3 md:p-6 space-y-4 md:space-y-6">
@@ -145,40 +207,43 @@ export default function Trading() {
       </div>
 
       <div className="flex flex-col gap-3">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 flex-wrap">
-            <Label className="text-sm">종목 코드:</Label>
-            <Input
-              placeholder="종목코드 입력 (예: 005930)"
-              value={stockCode}
-              onChange={(e) => setStockCode(e.target.value)}
-              className="w-full sm:w-64"
-              data-testid="input-stock-code"
-            />
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+          <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+            <div className="min-w-[280px] flex-1">
+              <StockSelector
+                label="종목 선택"
+                value={selectedStock}
+                onChange={setSelectedStock}
+                placeholder="종목명 또는 코드 입력 (예: 삼성전자, 005930)"
+                inputTestId="input-stock-code"
+                allowManualCode
+              />
+            </div>
             {accounts.length > 1 && (
-              <>
-                <Label className="text-sm">계좌:</Label>
+              <div className="w-full sm:w-56 space-y-2">
+                <Label className="text-sm">계좌</Label>
                 <Select
                   value={selectedAccountId?.toString() || (accounts[0]?.id?.toString() ?? "")}
-                  onValueChange={(v) => setSelectedAccountId(parseInt(v))}
+                  onValueChange={(value) => setSelectedAccountId(parseInt(value))}
                 >
-                  <SelectTrigger className="w-full sm:w-56" data-testid="select-trading-account">
+                  <SelectTrigger data-testid="select-trading-account">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {accounts.map((acc) => (
-                      <SelectItem key={acc.id} value={acc.id.toString()}>
-                        {acc.accountName || acc.accountNumber} ({acc.accountType === "real" ? "실전" : "모의"})
+                    {accounts.map((account) => (
+                      <SelectItem key={account.id} value={account.id.toString()}>
+                        {account.accountName || account.accountNumber} ({account.accountType === "real" ? "실전" : "모의"})
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-              </>
+              </div>
             )}
             {selectedAccount && (
               <Badge
                 variant={tradingMode === "real" ? "default" : "secondary"}
                 data-testid="badge-trading-mode"
+                className="w-fit"
               >
                 {tradingMode === "real" ? "실전투자" : "모의투자"}
               </Badge>
@@ -242,9 +307,9 @@ export default function Trading() {
       <div className="grid gap-3 md:gap-4 grid-cols-1 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-3">
               <div>
-                <CardTitle className="text-base md:text-lg">{stockPrice?.stockName || stockCode} 차트</CardTitle>
+                <CardTitle className="text-base md:text-lg">{stockPrice?.stockName || stockName || "종목 선택 필요"} 차트</CardTitle>
                 <CardDescription className="text-xs md:text-sm">일봉 차트</CardDescription>
               </div>
               <div className="flex items-center gap-2">
@@ -256,8 +321,8 @@ export default function Trading() {
                 <Button
                   size="sm"
                   variant={showRainbow ? "default" : "outline"}
-                  onClick={() => setShowRainbow((v) => !v)}
-                  disabled={rainbowLoading}
+                  onClick={() => setShowRainbow((value) => !value)}
+                  disabled={rainbowLoading || !stockCode}
                   className="text-xs"
                 >
                   {rainbowLoading ? "로딩..." : showRainbow ? "🌈 레인보우 ON" : "🌈 레인보우"}
@@ -266,13 +331,13 @@ export default function Trading() {
             </div>
           </CardHeader>
           <CardContent>
-            {chartData && chartData.length > 0 ? (
+            {chartState === "ready" ? (
               <ResponsiveContainer width="100%" height={250} className="md:!h-[400px]">
                 <ComposedChart data={chartData}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="date" tick={{ fontSize: 10 }} />
                   <YAxis domain={["auto", "auto"]} tick={{ fontSize: 10 }} />
-                  <Tooltip formatter={(value: any) => formatCurrency(value)} />
+                  <Tooltip formatter={(value: any) => formatCurrency(Number(value))} />
                   <Line
                     type="monotone"
                     dataKey="close"
@@ -305,8 +370,27 @@ export default function Trading() {
                   ))}
                 </ComposedChart>
               </ResponsiveContainer>
+            ) : chartState === "loading" ? (
+              <div className="flex min-h-[250px] items-center justify-center md:min-h-[400px]">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" /> 차트 데이터를 불러오는 중입니다.
+                </div>
+              </div>
+            ) : chartState === "error" ? (
+              <ChartStatusMessage
+                title="차트 조회에 실패했습니다."
+                description={chartError instanceof Error ? chartError.message : "에이전트 연결 또는 응답 데이터를 확인해주세요."}
+              />
+            ) : chartState === "no-data" ? (
+              <ChartStatusMessage
+                title="차트 데이터가 없습니다."
+                description="선택한 종목에 대한 응답은 왔지만 차트 데이터가 비어 있습니다. 에이전트 응답과 종목 코드를 확인해주세요."
+              />
             ) : (
-              <p className="text-sm text-muted-foreground text-center py-8">차트 데이터 로딩 중..</p>
+              <ChartStatusMessage
+                title="종목을 먼저 선택해주세요."
+                description="검색 결과에서 종목을 선택하면 차트와 호가가 함께 연결됩니다."
+              />
             )}
           </CardContent>
         </Card>
@@ -320,23 +404,25 @@ export default function Trading() {
             {orderbook ? (
               <div className="space-y-1">
                 <div className="font-semibold text-sm mb-2">매도 호가</div>
-                {orderbook.sell?.slice(0, 5).reverse().map((item: any, idx: number) => (
-                  <div key={`sell-${idx}`} className="flex justify-between text-sm p-1 bg-red-50 dark:bg-red-950/20">
+                {orderbook.sell?.slice(0, 5).reverse().map((item: any, index: number) => (
+                  <div key={`sell-${index}`} className="flex justify-between text-sm p-1 bg-red-50 dark:bg-red-950/20">
                     <span className="text-red-600 dark:text-red-400">{formatCurrency(item.price)}</span>
                     <span className="text-muted-foreground">{item.quantity}</span>
                   </div>
                 ))}
                 <div className="h-px bg-border my-2" />
                 <div className="font-semibold text-sm mb-2">매수 호가</div>
-                {orderbook.buy?.slice(0, 5).map((item: any, idx: number) => (
-                  <div key={`buy-${idx}`} className="flex justify-between text-sm p-1 bg-green-50 dark:bg-green-950/20">
+                {orderbook.buy?.slice(0, 5).map((item: any, index: number) => (
+                  <div key={`buy-${index}`} className="flex justify-between text-sm p-1 bg-green-50 dark:bg-green-950/20">
                     <span className="text-green-600 dark:text-green-400">{formatCurrency(item.price)}</span>
                     <span className="text-muted-foreground">{item.quantity}</span>
                   </div>
                 ))}
               </div>
+            ) : stockCode ? (
+              <p className="text-sm text-muted-foreground text-center py-8">실시간 호가를 기다리는 중입니다.</p>
             ) : (
-              <p className="text-sm text-muted-foreground text-center py-8">호가 데이터 로딩 중..</p>
+              <p className="text-sm text-muted-foreground text-center py-8">종목을 선택하면 호가를 표시합니다.</p>
             )}
           </CardContent>
         </Card>
@@ -355,6 +441,14 @@ export default function Trading() {
             </TabsList>
           </Tabs>
           <div className="grid gap-4 mt-4">
+            <div className="rounded-md border bg-muted/30 p-3 text-sm">
+              <div className="font-medium text-foreground">선택 종목</div>
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-muted-foreground">
+                <Badge variant="outline" className="font-mono">{stockCode || "미선택"}</Badge>
+                <span>{stockName || "검색 결과에서 종목을 선택해주세요."}</span>
+                {stockPrice?.currentPrice ? <span className="font-mono">현재가 {formatCurrency(stockPrice.currentPrice)}</span> : null}
+              </div>
+            </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>주문 유형</Label>
@@ -374,7 +468,7 @@ export default function Trading() {
                   type="number"
                   placeholder="수량"
                   value={quantity}
-                  onChange={(e) => setQuantity(e.target.value)}
+                  onChange={(event) => setQuantity(event.target.value)}
                   data-testid="input-quantity"
                 />
               </div>
@@ -386,14 +480,14 @@ export default function Trading() {
                   type="number"
                   placeholder="가격"
                   value={price}
-                  onChange={(e) => setPrice(e.target.value)}
+                  onChange={(event) => setPrice(event.target.value)}
                   data-testid="input-price"
                 />
               </div>
             )}
             <Button
               onClick={handleSubmitOrder}
-              disabled={orderMutation.isPending}
+              disabled={orderMutation.isPending || !stockCode}
               className={orderType === "buy" ? "bg-green-600 hover:bg-green-700" : "bg-red-600 hover:bg-red-700"}
               data-testid="button-submit-order"
             >

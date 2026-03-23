@@ -2,13 +2,14 @@
 import type { Router } from "express";
 import { storage } from "../storage";
 import { isAuthenticated, getCurrentUser } from "../auth";
-import { getKiwoomService } from "../services/kiwoom";
+import { AgentTimeoutError } from "../services/agent-proxy.service";
+import { getUserKiwoomService } from "../services/user-kiwoom.service";
 import { getAIService } from "../services/ai.service";
 import { RainbowChartAnalyzer } from "../formula/rainbow-chart";
 
 export function registerAutoTradingRoutes(app: Router) {
-  const kiwoomService = getKiwoomService();
   const aiService = getAIService();
+  const userKiwoomService = getUserKiwoomService();
 
   /**
    * POST /api/auto-trading/backattack-scan
@@ -49,7 +50,7 @@ export function registerAutoTradingRoutes(app: Router) {
         if (!stockCode) continue;
 
         try {
-          const chartData = await kiwoomService.getStockChart(stockCode, "D", 250);
+          const chartData = await userKiwoomService.getChart(user.id, stockCode, "D", 250);
           if (!chartData || chartData.length < 240) {
             throw new Error(`Insufficient chart data: ${chartData?.length || 0} bars (need 240+)`);
           }
@@ -107,6 +108,7 @@ export function registerAutoTradingRoutes(app: Router) {
         recommendations, errors: errors.length > 0 ? errors : undefined,
       });
     } catch (error: any) {
+      if (error instanceof AgentTimeoutError) return res.status(503).json({ error: error.message });
       res.status(500).json({ error: error.message });
     }
   });

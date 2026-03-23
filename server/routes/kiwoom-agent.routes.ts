@@ -174,7 +174,7 @@ export function registerKiwoomAgentRoutes(app: Express): void {
         simulatedResult = { pong: true, serverTime: Date.now(), mode: "dev-simulate" };
       }
 
-      const updated = await storage.updateKiwoomJobResult(job.id, "done", simulatedResult, null);
+      const updated = await storage.updateKiwoomJobResult(job.id, "done", simulatedResult, undefined);
       res.json({
         success: true,
         jobId: job.id,
