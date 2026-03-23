@@ -6,6 +6,15 @@ import { storage } from './storage';
 import type { User } from '@shared/schema';
 import type { Express } from 'express';
 
+// ==================== Access Whitelist ====================
+// Only these emails are allowed to use the app
+const ALLOWED_EMAILS = ['mainstop3@gmail.com', 'test@test.com'];
+
+function isAllowedEmail(email: string | undefined | null): boolean {
+  if (!email) return false;
+  return ALLOWED_EMAILS.includes(email.toLowerCase().trim());
+}
+
 // Serialize user for session
 passport.serializeUser((user: any, done) => {
   done(null, user.id);
@@ -50,6 +59,10 @@ passport.use(
           return done(null, false, { message: 'Invalid email or password' });
         }
 
+        if (!isAllowedEmail(user.email)) {
+          return done(null, false, { message: 'Access denied' });
+        }
+
         return done(null, user);
       } catch (error) {
         return done(error);
@@ -73,12 +86,19 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
       },
       async (accessToken: any, refreshToken: any, profile: any, done: any) => {
         try {
+          const googleEmail = profile.emails?.[0]?.value || '';
+
+          // Whitelist check — only allowed emails can log in
+          if (!isAllowedEmail(googleEmail)) {
+            return done(null, false, { message: 'Access denied' });
+          }
+
           // Check if user exists with this Google ID
           let user = await storage.getUserByAuthProvider('google', profile.id);
 
           if (!user) {
             // Check if email already exists
-            const emailUser = await storage.getUserByEmail(profile.emails?.[0]?.value || '');
+            const emailUser = await storage.getUserByEmail(googleEmail);
             
             if (emailUser) {
               // Update existing user to link Google account
@@ -90,7 +110,7 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
             } else {
               // Create new user
               user = await storage.createUser({
-                email: profile.emails?.[0]?.value || '',
+                email: googleEmail,
                 name: profile.displayName,
                 profileImage: profile.photos?.[0]?.value,
                 authProvider: 'google',
