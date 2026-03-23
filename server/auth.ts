@@ -61,18 +61,15 @@ passport.use(
 // ==================== Google OAuth Strategy ====================
 
 if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
-  const baseURL = process.env.REPLIT_DOMAINS 
-    ? `https://${process.env.REPLIT_DOMAINS}` 
-    : 'http://localhost:5000';
-  
-  const callbackURL = `${baseURL}/api/auth/google/callback`;
-  
+  // 상대경로 사용 + proxy:true → 요청이 들어온 도메인(ai-stockbot.net 또는 replit.app)
+  // 을 자동으로 callback URL에 반영. 두 도메인 모두 Google Console에 등록 필요.
   passport.use(
     new GoogleStrategy(
       {
         clientID: process.env.GOOGLE_CLIENT_ID,
         clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-        callbackURL: callbackURL,
+        callbackURL: '/api/auth/google/callback',
+        proxy: true,
       },
       async (accessToken: any, refreshToken: any, profile: any, done: any) => {
         try {
