@@ -5,9 +5,11 @@ import { isAuthenticated, getCurrentUser } from "../auth";
 import { insertWatchlistSchema, insertAlertSchema, insertWatchlistSignalSchema } from "@shared/schema";
 import { encrypt } from "../utils/crypto";
 import { z } from "zod";
-import { callViaAgent, AgentTimeoutError } from "../services/agent-proxy.service";
+import { AgentTimeoutError } from "../services/agent-proxy.service";
+import { getUserKiwoomService } from "../services/user-kiwoom.service";
 
 export function registerWatchlistRoutes(app: Router) {
+  const userKiwoomService = getUserKiwoomService();
   const isMissingWatchlistSyncTableError = (error: any) => {
     const message = String(error?.message ?? "");
     const code = String(error?.code ?? "");
@@ -34,8 +36,7 @@ export function registerWatchlistRoutes(app: Router) {
 
       try {
         const codes = list.map((item) => item.stockCode);
-        const agentResult = await callViaAgent(user!.id, "watchlist.get", { stockCodes: codes });
-        const priceList: any[] = agentResult?.items || [];
+        const priceList: any[] = await userKiwoomService.getWatchlist(user!.id, codes);
         const priceMap: Record<string, any> = {};
         for (const price of priceList) {
           priceMap[price.stockCode] = price;
@@ -58,7 +59,7 @@ export function registerWatchlistRoutes(app: Router) {
 
       if (stockCode && (!stockName || stockName === stockCode)) {
         try {
-          const info = await callViaAgent(user!.id, "stock.info", { stockCode: String(stockCode) });
+          const info = await userKiwoomService.getStockInfo(user!.id, String(stockCode));
           if (info?.name) stockName = info.name;
         } catch {
           stockName = stockName || stockCode;
@@ -105,8 +106,7 @@ export function registerWatchlistRoutes(app: Router) {
       const list = await storage.getWatchlist(user!.id);
       if (list.length === 0) return res.json({ message: "관심종목이 없습니다", updated: 0 });
       const codes = list.map((item) => item.stockCode);
-      const agentResult = await callViaAgent(user!.id, "watchlist.get", { stockCodes: codes });
-      const priceList: any[] = agentResult?.items || [];
+      const priceList: any[] = await userKiwoomService.getWatchlist(user!.id, codes);
       const priceMap: Record<string, any> = {};
       for (const price of priceList) { priceMap[price.stockCode] = price; }
       const result = list.map((item) => ({ ...item, kiwoomData: priceMap[item.stockCode] ?? null }));
@@ -122,7 +122,6 @@ export function registerWatchlistRoutes(app: Router) {
             syncedPrice: (syncedPrice.currentPrice || syncedPrice.price || "0").toString(),
             rawPayload: syncedPrice,
             source: "kiwoom_api",
-            syncedAt: new Date(),
           });
         }
       }

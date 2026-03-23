@@ -1,11 +1,10 @@
-﻿// AIStockAnalysis.tsx — 종목 AI 분석 탭 (종목 코드/가격 입력 후 GPT 분석 결과 표시)
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { TabsContent } from "@/components/ui/tabs";
 import { Loader2, TrendingUp, TrendingDown, Minus, Brain, Target, AlertCircle } from "lucide-react";
+import { StockSelector } from "@/components/stocks/StockSelector";
+import type { SelectedStock } from "@/lib/stocks";
 
 interface StockAnalysis {
   action: "buy" | "sell" | "hold";
@@ -16,14 +15,10 @@ interface StockAnalysis {
 }
 
 interface Props {
-  stockCode: string;
-  stockName: string;
-  currentPrice: string;
+  selectedStock: SelectedStock | null;
   analysis: StockAnalysis | null;
   isPending: boolean;
-  onStockCodeChange: (v: string) => void;
-  onStockNameChange: (v: string) => void;
-  onCurrentPriceChange: (v: string) => void;
+  onSelectedStockChange: (value: SelectedStock | null) => void;
   onAnalyze: () => void;
 }
 
@@ -37,30 +32,24 @@ const ACTION_VARIANTS: Record<string, "default" | "destructive" | "secondary"> =
   buy: "default", sell: "destructive", hold: "secondary",
 };
 
-export function AIStockAnalysis({ stockCode, stockName, currentPrice, analysis, isPending, onStockCodeChange, onStockNameChange, onCurrentPriceChange, onAnalyze }: Props) {
+export function AIStockAnalysis({ selectedStock, analysis, isPending, onSelectedStockChange, onAnalyze }: Props) {
   return (
     <TabsContent value="stock" className="space-y-6">
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><Brain className="h-5 w-5" />종목 AI 분석</CardTitle>
-          <CardDescription>GPT-4를 활용하여 선택한 종목을 분석하여 매매 추천을 제공합니다</CardDescription>
+          <CardDescription>검색 결과에서 종목을 선택하면 코드, 종목명, 현재가를 한 번에 연결해 분석합니다.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="stockCode">종목 코드</Label>
-              <Input id="stockCode" placeholder="예: 005930" value={stockCode} onChange={(e) => onStockCodeChange(e.target.value)} data-testid="input-stock-code" />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="stockName">종목명</Label>
-              <Input id="stockName" placeholder="예: 삼성전자" value={stockName} onChange={(e) => onStockNameChange(e.target.value)} data-testid="input-stock-name" />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="currentPrice">현재가</Label>
-              <Input id="currentPrice" type="number" placeholder="예: 70000" value={currentPrice} onChange={(e) => onCurrentPriceChange(e.target.value)} data-testid="input-current-price" />
-            </div>
-          </div>
-          <Button onClick={onAnalyze} disabled={isPending} data-testid="button-analyze-stock">
+          <StockSelector
+            label="분석할 종목"
+            value={selectedStock}
+            onChange={onSelectedStockChange}
+            placeholder="종목명 또는 코드 입력 (예: 삼성전자, 005930)"
+            inputTestId="input-stock-code"
+            allowManualCode
+          />
+          <Button onClick={onAnalyze} disabled={isPending || !selectedStock?.stockCode} data-testid="button-analyze-stock">
             {isPending ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />분석 중...</> : <><Brain className="h-4 w-4 mr-2" />AI 분석 시작</>}
           </Button>
         </CardContent>

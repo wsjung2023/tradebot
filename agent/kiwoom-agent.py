@@ -144,6 +144,58 @@ def kiwoom_post(path, api_id, body=None, is_mock=None):
     return data
 
 
+# ===== 종목 캐시 =====
+_stock_cache = []
+_stock_cache_built_at = 0
+_STOCK_CACHE_TTL = 24 * 60 * 60
+
+
+def _normalize_abs_number(value):
+    if value is None:
+        return "0"
+    return str(value).strip().replace(",", "").lstrip("-") or "0"
+
+
+def _extract_chart_list(data, period):
+    list_key_map = {
+        "D": "stk_dt_pole_chart_qry",
+        "W": "stk_stk_pole_chart_qry",
+        "M": "stk_mth_pole_chart_qry",
+    }
+    items = data.get(list_key_map.get(period, "stk_dt_pole_chart_qry"), []) or []
+    if items:
+        return items
+    for fallback_key in ("stk_dt_pole_chart_qry", "stk_stk_pole_chart_qry", "stk_mth_pole_chart_qry", "output", "items"):
+        rows = data.get(fallback_key, []) or []
+        if rows:
+            return rows
+    return []
+
+
+def ensure_stock_cache():
+    global _stock_cache, _stock_cache_built_at
+    now = time.time()
+    if _stock_cache and now - _stock_cache_built_at < _STOCK_CACHE_TTL:
+        return _stock_cache
+
+    cache = []
+    seen = set()
+    for market_type in ("0", "10"):
+        data = kiwoom_post("/api/dostk/stkinfo", "ka10099", {"mrkt_tp": market_type})
+        rows = data.get("stk_list", []) or data.get("list", []) or data.get("output", []) or []
+        for row in rows:
+            code = str(row.get("stk_cd") or row.get("code") or "").replace("A", "", 1)
+            name = str(row.get("stk_nm") or row.get("name") or "").strip()
+            if not code or not name or code in seen:
+                continue
+            seen.add(code)
+            cache.append({"code": code, "name": name})
+
+    _stock_cache = cache
+    _stock_cache_built_at = now
+    return _stock_cache
+
+
 # ===== 작업 핸들러 =====
 
 def handle_watchlist_get(payload):
@@ -197,7 +249,7 @@ def handle_orderbook_get(payload):
 
 
 def handle_chart_get(payload):
-    """일봉/주봉/월봉 차트 조회 — ka10081(일), ka10082(주), ka10083(월)"""
+    """일봉/주봉/월봉 차트 조회 — 구형 서비스와 동일한 필드 우선 사용"""
     code = payload.get("stockCode", "")
     period = payload.get("period", "D").upper()
     count = int(payload.get("count", 100))
@@ -209,19 +261,28 @@ def handle_chart_get(payload):
     data = kiwoom_post("/api/dostk/chart", api_id, {
         "stk_cd": code,
         "base_dt": today,
-        "updn_bnd_cd": "0",
+        "upd_stkpc_tp": "1",
     })
 
-    raw_items = data.get("stk_dt_pole_chart_qry", []) or []
+    raw_items = _extract_chart_list(data, period)
     items = []
     for item in raw_items[:count]:
+        open_price = _normalize_abs_number(item.get("open_pric") or item.get("oppr") or 0)
+        high_price = _normalize_abs_number(item.get("high_pric") or item.get("hgpr") or 0)
+        low_price = _normalize_abs_number(item.get("low_pric") or item.get("lwpr") or 0)
+        close_price = _normalize_abs_number(item.get("cur_prc") or item.get("close") or 0)
+        date_value = str(item.get("dt") or item.get("date") or "")[:8]
+        volume = str(item.get("trde_qty") or item.get("volume") or "0").replace(",", "")
+        parsed_close = float(close_price or "0")
+        if not date_value or parsed_close <= 0:
+            continue
         items.append({
-            "date": item.get("dt", ""),
-            "open": float(item.get("oppr", "0") or "0"),
-            "high": float(item.get("hgpr", "0") or "0"),
-            "low": float(item.get("lwpr", "0") or "0"),
-            "close": float(item.get("cur_prc", "0") or "0"),
-            "volume": int(item.get("trde_qty", "0") or "0"),
+            "date": date_value,
+            "open": float(open_price or "0"),
+            "high": float(high_price or "0"),
+            "low": float(low_price or "0"),
+            "close": parsed_close,
+            "volume": int(volume or "0"),
         })
     return items
 
@@ -233,30 +294,67 @@ def handle_stock_info(payload):
     return {
         "stockCode": code,
         "name": data.get("stk_nm", ""),
-        "marketName": data.get("mrkt_cls_nm", ""),
-        "state": data.get("mang_stk_cls_nm", ""),
+        "marketName": data.get("mrkt_cls_nm") or data.get("mrkt_nm", ""),
+        "state": data.get("mang_stk_cls_nm") or data.get("stk_stat_nm", ""),
+        "currentPrice": _normalize_abs_number(data.get("cur_prc") or 0),
         "raw": data,
     }
 
 
 def handle_stock_search(payload):
-    """종목명/코드 검색 — ka10002 (종목정보 검색)"""
-    keyword = payload.get("keyword", "")
+    """종목명/코드 검색 — 코드 exact + 캐시 기반 부분검색 + API 검색 병행"""
+    keyword = str(payload.get("keyword", "")).strip()
+    if not keyword:
+        return []
+
+    results = []
+    seen = set()
+
+    def append_result(stock_code, stock_name, current_price="0", market_name=""):
+        stock_code = str(stock_code or "").replace("A", "", 1)
+        stock_name = str(stock_name or "").strip()
+        if not stock_code or not stock_name or stock_code in seen:
+            return
+        seen.add(stock_code)
+        results.append({
+            "stockCode": stock_code,
+            "stockName": stock_name,
+            "currentPrice": _normalize_abs_number(current_price),
+            "marketName": market_name or "",
+        })
+
+    if keyword.isdigit() and len(keyword) == 6:
+        try:
+            info = handle_stock_info({"stockCode": keyword})
+            append_result(keyword, info.get("name"), info.get("currentPrice"), info.get("marketName"))
+        except Exception as error:
+            logger.warning(f"stock.search exact lookup 실패: {error}")
+
+    try:
+        for stock in ensure_stock_cache():
+            if keyword in stock["code"] or keyword in stock["name"]:
+                append_result(stock["code"], stock["name"])
+                if len(results) >= 20:
+                    break
+    except Exception as error:
+        logger.warning(f"stock.search 캐시 조회 실패: {error}")
+
     try:
         data = kiwoom_post("/api/dostk/stkinfo", "ka10002", {"stk_nm": keyword})
-        raw_items = data.get("stk_info", []) or []
-        results = []
-        for item in raw_items[:20]:
-            results.append({
-                "stockCode": item.get("stk_cd", ""),
-                "stockName": item.get("stk_nm", ""),
-                "currentPrice": item.get("cur_prc", "0"),
-                "marketName": item.get("mrkt_cls_nm", ""),
-            })
-        return results
-    except Exception as e:
-        logger.warning(f"stock.search 실패: {e}")
-        return []
+        raw_items = data.get("stk_info", []) or data.get("output", []) or []
+        for item in raw_items:
+            append_result(
+                item.get("stk_cd"),
+                item.get("stk_nm"),
+                item.get("cur_prc", "0"),
+                item.get("mrkt_cls_nm") or item.get("mrkt_nm", ""),
+            )
+            if len(results) >= 20:
+                break
+    except Exception as error:
+        logger.warning(f"stock.search API 검색 실패: {error}")
+
+    return results[:20]
 
 
 def handle_balance_get(payload):

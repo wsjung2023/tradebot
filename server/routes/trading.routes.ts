@@ -4,6 +4,7 @@ import { storage } from "../storage";
 import { isAuthenticated, getCurrentUser } from "../auth";
 import { insertOrderSchema } from "@shared/schema";
 import { callViaAgent, AgentTimeoutError } from "../services/agent-proxy.service";
+import { getUserKiwoomService } from "../services/user-kiwoom.service";
 
 // BackAttack 레인보우 라인 계산 (BackAttackLine.md 수식 기반)
 function calcRainbowLines(chartItems: { date: string; high: number; low: number; close: number }[]): Record<string, number> | null {
@@ -60,6 +61,7 @@ function calcRainbowLines(chartItems: { date: string; high: number; low: number;
 }
 
 export function registerTradingRoutes(app: Router) {
+  const userKiwoomService = getUserKiwoomService();
 
   type ChartSignalOverlay = {
     id: number;
@@ -107,7 +109,7 @@ export function registerTradingRoutes(app: Router) {
   app.get("/api/stocks/:stockCode/price", isAuthenticated, async (req, res) => {
     try {
       const user = getCurrentUser(req);
-      const price = await callViaAgent(user!.id, "price.get", { stockCode: req.params.stockCode });
+      const price = await userKiwoomService.getPrice(user!.id, req.params.stockCode);
       res.json(price);
     } catch (error: any) {
       if (error instanceof AgentTimeoutError) return res.status(503).json({ error: error.message });
@@ -119,7 +121,7 @@ export function registerTradingRoutes(app: Router) {
   app.get("/api/stocks/:stockCode/orderbook", isAuthenticated, async (req, res) => {
     try {
       const user = getCurrentUser(req);
-      const orderbook = await callViaAgent(user!.id, "orderbook.get", { stockCode: req.params.stockCode });
+      const orderbook = await userKiwoomService.getOrderbook(user!.id, req.params.stockCode);
       res.json(orderbook);
     } catch (error: any) {
       if (error instanceof AgentTimeoutError) return res.status(503).json({ error: error.message });
@@ -132,7 +134,7 @@ export function registerTradingRoutes(app: Router) {
     try {
       const user = getCurrentUser(req);
       const period = (req.query.period as string) || "D";
-      const chart = await callViaAgent(user!.id, "chart.get", { stockCode: req.params.stockCode, period });
+      const chart = await userKiwoomService.getChart(user!.id, req.params.stockCode, period);
       res.json(chart);
     } catch (error: any) {
       if (error instanceof AgentTimeoutError) return res.status(503).json({ error: error.message });
@@ -144,7 +146,7 @@ export function registerTradingRoutes(app: Router) {
   app.get("/api/stocks/:stockCode/rainbow-lines", isAuthenticated, async (req, res) => {
     try {
       const user = getCurrentUser(req);
-      const result = await callViaAgent(user!.id, "chart.get", { stockCode: req.params.stockCode, period: "D", count: 260 });
+      const result = await userKiwoomService.getChart(user!.id, req.params.stockCode, "D", 260);
       const chartItems: any[] = Array.isArray(result) ? result : (result?.items || []);
       if (chartItems.length < 10) return res.json({ lines: null, message: "데이터 부족" });
       const lines = calcRainbowLines(chartItems);
@@ -161,7 +163,7 @@ export function registerTradingRoutes(app: Router) {
       const user = getCurrentUser(req);
       const keyword = (req.query.query ?? req.query.q ?? "") as string;
       if (!keyword.trim()) return res.json([]);
-      const results = await callViaAgent(user!.id, "stock.search", { keyword });
+      const results = await userKiwoomService.searchStock(user!.id, keyword);
       res.json(Array.isArray(results) ? results : (results?.items || []));
     } catch (error: any) {
       if (error instanceof AgentTimeoutError) return res.status(503).json({ error: error.message });
@@ -173,7 +175,7 @@ export function registerTradingRoutes(app: Router) {
   app.get("/api/stocks/:stockCode/info", isAuthenticated, async (req, res) => {
     try {
       const user = getCurrentUser(req);
-      const info = await callViaAgent(user!.id, "stock.info", { stockCode: req.params.stockCode });
+      const info = await userKiwoomService.getStockInfo(user!.id, req.params.stockCode);
       res.json(info);
     } catch (error: any) {
       if (error instanceof AgentTimeoutError) return res.status(503).json({ error: error.message });

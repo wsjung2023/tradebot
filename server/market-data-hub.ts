@@ -1,5 +1,6 @@
 import { WebSocket } from "ws";
-import type { KiwoomService } from "./services/kiwoom";
+import { AgentTimeoutError } from "./services/agent-proxy.service";
+import { getUserKiwoomService } from "./services/user-kiwoom.service";
 
 export interface MarketDataMessage {
   type: "subscribe" | "unsubscribe" | "price" | "orderbook" | "trade" | "ping" | "pong";
@@ -12,31 +13,41 @@ export interface MarketDataMessage {
 
 interface ClientSubscription {
   ws: WebSocket;
+  userId: string;
   symbols: Set<string>;
   channels: Set<string>;
   lastActivity: number;
 }
 
+interface SymbolDemand {
+  clients: Set<WebSocket>;
+  channels: Set<string>;
+}
+
+function absNumberString(value: unknown): string {
+  if (value === null || value === undefined) return "0";
+  return String(value).replace(/,/g, "").replace(/^-/, "") || "0";
+}
+
 export class MarketDataHub {
+  private userKiwoomService = getUserKiwoomService();
   private clients: Map<WebSocket, ClientSubscription> = new Map();
-  private symbolSubscribers: Map<string, Set<WebSocket>> = new Map();
-  private kiwoomService: KiwoomService;
   private priceUpdateTimer: NodeJS.Timeout | null = null;
   private heartbeatInterval: NodeJS.Timeout | null = null;
   private isUpdating = false;
   private readonly HEARTBEAT_INTERVAL = 30000;
   private readonly CLIENT_TIMEOUT = 90000;
-  private readonly UPDATE_INTERVAL = 2000; // Increased to 2s to reduce load
+  private readonly UPDATE_INTERVAL = 2000;
 
-  constructor(kiwoomService: KiwoomService) {
-    this.kiwoomService = kiwoomService;
+  constructor() {
     this.scheduleNextUpdate();
     this.startHeartbeat();
   }
 
-  addClient(ws: WebSocket) {
+  addClient(ws: WebSocket, userId: string) {
     this.clients.set(ws, {
       ws,
+      userId,
       symbols: new Set(),
       channels: new Set(),
       lastActivity: Date.now(),
@@ -54,19 +65,6 @@ export class MarketDataHub {
   }
 
   removeClient(ws: WebSocket) {
-    const client = this.clients.get(ws);
-    if (!client) return;
-
-    client.symbols.forEach((symbol) => {
-      const subscribers = this.symbolSubscribers.get(symbol);
-      if (subscribers) {
-        subscribers.delete(ws);
-        if (subscribers.size === 0) {
-          this.symbolSubscribers.delete(symbol);
-        }
-      }
-    });
-
     this.clients.delete(ws);
   }
 
@@ -79,6 +77,7 @@ export class MarketDataHub {
 
   private handleClientMessage(ws: WebSocket, data: any) {
     this.updateClientActivity(ws);
+
     try {
       const message: MarketDataMessage = JSON.parse(data.toString());
       switch (message.type) {
@@ -104,16 +103,10 @@ export class MarketDataHub {
     const symbols = message.symbols || (message.symbol ? [message.symbol] : []);
     const channels = message.channels || ["price", "orderbook", "trade"];
 
-    symbols.forEach((symbol) => {
-      client.symbols.add(symbol);
-      if (!this.symbolSubscribers.has(symbol)) {
-        this.symbolSubscribers.set(symbol, new Set());
-      }
-      this.symbolSubscribers.get(symbol)!.add(ws);
-    });
-
+    symbols.forEach((symbol) => client.symbols.add(symbol));
     channels.forEach((channel) => client.channels.add(channel));
-    this.sendInitialSnapshot(ws, symbols, channels);
+
+    void this.sendInitialSnapshot(ws, symbols, channels);
   }
 
   private handleUnsubscribe(ws: WebSocket, message: MarketDataMessage) {
@@ -121,43 +114,15 @@ export class MarketDataHub {
     if (!client) return;
 
     const symbols = message.symbols || (message.symbol ? [message.symbol] : []);
-    symbols.forEach((symbol) => {
-      client.symbols.delete(symbol);
-      const subscribers = this.symbolSubscribers.get(symbol);
-      if (subscribers) {
-        subscribers.delete(ws);
-        if (subscribers.size === 0) {
-          this.symbolSubscribers.delete(symbol);
-        }
-      }
-    });
+    symbols.forEach((symbol) => client.symbols.delete(symbol));
   }
 
   private async sendInitialSnapshot(ws: WebSocket, symbols: string[], channels: string[]) {
-    for (const symbol of symbols) {
-      try {
-        if (channels.includes("price")) {
-          const priceData = await this.kiwoomService.getStockPrice(symbol);
-          this.sendMessage(ws, {
-            type: "price",
-            symbol,
-            payload: this.transformPriceData(priceData, symbol),
-            timestamp: Date.now(),
-          });
-        }
+    const client = this.clients.get(ws);
+    if (!client) return;
 
-        if (channels.includes("orderbook")) {
-          const orderbook = await this.kiwoomService.getStockOrderbook(symbol);
-          this.sendMessage(ws, {
-            type: "orderbook",
-            symbol,
-            payload: orderbook,
-            timestamp: Date.now(),
-          });
-        }
-      } catch (error) {
-        console.error(`Error fetching initial snapshot for ${symbol}:`, error);
-      }
+    for (const symbol of symbols) {
+      await this.pushSymbolSnapshot(client.userId, symbol, channels, [ws]);
     }
   }
 
@@ -175,18 +140,16 @@ export class MarketDataHub {
         }
       });
 
-      deadClients.forEach(ws => {
+      deadClients.forEach((ws) => {
         this.removeClient(ws);
         ws.close();
       });
     }, this.HEARTBEAT_INTERVAL);
   }
 
-  // Self-scheduling update: next tick only starts AFTER current one completes
   private scheduleNextUpdate() {
     this.priceUpdateTimer = setTimeout(async () => {
       await this.doUpdateCycle();
-      // Only schedule next if not stopped
       if (this.priceUpdateTimer !== null) {
         this.scheduleNextUpdate();
       }
@@ -194,48 +157,36 @@ export class MarketDataHub {
   }
 
   private async doUpdateCycle() {
-    // Guard: skip if already running (should not happen with setTimeout, but just in case)
     if (this.isUpdating) return;
-
-    const allSymbols = Array.from(this.symbolSubscribers.keys());
-    if (allSymbols.length === 0) return; // No subscribers — skip API calls entirely
+    if (this.clients.size === 0) return;
 
     this.isUpdating = true;
     try {
-      for (const symbol of allSymbols) {
-        const subscribers = this.symbolSubscribers.get(symbol);
-        if (!subscribers || subscribers.size === 0) continue;
+      const demandByUser = new Map<string, Map<string, SymbolDemand>>();
 
-        try {
-          const [priceData, orderbook] = await Promise.all([
-            this.kiwoomService.getStockPrice(symbol),
-            this.kiwoomService.getStockOrderbook(symbol),
-          ]);
+      this.clients.forEach((client, ws) => {
+        if (client.symbols.size === 0 || client.channels.size === 0) return;
 
-          subscribers.forEach((ws) => {
-            const client = this.clients.get(ws);
-            if (!client) return;
+        let symbolsForUser = demandByUser.get(client.userId);
+        if (!symbolsForUser) {
+          symbolsForUser = new Map();
+          demandByUser.set(client.userId, symbolsForUser);
+        }
 
-            if (client.channels.has("price")) {
-              this.sendMessage(ws, {
-                type: "price",
-                symbol,
-                payload: this.transformPriceData(priceData, symbol),
-                timestamp: Date.now(),
-              });
-            }
+        client.symbols.forEach((symbol) => {
+          let demand = symbolsForUser!.get(symbol);
+          if (!demand) {
+            demand = { clients: new Set(), channels: new Set() };
+            symbolsForUser!.set(symbol, demand);
+          }
+          demand.clients.add(ws);
+          client.channels.forEach((channel) => demand!.channels.add(channel));
+        });
+      });
 
-            if (client.channels.has("orderbook")) {
-              this.sendMessage(ws, {
-                type: "orderbook",
-                symbol,
-                payload: orderbook,
-                timestamp: Date.now(),
-              });
-            }
-          });
-        } catch (error) {
-          console.error(`Error updating ${symbol}:`, error);
+      for (const [userId, symbols] of Array.from(demandByUser.entries())) {
+        for (const [symbol, demand] of Array.from(symbols.entries())) {
+          await this.pushSymbolSnapshot(userId, symbol, Array.from(demand.channels), Array.from(demand.clients));
         }
       }
     } finally {
@@ -243,18 +194,94 @@ export class MarketDataHub {
     }
   }
 
+  private async pushSymbolSnapshot(userId: string, symbol: string, channels: string[], targets: WebSocket[]) {
+    try {
+      const tasks: Promise<void>[] = [];
+
+      if (channels.includes("price")) {
+        tasks.push(
+          this.userKiwoomService.getPrice(userId, symbol)
+            .then((priceData) => {
+              const payload = this.transformPriceData(priceData, symbol);
+              targets.forEach((ws) => {
+                const client = this.clients.get(ws);
+                if (!client?.channels.has("price")) return;
+                this.sendMessage(ws, { type: "price", symbol, payload, timestamp: Date.now() });
+              });
+            }),
+        );
+      }
+
+      if (channels.includes("orderbook")) {
+        tasks.push(
+          this.userKiwoomService.getOrderbook(userId, symbol)
+            .then((orderbookData) => {
+              const payload = this.transformOrderbookData(orderbookData);
+              targets.forEach((ws) => {
+                const client = this.clients.get(ws);
+                if (!client?.channels.has("orderbook")) return;
+                this.sendMessage(ws, { type: "orderbook", symbol, payload, timestamp: Date.now() });
+              });
+            }),
+        );
+      }
+
+      await Promise.all(tasks);
+    } catch (error) {
+      if (!(error instanceof AgentTimeoutError)) {
+        console.error(`Error updating ${symbol} for user ${userId}:`, error);
+      }
+    }
+  }
+
   private transformPriceData(data: any, symbol: string) {
-    const output = data?.output || {};
+    const output = data?.output || data?.raw || data || {};
     return {
-      currentPrice: parseFloat(output.stck_prpr || '0'),
-      change: parseFloat(output.prdy_vrss || '0'),
-      changeRate: parseFloat(output.prdy_ctrt || '0'),
-      openPrice: parseFloat(output.stck_oprc || '0'),
-      highPrice: parseFloat(output.stck_hgpr || '0'),
-      lowPrice: parseFloat(output.stck_lwpr || '0'),
-      volume: parseInt(output.acml_vol || '0'),
-      stockName: symbol,
+      currentPrice: parseFloat(absNumberString(data?.currentPrice ?? output.stck_prpr ?? output.cur_prc)),
+      change: parseFloat(absNumberString(data?.change ?? output.prdy_vrss ?? output.prc_diff)),
+      changeRate: parseFloat(absNumberString(data?.changeRate ?? output.prdy_ctrt ?? output.flu_rt)),
+      openPrice: parseFloat(absNumberString(data?.open ?? output.stck_oprc ?? output.open_pric ?? output.oppr)),
+      highPrice: parseFloat(absNumberString(data?.high ?? output.stck_hgpr ?? output.high_pric ?? output.hgpr)),
+      lowPrice: parseFloat(absNumberString(data?.low ?? output.stck_lwpr ?? output.low_pric ?? output.lwpr)),
+      volume: parseInt(absNumberString(data?.volume ?? output.acml_vol ?? output.acc_trde_qty ?? output.trde_qty), 10),
+      stockName: data?.stockName || output.stck_nm || output.stk_nm || symbol,
     };
+  }
+
+  private transformOrderbookData(data: any) {
+    if (data?.buy && data?.sell) {
+      return data;
+    }
+
+    const raw = data?.raw || data || {};
+    const sell = [] as Array<{ price: number; quantity: number }>;
+    const buy = [] as Array<{ price: number; quantity: number }>;
+
+    for (let i = 10; i >= 1; i--) {
+      const suffix = i === 1 ? "1st" : i === 2 ? "2nd" : i === 3 ? "3rd" : `${i}th`;
+      const price = raw[`sel_${suffix}_pre_bid`] ?? raw[`sel_${i}th_pre_bid`];
+      const quantity = raw[`sel_${suffix}_pre_req`] ?? raw[`sel_${i}th_pre_req`];
+      if (price) {
+        sell.push({
+          price: Number(absNumberString(price)),
+          quantity: Number(absNumberString(quantity)),
+        });
+      }
+    }
+
+    for (let i = 1; i <= 10; i++) {
+      const suffix = i === 1 ? "1st" : i === 2 ? "2nd" : i === 3 ? "3rd" : `${i}th`;
+      const price = raw[`buy_${suffix}_pre_bid`] ?? raw[`buy_${i}th_pre_bid`];
+      const quantity = raw[`buy_${suffix}_pre_req`] ?? raw[`buy_${i}th_pre_req`];
+      if (price) {
+        buy.push({
+          price: Number(absNumberString(price)),
+          quantity: Number(absNumberString(quantity)),
+        });
+      }
+    }
+
+    return { buy, sell, raw };
   }
 
   private sendMessage(ws: WebSocket, message: MarketDataMessage) {
@@ -274,6 +301,5 @@ export class MarketDataHub {
     }
     this.clients.forEach((_, ws) => ws.close());
     this.clients.clear();
-    this.symbolSubscribers.clear();
   }
 }

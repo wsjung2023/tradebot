@@ -1,7 +1,8 @@
 // auto-trading-worker.ts — 자동매매 cron 스케줄러. 매 1분마다 AI 모델 순회 및 조건 검색 실행
 import * as cron from 'node-cron';
 import { storage } from './storage';
-import { getKiwoomService, KiwoomService } from './services/kiwoom';
+import { KiwoomService } from './services/kiwoom';
+import { getUserKiwoomService } from './services/user-kiwoom.service';
 import { AIService } from './services/ai.service';
 import { LearningService } from './services/learning.service';
 import { TradeExecutorService } from './services/trade-executor.service';
@@ -17,6 +18,7 @@ class AutoTradingWorker {
   private learningJob: cron.ScheduledTask | null = null;
   private learningService = new LearningService();
   private executor = new TradeExecutorService();
+  private userKiwoomService = getUserKiwoomService();
 
   async start() {
     this.startTradingJob('* * * * *');
@@ -123,6 +125,7 @@ class AutoTradingWorker {
       const kiwoomService = new KiwoomService({
         appKey: decrypt(userSettings.kiwoomAppKey),
         appSecret: decrypt(userSettings.kiwoomAppSecret),
+        accountType: userSettings.tradingMode === 'real' ? 'real' : 'mock',
       });
       const aiService = new AIService(process.env.OPENAI_API_KEY || '');
 
@@ -157,8 +160,7 @@ class AutoTradingWorker {
       let conditionSeq = String((condition as any).kiwoomSeq ?? "").trim();
       if (!conditionSeq) {
         try {
-          const conditionList = await kiwoomService.getConditionList();
-          const rows = conditionList?.output ?? [];
+          const rows = await this.userKiwoomService.getConditionList(model.userId);
           const matched = rows.find((row: any) => row.condition_name === condition.conditionName);
           if (matched) {
             conditionSeq = String(matched.condition_index);
@@ -170,15 +172,16 @@ class AutoTradingWorker {
       if (!conditionSeq) {
         conditionSeq = String(condition.id);
       }
-      const results = await kiwoomService.getConditionSearchResults(conditionSeq, condition.id);
-      if (!results?.output?.length) {
+      const results = await this.userKiwoomService.runCondition(model.userId, conditionSeq);
+      if (!results?.length) {
         console.log(`  ⚠️  No stocks found for ${condition.conditionName}`); return;
       }
-      console.log(`  📊 Found ${results.output.length} stocks matching condition`);
-      for (const stockData of results.output.slice(0, 10)) {
+      console.log(`  📊 Found ${results.length} stocks matching condition`);
+      for (const rawResult of results.slice(0, 10)) {
+        const stockData = this.userKiwoomService.normalizeConditionResult(rawResult);
         await this.executor.evaluateStock(
           model, settings,
-          { code: stockData.stock_code, name: stockData.stock_name, price: parseFloat(stockData.current_price), volume: 0 },
+          { code: stockData.stockCode, name: stockData.stockName, price: parseFloat(stockData.currentPrice), volume: 0 },
           kiwoomService, aiService
         );
       }
@@ -192,36 +195,44 @@ class AutoTradingWorker {
     const alerts = await storage.getAllActiveAlerts();
     if (alerts.length === 0) return;
 
-    const codes = Array.from(new Set(alerts.map((alert) => alert.stockCode)));
-    const kiwoom = getKiwoomService();
-
-    let priceMap: Record<string, number> = {};
-    try {
-      const prices = await kiwoom.getWatchlistInfo(codes);
-      for (const price of prices) {
-        const current = parseFloat(String(price.currentPrice).replace(/[^0-9.-]/g, ''));
-        if (!Number.isNaN(current)) {
-          priceMap[price.stockCode] = current;
-        }
-      }
-    } catch (error) {
-      console.warn('[AutoTrading] 시세 조회 실패로 알림 체크 스킵:', error);
-      return;
+    const alertsByUser = new Map<string, typeof alerts>();
+    for (const alert of alerts) {
+      const bucket = alertsByUser.get(alert.userId) || [];
+      bucket.push(alert);
+      alertsByUser.set(alert.userId, bucket);
     }
 
-    for (const alert of alerts) {
-      const currentPrice = priceMap[alert.stockCode];
-      if (currentPrice === undefined) continue;
+    for (const [userId, userAlerts] of Array.from(alertsByUser.entries())) {
+      const codes: string[] = Array.from(new Set(userAlerts.map((alert: any) => String(alert.stockCode))));
+      const priceMap: Record<string, number> = {};
 
-      const target = parseFloat(String(alert.targetValue ?? '0'));
-      let triggered = false;
+      try {
+        const prices = await this.userKiwoomService.getWatchlist(userId, codes);
+        for (const price of prices) {
+          const current = parseFloat(String((price as any).currentPrice ?? (price as any).price ?? 0).replace(/[^0-9.-]/g, ''));
+          if (!Number.isNaN(current)) {
+            priceMap[(price as any).stockCode] = current;
+          }
+        }
+      } catch (error) {
+        console.warn(`[AutoTrading] 사용자 ${userId} 시세 조회 실패로 알림 체크 스킵:`, error);
+        continue;
+      }
 
-      if (alert.alertType === 'price_above' && currentPrice >= target) triggered = true;
-      if (alert.alertType === 'price_below' && currentPrice <= target) triggered = true;
+      for (const alert of userAlerts) {
+        const currentPrice = priceMap[alert.stockCode];
+        if (currentPrice === undefined) continue;
 
-      if (triggered) {
-        await storage.updateAlert(alert.id, { isTriggered: true, triggeredAt: new Date() });
-        console.log(`[Alert] 🔔 발동! ${alert.stockCode} | 현재가: ${currentPrice} | 조건: ${alert.alertType} ${target} | 사용자: ${alert.userId}`);
+        const target = parseFloat(String(alert.targetValue ?? '0'));
+        let triggered = false;
+
+        if (alert.alertType === 'price_above' && currentPrice >= target) triggered = true;
+        if (alert.alertType === 'price_below' && currentPrice <= target) triggered = true;
+
+        if (triggered) {
+          await storage.updateAlert(alert.id, { isTriggered: true, triggeredAt: new Date() });
+          console.log(`[Alert] 🔔 발동! ${alert.stockCode} | 현재가: ${currentPrice} | 조건: ${alert.alertType} ${target} | 사용자: ${alert.userId}`);
+        }
       }
     }
   }
