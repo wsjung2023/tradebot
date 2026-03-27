@@ -151,6 +151,7 @@ def kiwoom_ws_request(api_id, payload, is_mock=None):
     """
     키움 WebSocket API 요청 (단발성 요청-응답)
     - 조건검색(ka10171, ka10172) 등에 사용
+    - 연결 후 LOGIN 전문 → 실제 전문 순서로 인증
     """
     use_mock = KIWOOM_IS_MOCK if is_mock is None else is_mock
     token = get_kiwoom_token(is_mock=use_mock)
@@ -160,14 +161,30 @@ def kiwoom_ws_request(api_id, payload, is_mock=None):
     base_ws = "wss://mockapi.kiwoom.com:10000" if use_mock else "wss://api.kiwoom.com:10000"
     ws_url = f"{base_ws}/api/dostk/websocket"
     result = {"data": None, "error": None}
+    state = {"logged_in": False}
 
     def on_open(ws):
-        ws.send(json.dumps(payload))
+        login_msg = {"trnm": "LOGIN", "token": f"Bearer {token}"}
+        ws.send(json.dumps(login_msg))
 
     def on_message(ws, raw):
+        close_after = True
         try:
             msg = json.loads(raw)
-            if msg.get("trnm") == "REAL":
+            trnm = msg.get("trnm", "")
+
+            if trnm == "LOGIN":
+                rc = msg.get("return_code")
+                if rc is not None and rc != 0 and str(rc) != "0":
+                    result["error"] = f"키움 WS 로그인 실패: {msg.get('return_msg')} (code: {rc})"
+                else:
+                    state["logged_in"] = True
+                    ws.send(json.dumps(payload))
+                    close_after = False
+                return
+
+            if trnm == "REAL":
+                close_after = False
                 return
 
             rc = msg.get("return_code")
@@ -178,7 +195,8 @@ def kiwoom_ws_request(api_id, payload, is_mock=None):
         except Exception as e:
             result["error"] = str(e)
         finally:
-            ws.close()
+            if close_after:
+                ws.close()
 
     def on_error(ws, error):
         result["error"] = str(error)
@@ -186,10 +204,10 @@ def kiwoom_ws_request(api_id, payload, is_mock=None):
 
     ws_app = websocket.WebSocketApp(
         ws_url,
-        header=[
-            f"api-id: {api_id}",
-            f"Authorization: Bearer {token}",
-        ],
+        header={
+            "api-id": api_id,
+            "Authorization": f"Bearer {token}",
+        },
         on_open=on_open,
         on_message=on_message,
         on_error=on_error,
