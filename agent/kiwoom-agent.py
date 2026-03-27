@@ -296,9 +296,10 @@ def kiwoom_ws_condition_run(api_id, payload, collect_seconds=5, is_mock=None):
                     result["items"].append(data)
                 elif isinstance(data, list):
                     result["items"].extend(data)
-                # REAL이 올 때마다 타이머를 1.5초로 재설정 (더 올 수 있으므로)
-                if result["cnsrreq_done"]:
-                    schedule_close(ws, 1.5)
+                # REAL이 오면 CNSRREQ 응답 없이도 타이머 설정
+                # (키움 CNSRREQ는 별도 응답 없이 REAL만 올 수 있음)
+                result["cnsrreq_done"] = True
+                schedule_close(ws, collect_seconds)
                 return
 
             # CNSRREQ 확인 응답 (trnm="CNSRREQ" 또는 기타 응답)
