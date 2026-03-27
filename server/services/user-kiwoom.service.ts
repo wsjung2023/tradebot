@@ -6,6 +6,7 @@ import { createKiwoomService, getKiwoomService, type KiwoomService } from "./kiw
 type CachedLegacyService = {
   fingerprint: string;
   service: KiwoomService;
+  lastUsed: number;
 };
 
 function toNumberString(value: unknown): string {
@@ -14,8 +15,21 @@ function toNumberString(value: unknown): string {
 }
 
 export class UserKiwoomService {
+  private readonly MAX_LEGACY_CACHE = 50;
   private globalLegacyKiwoom = getKiwoomService();
   private legacyByUser = new Map<string, CachedLegacyService>();
+
+  private evictOldLegacyCache() {
+    if (this.legacyByUser.size <= this.MAX_LEGACY_CACHE) return;
+
+    const entries = Array.from(this.legacyByUser.entries())
+      .sort((a, b) => a[1].lastUsed - b[1].lastUsed);
+
+    const toRemove = entries.slice(0, entries.length - this.MAX_LEGACY_CACHE);
+    for (const [userId] of toRemove) {
+      this.legacyByUser.delete(userId);
+    }
+  }
 
   private async getLegacyServiceForUser(userId: string): Promise<KiwoomService> {
     const settings = await storage.getUserSettings(userId);
@@ -34,6 +48,7 @@ export class UserKiwoomService {
 
     const cached = this.legacyByUser.get(userId);
     if (cached?.fingerprint === fingerprint) {
+      cached.lastUsed = Date.now();
       return cached.service;
     }
 
@@ -42,7 +57,8 @@ export class UserKiwoomService {
       appSecret: decrypt(settings!.kiwoomAppSecret!),
       accountType: settings!.tradingMode === "real" ? "real" : "mock",
     });
-    this.legacyByUser.set(userId, { fingerprint, service });
+    this.legacyByUser.set(userId, { fingerprint, service, lastUsed: Date.now() });
+    this.evictOldLegacyCache();
     return service;
   }
 
@@ -156,6 +172,16 @@ export class UserKiwoomService {
       const legacyKiwoom = await this.getLegacyServiceForUser(userId);
       const response = await legacyKiwoom.getConditionSearchResults(seq, 0);
       return response?.output1 ?? response?.output ?? response ?? [];
+    }
+  }
+
+  async getFinancials(userId: string, stockCode: string) {
+    try {
+      return await callViaAgent(userId, "financials.get", { stockCode });
+    } catch (error) {
+      if (error instanceof AgentTimeoutError) throw error;
+      const legacyKiwoom = await this.getLegacyServiceForUser(userId);
+      return legacyKiwoom.getFinancialStatements(stockCode);
     }
   }
 

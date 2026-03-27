@@ -10,7 +10,8 @@
         "check": "tsc",
         "db:push": "drizzle-kit push",
         "test:playwright": "npm run build && node scripts/playwright-smoke.mjs",
-        "verify:replit": "node scripts/replit-readiness.mjs"
+        "verify:replit": "node scripts/replit-readiness.mjs",
+        "ops:create-user": "tsx scripts/create-ops-user.ts"
     },
     "dependencies": {
         "@hookform/resolvers": "^3.10.0",

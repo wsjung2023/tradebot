@@ -23,7 +23,7 @@ if (-not $python) { $python = "$env:USERPROFILE\scoop\apps\python\current\python
 Write-Host "Python: $python" -ForegroundColor Green
 
 # 3. pip 패키지 설치
-& $python -m pip install requests python-dotenv --quiet
+& $python -m pip install requests python-dotenv websocket-client --quiet
 
 # 4. .env 파일 생성
 @"

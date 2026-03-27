@@ -38,6 +38,7 @@ export class MarketDataHub {
   private readonly HEARTBEAT_INTERVAL = 30000;
   private readonly CLIENT_TIMEOUT = 90000;
   private readonly UPDATE_INTERVAL = 2000;
+  private readonly MAX_SYMBOL_UPDATES_PER_CYCLE = 8;
 
   constructor() {
     this.scheduleNextUpdate();
@@ -184,14 +185,31 @@ export class MarketDataHub {
         });
       });
 
-      for (const [userId, symbols] of Array.from(demandByUser.entries())) {
-        for (const [symbol, demand] of Array.from(symbols.entries())) {
-          await this.pushSymbolSnapshot(userId, symbol, Array.from(demand.channels), Array.from(demand.clients));
-        }
-      }
+      const symbolTasks = Array.from(demandByUser.entries()).flatMap(([userId, symbols]) =>
+        Array.from(symbols.entries()).map(([symbol, demand]) => () =>
+          this.pushSymbolSnapshot(userId, symbol, Array.from(demand.channels), Array.from(demand.clients)),
+        ),
+      );
+      await this.runTasksWithLimit(symbolTasks, this.MAX_SYMBOL_UPDATES_PER_CYCLE);
     } finally {
       this.isUpdating = false;
     }
+  }
+
+  private async runTasksWithLimit(tasks: Array<() => Promise<void>>, limit: number) {
+    if (tasks.length === 0) return;
+    const concurrency = Math.max(1, Math.min(limit, tasks.length));
+    let cursor = 0;
+
+    await Promise.all(
+      Array.from({ length: concurrency }, async () => {
+        while (cursor < tasks.length) {
+          const current = cursor;
+          cursor += 1;
+          await tasks[current]();
+        }
+      }),
+    );
   }
 
   private async pushSymbolSnapshot(userId: string, symbol: string, channels: string[], targets: WebSocket[]) {

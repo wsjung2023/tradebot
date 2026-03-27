@@ -11,13 +11,11 @@ import {
 import { parseFormula } from "../services/formula/parser";
 import { FormulaEvaluator } from "../services/formula/evaluator";
 import { AgentTimeoutError } from "../services/agent-proxy.service";
-import { getKiwoomService } from "../services/kiwoom";
 import { getUserKiwoomService } from "../services/user-kiwoom.service";
 import { z } from "zod";
 
 export function registerFormulaRoutes(app: Router) {
   const userKiwoomService = getUserKiwoomService();
-  const kiwoomService = getKiwoomService();
 
   const getConditionListForUser = async (userId: string) => userKiwoomService.getConditionList(userId);
   const getConditionSearchResultsForUser = async (userId: string, seq: string) => userKiwoomService.runCondition(userId, seq);
@@ -362,6 +360,7 @@ export function registerFormulaRoutes(app: Router) {
   // 재무 데이터 동기화
   app.post("/api/stocks/sync-financials", isAuthenticated, async (req, res) => {
     try {
+      const user = getCurrentUser(req);
       const { stockCodes } = req.body;
       if (!Array.isArray(stockCodes) || stockCodes.length === 0) {
         return res.status(400).json({ error: "Stock codes array is required" });
@@ -369,7 +368,7 @@ export function registerFormulaRoutes(app: Router) {
       const results = [];
       for (const stockCode of stockCodes) {
         try {
-          const financialData = await kiwoomService.getFinancialStatements(stockCode);
+          const financialData = await userKiwoomService.getFinancials(user!.id, stockCode);
           if (financialData.output && Array.isArray(financialData.output)) {
             for (const yearData of financialData.output) {
               const fiscalYear = parseInt(yearData.stac_yymm?.substring(0, 4) || "0");
@@ -420,4 +419,3 @@ export function registerFormulaRoutes(app: Router) {
     }
   });
 }
-
