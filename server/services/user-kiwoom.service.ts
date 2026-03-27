@@ -152,15 +152,8 @@ export class UserKiwoomService {
   }
 
   async getConditionList(userId: string) {
-    try {
-      const response = await callViaAgent(userId, "condition.list", {});
-      return response?.output ?? response ?? [];
-    } catch (error) {
-      if (error instanceof AgentTimeoutError) throw error;
-      const legacyKiwoom = await this.getLegacyServiceForUser(userId);
-      const response = await legacyKiwoom.getConditionList();
-      return response?.output ?? response ?? [];
-    }
+    const response = await callViaAgent(userId, "condition.list", {});
+    return response?.output ?? response ?? [];
   }
 
   async runCondition(userId: string, seq: string) {
