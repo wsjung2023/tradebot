@@ -275,8 +275,16 @@ def kiwoom_ws_condition_run(api_id, payload, collect_seconds=5, is_mock=None):
                 return
 
             if trnm == "PING":
-                # 키움 PING은 그냥 무시 (PONG 전송 시 105108 오류 발생)
-                logger.info("[condition.run] PING 수신 → 무시")
+                # 키움은 CNSRREQ 수신 확인 대신 PING을 보냄
+                # PONG 전송 시 105108 오류 → 보내지 않음
+                # PING = "요청 접수 완료" 신호로 간주하고 REAL 수집 타이머 시작
+                if not result["cnsrreq_done"]:
+                    logger.info(f"[condition.run] PING 수신 → CNSRREQ 수신 확인으로 처리, {collect_seconds}초 REAL 수집 시작")
+                    result["cnsrreq_response"] = msg
+                    result["cnsrreq_done"] = True
+                    schedule_close(ws, collect_seconds)
+                else:
+                    logger.info("[condition.run] PING 수신 (추가) → 무시")
                 return
 
             if trnm == "REAL":
