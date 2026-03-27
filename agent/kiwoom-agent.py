@@ -848,7 +848,7 @@ def handle_condition_run(payload):
     ]
     rest_body = {
         "seq": seq,
-        "search_type": "1",
+        "search_type": "0",
         "stex_tp": "K",
         "cont_yn": "N",
         "next_key": "",
@@ -878,7 +878,7 @@ def handle_condition_run(payload):
         msg = kiwoom_ws_request("ka10172", {
             "trnm": "CNSRREQ",
             "seq": seq,
-            "search_type": "1",
+            "search_type": "0",
             "stex_tp": "K",
             "cont_yn": "N",
             "next_key": "",
@@ -901,7 +901,7 @@ def handle_condition_run(payload):
         ws_result = kiwoom_ws_condition_run("ka10172", {
             "trnm": "CNSRREQ",
             "seq": seq,
-            "search_type": "1",
+            "search_type": "0",
             "stex_tp": "K",
             "cont_yn": "N",
             "next_key": "",
