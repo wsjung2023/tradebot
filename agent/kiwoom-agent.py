@@ -275,12 +275,8 @@ def kiwoom_ws_condition_run(api_id, payload, collect_seconds=5, is_mock=None):
                 return
 
             if trnm == "PING":
-                # PING에 PONG 응답 (키움 WebSocket 연결 유지 프로토콜)
-                try:
-                    ws.send(json.dumps({"trnm": "PONG"}))
-                    logger.info("[condition.run] PING 수신 → PONG 전송")
-                except Exception:
-                    pass
+                # 키움 PING은 그냥 무시 (PONG 전송 시 105108 오류 발생)
+                logger.info("[condition.run] PING 수신 → 무시")
                 return
 
             if trnm == "REAL":
