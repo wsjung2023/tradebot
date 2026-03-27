@@ -100,7 +100,9 @@ export class UserKiwoomService {
   ): Promise<any> {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        return await callViaAgent(userId, jobType, payload, 22000);
+        // condition.run은 CNSRLST→CNSRREQ 2단계로 더 오래 걸림 → 40초
+        const timeoutMs = jobType.includes("condition") ? 40000 : 22000;
+        return await callViaAgent(userId, jobType, payload, timeoutMs);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error ?? "");
         const shouldRetry = this.isRetriableWsError(message) && attempt < maxRetries;

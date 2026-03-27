@@ -33,8 +33,10 @@ export function registerAutoTradingRoutes(app: Router) {
           const conditionResult = await callViaAgent(user.id, "condition.run", { seq }, 30000);
           if (Array.isArray(conditionResult) && conditionResult.length > 0) {
             stockCodes = conditionResult
-              .map((item: any) => item.stock_code || item.stck_cd)
+              .map((item: any) => item.stock_code || item.stck_cd || item.code)
               .filter(Boolean);
+            // 종목명도 conditionResult에서 추출해 stockList에 직접 사용
+            (req as any)._conditionResultFull = conditionResult;
             console.log(`[backattack-scan] 조건검색 결과: ${stockCodes.length}개 종목`);
           } else {
             return res.json({
@@ -54,8 +56,18 @@ export function registerAutoTradingRoutes(app: Router) {
       const userSettings = await storage.getUserSettings(user.id);
       const aiModel = userSettings?.aiModel || "gpt-5.1";
 
-      // stockCodes 배열을 stock 목록으로 변환
-      const stockList = stockCodes.map((code: string) => ({ stock_code: code, stock_name: code }));
+      // stockCodes 배열을 stock 목록으로 변환 (종목명 포함)
+      const conditionResultFull: any[] = (req as any)._conditionResultFull || [];
+      const nameByCode: Record<string, string> = {};
+      for (const item of conditionResultFull) {
+        const code = item.stock_code || item.stck_cd || item.code;
+        const name = item.stock_name || item.stck_nm || item.name;
+        if (code && name) nameByCode[code] = name;
+      }
+      const stockList = stockCodes.map((code: string) => ({
+        stock_code: code,
+        stock_name: nameByCode[code] || code,
+      }));
 
       // 레인보우 분석 + AI 분석 + 필터링
       const recommendations: any[] = [];
