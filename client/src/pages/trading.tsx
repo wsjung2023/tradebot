@@ -37,6 +37,23 @@ type ChartPoint = {
   volume: number;
 };
 
+type ChartFormula = {
+  id: number;
+  formulaName: string;
+};
+
+type FormulaOverlayPoint = { date: string; value: number | null };
+type FormulaOverlay = {
+  stockCode: string;
+  period: string;
+  formulaName: string;
+  signalLine?: {
+    color?: string;
+    name?: string;
+    values?: FormulaOverlayPoint[];
+  };
+};
+
 type RainbowLine = { price: number; label: string; color: string; width: number };
 type RainbowData = {
   lines: Record<string, RainbowLine> | null;
@@ -66,7 +83,10 @@ export default function Trading() {
   const [quantity, setQuantity] = useState("");
   const [price, setPrice] = useState("");
   const [showRainbow, setShowRainbow] = useState(false);
+  const [chartPeriod, setChartPeriod] = useState<"D" | "W" | "M">("D");
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
+  const [activeFormulaId, setActiveFormulaId] = useState<number | null>(null);
+  const [formulaOverlay, setFormulaOverlay] = useState<FormulaOverlay | null>(null);
 
   const stockCode = selectedStock?.stockCode ?? "";
   const stockName = selectedStock?.stockName ?? stockCode;
@@ -84,13 +104,17 @@ export default function Trading() {
   }, [stockPrice?.currentPrice, priceType]);
 
   const { data: chartData = [], isPending: isChartLoading, error: chartError } = useQuery<ChartPoint[]>({
-    queryKey: ["stock-chart", stockCode],
+    queryKey: ["stock-chart", stockCode, chartPeriod],
     enabled: !!stockCode,
     queryFn: async () => {
-      const response = await apiRequest("GET", `/api/stocks/${stockCode}/chart`);
+      const response = await apiRequest("GET", `/api/stocks/${stockCode}/chart?period=${chartPeriod}`);
       const data = await response.json();
       return Array.isArray(data) ? data : [];
     },
+  });
+
+  const { data: chartFormulas = [] } = useQuery<ChartFormula[]>({
+    queryKey: ["/api/chart-formulas"],
   });
 
   const { data: accounts = [] } = useQuery<KiwoomAccount[]>({
@@ -118,6 +142,30 @@ export default function Trading() {
       return response.json();
     },
   });
+
+  useEffect(() => {
+    if (!activeFormulaId || !stockCode) {
+      setFormulaOverlay(null);
+      return;
+    }
+
+    let cancelled = false;
+    apiRequest("POST", `/api/chart-formulas/${activeFormulaId}/evaluate`, {
+      stockCode,
+      period: chartPeriod,
+    })
+      .then((res) => res.json())
+      .then((data: FormulaOverlay) => {
+        if (!cancelled) setFormulaOverlay(data);
+      })
+      .catch(() => {
+        if (!cancelled) setFormulaOverlay(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeFormulaId, stockCode, chartPeriod]);
 
   const orderMutation = useMutation({
     mutationFn: async (orderData: any) => {
@@ -188,6 +236,17 @@ export default function Trading() {
     .slice(-200), [chartSignals, stockPrice?.currentPrice]);
 
   const rainbowLines = rainbowData?.lines ? Object.values(rainbowData.lines) : [];
+  const formulaValueMap = useMemo(() => {
+    const map = new Map<string, number | null>();
+    for (const point of formulaOverlay?.signalLine?.values ?? []) {
+      map.set(point.date, point.value);
+    }
+    return map;
+  }, [formulaOverlay]);
+  const mergedChartData = useMemo(
+    () => chartData.map((candle) => ({ ...candle, formulaValue: formulaValueMap.get(candle.date) ?? null })),
+    [chartData, formulaValueMap],
+  );
 
   const chartState = !stockCode
     ? "empty"
@@ -310,9 +369,37 @@ export default function Trading() {
             <div className="flex items-center justify-between gap-3">
               <div>
                 <CardTitle className="text-base md:text-lg">{stockPrice?.stockName || stockName || "종목 선택 필요"} 차트</CardTitle>
-                <CardDescription className="text-xs md:text-sm">일봉 차트</CardDescription>
+                <CardDescription className="text-xs md:text-sm">
+                  {chartPeriod === "D" ? "일봉" : chartPeriod === "W" ? "주봉" : "월봉"} 차트
+                </CardDescription>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <Select value={chartPeriod} onValueChange={(value: "D" | "W" | "M") => setChartPeriod(value)}>
+                  <SelectTrigger className="w-24" data-testid="select-chart-period">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="D">일봉</SelectItem>
+                    <SelectItem value="W">주봉</SelectItem>
+                    <SelectItem value="M">월봉</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={activeFormulaId ? String(activeFormulaId) : "none"}
+                  onValueChange={(value) => setActiveFormulaId(value === "none" ? null : Number(value))}
+                >
+                  <SelectTrigger className="w-40" data-testid="select-chart-formula">
+                    <SelectValue placeholder="수식 없음" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">수식 없음</SelectItem>
+                    {chartFormulas.map((formula) => (
+                      <SelectItem key={formula.id} value={String(formula.id)}>
+                        {formula.formulaName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 {rainbowData && showRainbow && (
                   <Badge variant="outline" className="text-xs">
                     CL폭 {rainbowData.clWidth}%
@@ -333,7 +420,7 @@ export default function Trading() {
           <CardContent>
             {chartState === "ready" ? (
               <ResponsiveContainer width="100%" height={250} className="md:!h-[400px]">
-                <ComposedChart data={chartData}>
+                <ComposedChart data={mergedChartData}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="date" tick={{ fontSize: 10 }} />
                   <YAxis domain={["auto", "auto"]} tick={{ fontSize: 10 }} />
@@ -346,6 +433,17 @@ export default function Trading() {
                     dot={false}
                     name="종가"
                   />
+                  {formulaOverlay && (
+                    <Line
+                      type="monotone"
+                      dataKey="formulaValue"
+                      stroke={formulaOverlay.signalLine?.color || "#8b5cf6"}
+                      dot={false}
+                      strokeWidth={2}
+                      name={formulaOverlay.signalLine?.name || formulaOverlay.formulaName || "수식"}
+                      connectNulls
+                    />
+                  )}
                   {showRainbow &&
                     rainbowLines.map((line) => (
                       <ReferenceLine
