@@ -233,6 +233,115 @@ def kiwoom_ws_request(api_id, payload, is_mock=None):
     return result["data"]
 
 
+def kiwoom_ws_condition_run(api_id, payload, collect_seconds=5, is_mock=None):
+    """
+    키움 조건검색 실행 전용 WebSocket 함수
+    - CNSRREQ 전송 후 REAL 메시지(매칭 종목)를 collect_seconds 동안 수집
+    - CNSRREQ 응답 자체에 데이터가 있으면 그것도 포함
+    """
+    use_mock = KIWOOM_IS_MOCK if is_mock is None else is_mock
+    token = get_kiwoom_token(is_mock=use_mock)
+    if not token:
+        raise ValueError("키움 WebSocket 토큰 없음")
+
+    base_ws = "wss://mockapi.kiwoom.com:10000" if use_mock else "wss://api.kiwoom.com:10000"
+    ws_url = f"{base_ws}/api/dostk/websocket"
+    result = {"items": [], "error": None, "cnsrreq_done": False}
+    close_timer = [None]
+
+    def schedule_close(ws, delay):
+        if close_timer[0]:
+            close_timer[0].cancel()
+        t = threading.Timer(delay, ws.close)
+        t.start()
+        close_timer[0] = t
+
+    def on_open(ws):
+        login_msg = {"trnm": "LOGIN", "token": token}
+        ws.send(json.dumps(login_msg))
+
+    def on_message(ws, raw):
+        try:
+            msg = json.loads(raw)
+            trnm = msg.get("trnm", "")
+
+            if trnm == "LOGIN":
+                rc = msg.get("return_code")
+                if rc is not None and rc != 0 and str(rc) != "0":
+                    result["error"] = f"키움 WS 로그인 실패: {msg.get('return_msg')} (code: {rc})"
+                    ws.close()
+                else:
+                    ws.send(json.dumps(payload))
+                return
+
+            if trnm == "REAL":
+                # 매칭 종목 REAL 메시지 수집
+                data = msg.get("data") or msg.get("output") or msg
+                if isinstance(data, dict) and data:
+                    result["items"].append(data)
+                elif isinstance(data, list):
+                    result["items"].extend(data)
+                # REAL이 올 때마다 타이머를 1.5초로 재설정 (더 올 수 있으므로)
+                if result["cnsrreq_done"]:
+                    schedule_close(ws, 1.5)
+                return
+
+            # CNSRREQ 확인 응답
+            rc = msg.get("return_code")
+            if rc is not None and rc != 0 and str(rc) != "0":
+                result["error"] = f"키움 WS 오류: {msg.get('return_msg')} (code: {rc})"
+                ws.close()
+                return
+
+            # CNSRREQ 응답 자체에 데이터가 있을 수 있음 (직접 배치)
+            for key in ("data", "output1", "output"):
+                rows = msg.get(key)
+                if isinstance(rows, list) and rows:
+                    result["items"].extend(rows)
+                    break
+
+            logger.debug(f"[condition.run] CNSRREQ 응답 수신, 현재 수집: {len(result['items'])}개, msg keys={list(msg.keys())}")
+            result["cnsrreq_done"] = True
+            # CNSRREQ 확인 후 collect_seconds 동안 REAL 수집 후 닫기
+            schedule_close(ws, collect_seconds)
+
+        except Exception as e:
+            result["error"] = str(e)
+            ws.close()
+
+    def on_error(ws, error):
+        result["error"] = str(error)
+        ws.close()
+
+    ws_app = websocket.WebSocketApp(
+        ws_url,
+        header={"api-id": api_id, "Authorization": f"Bearer {token}"},
+        on_open=on_open,
+        on_message=on_message,
+        on_error=on_error,
+    )
+
+    hard_timeout = collect_seconds + 20
+    def force_timeout():
+        result["error"] = f"키움 WebSocket 타임아웃 ({hard_timeout}초)"
+        ws_app.close()
+
+    timer = threading.Timer(hard_timeout, force_timeout)
+    timer.start()
+    try:
+        ws_app.run_forever(ping_timeout=10)
+    finally:
+        timer.cancel()
+        if close_timer[0]:
+            close_timer[0].cancel()
+
+    if result["error"]:
+        raise ValueError(result["error"])
+
+    logger.info(f"[condition.run] REAL 수집 완료: {len(result['items'])}개 종목")
+    return result["items"]
+
+
 # ===== 종목 캐시 =====
 _stock_cache = []
 _stock_cache_built_at = 0
@@ -621,35 +730,46 @@ def handle_condition_list(_payload):
 
 
 def handle_condition_run(payload):
-    """키움 HTS 조건검색식 실행 — ka10172 (WebSocket)"""
+    """키움 HTS 조건검색식 실행 — ka10172 (WebSocket, REAL 수집 방식)"""
     seq = str(payload.get("seq", "")).strip()
     if not seq:
         raise ValueError("condition.run: seq 파라미터가 필요합니다.")
 
     try:
-        msg = kiwoom_ws_request("ka10172", {
+        rows = kiwoom_ws_condition_run("ka10172", {
             "trnm": "CNSRREQ",
             "seq": seq,
             "search_type": "0",
             "stex_tp": "K",
             "cont_yn": "N",
             "next_key": "",
-        })
+        }, collect_seconds=5)
     except Exception as e:
         logger.error(f"condition.run WebSocket 실패 (seq={seq}): {e}")
         raise
 
-    rows = msg.get("data") or msg.get("output1") or msg.get("output") or []
+    logger.debug(f"[condition.run] 수집된 raw items ({len(rows)}개): {rows[:2]}")
+
     result = []
     for item in rows:
         if not isinstance(item, dict):
             continue
-        stock_code = str(item.get("9001") or item.get("stck_cd") or item.get("stock_code") or "").replace("A", "", 1)
-        stock_name = str(item.get("302") or item.get("stck_nm") or item.get("stock_name") or "")
-        current_price = _normalize_abs_number(item.get("10") or item.get("stck_prpr") or item.get("current_price") or "0")
-        change_rate = _normalize_signed_number(item.get("12") or item.get("prdy_ctrt") or item.get("change_rate") or "0")
+        # 키움 실시간 필드번호: 9001=종목코드, 302=종목명, 10=현재가, 12=등락률
+        stock_code = str(
+            item.get("9001") or item.get("stck_cd") or item.get("stock_code") or ""
+        ).replace("A", "", 1).strip()
+        stock_name = str(
+            item.get("302") or item.get("stck_nm") or item.get("stock_name") or ""
+        ).strip()
+        current_price = _normalize_abs_number(
+            item.get("10") or item.get("stck_prpr") or item.get("current_price") or "0"
+        )
+        change_rate = _normalize_signed_number(
+            item.get("12") or item.get("prdy_ctrt") or item.get("change_rate") or "0"
+        )
 
         if not stock_code:
+            logger.debug(f"[condition.run] stock_code 없음, item keys={list(item.keys())[:8]}")
             continue
 
         result.append({
