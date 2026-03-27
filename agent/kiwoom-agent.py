@@ -248,6 +248,7 @@ def kiwoom_ws_condition_run(api_id, payload, collect_seconds=5, is_mock=None):
     ws_url = f"{base_ws}/api/dostk/websocket"
     result = {"items": [], "error": None, "cnsrreq_done": False, "cnsrreq_response": None, "raw_reals": []}
     close_timer = [None]
+    hard_timeout_timer = [None]  # PING 수신 시 재설정 가능한 타이머
 
     def schedule_close(ws, delay):
         if close_timer[0]:
@@ -255,6 +256,17 @@ def kiwoom_ws_condition_run(api_id, payload, collect_seconds=5, is_mock=None):
         t = threading.Timer(delay, ws.close)
         t.start()
         close_timer[0] = t
+
+    def reset_hard_timeout(new_seconds, label=""):
+        """PING 수신 등 이벤트 발생 시 hard_timeout 타이머 재설정"""
+        if hard_timeout_timer[0]:
+            hard_timeout_timer[0].cancel()
+        def _force():
+            result["error"] = f"키움 WebSocket 타임아웃 ({label or new_seconds}초)"
+            ws_app.close()
+        t = threading.Timer(new_seconds, _force)
+        t.start()
+        hard_timeout_timer[0] = t
 
     def on_open(ws):
         login_msg = {"trnm": "LOGIN", "token": token}
@@ -282,6 +294,8 @@ def kiwoom_ws_condition_run(api_id, payload, collect_seconds=5, is_mock=None):
                     logger.info(f"[condition.run] PING 수신 → CNSRREQ 수신 확인으로 처리, {collect_seconds}초 REAL 수집 시작")
                     result["cnsrreq_response"] = msg
                     result["cnsrreq_done"] = True
+                    # PING 수신 시 hard_timeout 재설정 (PING 이후 collect_seconds+5초 여유)
+                    reset_hard_timeout(collect_seconds + 5, f"PING후 {collect_seconds+5}초")
                     schedule_close(ws, collect_seconds)
                 else:
                     logger.info("[condition.run] PING 수신 (추가) → 무시")
@@ -351,17 +365,14 @@ def kiwoom_ws_condition_run(api_id, payload, collect_seconds=5, is_mock=None):
         on_error=on_error,
     )
 
-    hard_timeout = collect_seconds + 8
-    def force_timeout():
-        result["error"] = f"키움 WebSocket 타임아웃 ({hard_timeout}초)"
-        ws_app.close()
-
-    timer = threading.Timer(hard_timeout, force_timeout)
-    timer.start()
+    # 초기 hard_timeout: PING이 늦게 올 수 있어 25초로 설정
+    # PING 수신 시 reset_hard_timeout()으로 재설정됨
+    reset_hard_timeout(25, "초기25초")
     try:
         ws_app.run_forever(ping_timeout=10)
     finally:
-        timer.cancel()
+        if hard_timeout_timer[0]:
+            hard_timeout_timer[0].cancel()
         if close_timer[0]:
             close_timer[0].cancel()
 
