@@ -172,6 +172,7 @@ def kiwoom_ws_request(api_id, payload, is_mock=None):
         try:
             msg = json.loads(raw)
             trnm = msg.get("trnm", "")
+            logger.info(f"[kiwoom_ws_request/{payload.get('trnm','?')}] 수신: trnm={trnm!r} keys={list(msg.keys())} | {json.dumps(msg, ensure_ascii=False)[:300]}")
 
             if trnm == "LOGIN":
                 rc = msg.get("return_code")
@@ -181,6 +182,12 @@ def kiwoom_ws_request(api_id, payload, is_mock=None):
                     state["logged_in"] = True
                     ws.send(json.dumps(payload))
                     close_after = False
+                return
+
+            if trnm == "PING":
+                # PING = 요청 접수 완료 신호, 그 다음 응답을 기다려야 함
+                logger.info(f"[kiwoom_ws_request] PING 수신 → 다음 응답 대기 (연결 유지)")
+                close_after = False
                 return
 
             if trnm == "REAL":
