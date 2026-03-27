@@ -70,7 +70,23 @@ export function registerKiwoomAgentRoutes(app: Express): void {
   app.get("/api/kiwoom-agent/jobs/next", async (req: Request, res: Response) => {
     try {
       if (!requireAgentKey(req, res)) return;
-      const job = await storage.getNextPendingJob(AGENT_ID);
+      const supportsRaw =
+        (req.headers["x-agent-supports"] as string | undefined) ||
+        (req.query.supports as string | undefined) ||
+        "";
+      const supportedJobTypes = supportsRaw
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+
+      if (supportedJobTypes.length === 0) {
+        res.status(426).json({
+          error: "에이전트 업데이트 필요: x-agent-supports 헤더가 없습니다",
+        });
+        return;
+      }
+
+      const job = await storage.getNextPendingJob(AGENT_ID, supportedJobTypes);
       if (!job) {
         res.json({ job: null });
         return;

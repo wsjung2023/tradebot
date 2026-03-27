@@ -186,10 +186,10 @@ def kiwoom_ws_request(api_id, payload, is_mock=None):
 
     ws_app = websocket.WebSocketApp(
         ws_url,
-        header={
-            "api-id": api_id,
-            "Authorization": f"Bearer {token}",
-        },
+        header=[
+            f"api-id: {api_id}",
+            f"Authorization: Bearer {token}",
+        ],
         on_open=on_open,
         on_message=on_message,
         on_error=on_error,
@@ -661,6 +661,15 @@ JOB_HANDLERS = {
     "condition.list": handle_condition_list,
     "condition.run": handle_condition_run,
 }
+JOB_TYPE_ALIASES = {
+    "condition_list": "condition.list",
+    "conditions.list": "condition.list",
+    "condition.get_list": "condition.list",
+    "condition_run": "condition.run",
+    "conditions.run": "condition.run",
+    "condition.search": "condition.run",
+}
+SUPPORTED_JOB_TYPES = ",".join(sorted(set([*JOB_HANDLERS.keys(), *JOB_TYPE_ALIASES.keys()])))
 
 
 # ===== Replit 통신 =====
@@ -681,7 +690,10 @@ def fetch_next_job():
             resp = requests.get(
                 url,
                 params={"agent_key": AGENT_KEY},
-                headers={"x-agent-key": AGENT_KEY},
+                headers={
+                    "x-agent-key": AGENT_KEY,
+                    "x-agent-supports": SUPPORTED_JOB_TYPES,
+                },
                 timeout=10
             )
             resp.raise_for_status()
@@ -720,9 +732,11 @@ def submit_result(job_id, status, result=None, error_message=None):
 
 def process_job(job):
     job_id = job["id"]
-    job_type = job["jobType"]
+    raw_job_type = str(job.get("jobType", ""))
+    normalized_job_type = raw_job_type.strip().lower()
+    job_type = JOB_TYPE_ALIASES.get(normalized_job_type, normalized_job_type)
     payload = job.get("payload") or {}
-    logger.info(f"작업 처리 시작: #{job_id} [{job_type}]")
+    logger.info(f"작업 처리 시작: #{job_id} [{raw_job_type} → {job_type}]")
 
     handler = JOB_HANDLERS.get(job_type)
     if not handler:
