@@ -1,5 +1,5 @@
 // postgres-core.storage.ts — 핵심 엔티티(유저/계좌/보유/주문/AI모델/관심종목/알림/설정/로그) CRUD
-import { eq, and, desc, lt } from 'drizzle-orm';
+import { eq, and, desc, lt, inArray } from 'drizzle-orm';
 import { db } from '../db';
 import * as schema from '@shared/schema';
 import type {
@@ -480,10 +480,18 @@ export class PostgreSQLCoreStorage {
     return result[0];
   }
 
-  async getNextPendingJob(agentId: string): Promise<KiwoomJob | undefined> {
+  async getNextPendingJob(agentId: string, supportedJobTypes?: string[]): Promise<KiwoomJob | undefined> {
     // pending 상태의 가장 오래된 작업을 processing으로 변경 후 반환 (agentId는 안전한 식별자만)
+    const hasSupportedTypes = Array.isArray(supportedJobTypes) && supportedJobTypes.length > 0;
     const pending = await db.select().from(schema.kiwoomJobs)
-      .where(eq(schema.kiwoomJobs.status, 'pending'))
+      .where(
+        hasSupportedTypes
+          ? and(
+              eq(schema.kiwoomJobs.status, 'pending'),
+              inArray(schema.kiwoomJobs.jobType, supportedJobTypes!),
+            )
+          : eq(schema.kiwoomJobs.status, 'pending'),
+      )
       .orderBy(schema.kiwoomJobs.createdAt)
       .limit(1);
     if (!pending[0]) return undefined;
