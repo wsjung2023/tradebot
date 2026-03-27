@@ -14,10 +14,27 @@ function toNumberString(value: unknown): string {
   return String(value).replace(/,/g, "").trim();
 }
 
+function parseJobTypeCandidates(envValue: string | undefined, defaults: string[]): string[] {
+  const parsed = (envValue || "")
+    .split(",")
+    .map((v) => v.trim())
+    .filter(Boolean);
+  if (parsed.length === 0) return defaults;
+  return Array.from(new Set(parsed));
+}
+
 export class UserKiwoomService {
   private readonly MAX_LEGACY_CACHE = 50;
   private globalLegacyKiwoom = getKiwoomService();
   private legacyByUser = new Map<string, CachedLegacyService>();
+  private readonly conditionListJobTypes = parseJobTypeCandidates(
+    process.env.KIWOOM_CONDITION_LIST_JOBTYPES,
+    ["condition.list", "condition_list", "conditions.list", "condition.get_list"],
+  );
+  private readonly conditionRunJobTypes = parseJobTypeCandidates(
+    process.env.KIWOOM_CONDITION_RUN_JOBTYPES,
+    ["condition.run", "condition_run", "conditions.run", "condition.search"],
+  );
 
   private evictOldLegacyCache() {
     if (this.legacyByUser.size <= this.MAX_LEGACY_CACHE) return;
@@ -186,7 +203,7 @@ export class UserKiwoomService {
   async getConditionList(userId: string) {
     const response = await this.callViaAgentWithJobTypeFallback(
       userId,
-      ["condition.list", "condition_list", "conditions.list", "condition.get_list"],
+      this.conditionListJobTypes,
       {},
     );
     return response?.output ?? response ?? [];
@@ -195,7 +212,7 @@ export class UserKiwoomService {
   async runCondition(userId: string, seq: string) {
     const response = await this.callViaAgentWithJobTypeFallback(
       userId,
-      ["condition.run", "condition_run", "conditions.run", "condition.search"],
+      this.conditionRunJobTypes,
       { seq },
     );
     return response?.output1 ?? response?.output ?? response ?? [];
