@@ -770,12 +770,106 @@ def handle_condition_list(_payload):
     return {"output": result}
 
 
+def _parse_condition_stocks(rows, source=""):
+    """조건검색 결과 rows → 종목 리스트 파싱"""
+    result = []
+    for item in rows:
+        if not isinstance(item, dict):
+            continue
+        stock_code = str(
+            item.get("stk_cd") or item.get("stck_cd") or item.get("stock_code") or
+            item.get("9001") or item.get("cd") or item.get("code") or
+            item.get("종목코드") or item.get("item_code") or ""
+        ).lstrip("A").strip()
+        stock_name = str(
+            item.get("stk_nm") or item.get("stck_nm") or item.get("stock_name") or
+            item.get("302") or item.get("nm") or item.get("name") or
+            item.get("종목명") or item.get("item_name") or ""
+        ).strip()
+        current_price = _normalize_abs_number(
+            item.get("cur_prc") or item.get("stck_prpr") or item.get("current_price") or
+            item.get("10") or item.get("price") or "0"
+        )
+        change_rate = _normalize_signed_number(
+            item.get("chng_rt") or item.get("prdy_ctrt") or item.get("change_rate") or
+            item.get("12") or "0"
+        )
+        if stock_code:
+            logger.info(f"[condition.run/{source}] 종목: {stock_code} {stock_name} {current_price}")
+            result.append({
+                "stock_code": stock_code,
+                "stock_name": stock_name,
+                "current_price": current_price,
+                "change_rate": change_rate,
+            })
+        else:
+            logger.warning(f"[condition.run/{source}] stock_code 없음: {json.dumps(item, ensure_ascii=False)[:200]}")
+    return result
+
+
 def handle_condition_run(payload):
-    """키움 HTS 조건검색식 실행 — ka10172 (WebSocket, REAL 수집 방식)"""
+    """키움 HTS 조건검색식 실행 — REST ka10172 우선, WebSocket 폴백"""
     seq = str(payload.get("seq", "")).strip()
     if not seq:
         raise ValueError("condition.run: seq 파라미터가 필요합니다.")
 
+    # ── 1단계: REST API 시도 (여러 엔드포인트) ──────────────────────────
+    REST_ENDPOINTS = [
+        "/api/dostk/mrkcond",
+        "/api/dostk/cnsrsrch",
+        "/api/dostk/stkinfo",
+    ]
+    rest_body = {
+        "seq": seq,
+        "search_type": "1",
+        "stex_tp": "K",
+        "cont_yn": "N",
+        "next_key": "",
+    }
+    for endpoint in REST_ENDPOINTS:
+        try:
+            data = kiwoom_post(endpoint, "ka10172", rest_body)
+            logger.info(f"[condition.run/REST] {endpoint} 응답 keys={list(data.keys())} | 내용={json.dumps(data, ensure_ascii=False)[:600]}")
+            # 종목 목록 후보 키 탐색
+            for key in ("output1", "output", "data", "stk_list", "stocks", "items"):
+                rows = data.get(key)
+                if isinstance(rows, list) and rows:
+                    result = _parse_condition_stocks(rows, source=f"REST/{key}")
+                    if result:
+                        logger.info(f"condition.run 완료 REST (seq={seq}): {len(result)}개")
+                        return result
+                    else:
+                        logger.warning(f"[condition.run/REST] '{key}' 파싱 결과 0개. raw={json.dumps(rows[:2], ensure_ascii=False)[:300]}")
+                        return [{"_debug": True, "_raw": json.dumps(rows[:3], ensure_ascii=False)[:800], "_source": f"REST/{endpoint}/{key}"}]
+            logger.warning(f"[condition.run/REST] {endpoint} 응답에 종목 리스트 키 없음")
+        except Exception as e:
+            logger.warning(f"[condition.run/REST] {endpoint} 실패: {e}")
+
+    # ── 2단계: WebSocket 단순 요청-응답 (kiwoom_ws_request) ──────────────
+    logger.info("[condition.run] REST 실패 → WebSocket 단순요청 시도")
+    try:
+        msg = kiwoom_ws_request("ka10172", {
+            "trnm": "CNSRREQ",
+            "seq": seq,
+            "search_type": "1",
+            "stex_tp": "K",
+            "cont_yn": "N",
+            "next_key": "",
+        })
+        logger.info(f"[condition.run/WS-simple] 응답 keys={list(msg.keys())} | {json.dumps(msg, ensure_ascii=False)[:600]}")
+        for key in ("output1", "output", "data", "stk_list", "stocks", "items"):
+            rows = msg.get(key)
+            if isinstance(rows, list) and rows:
+                result = _parse_condition_stocks(rows, source=f"WS-simple/{key}")
+                if result:
+                    logger.info(f"condition.run 완료 WS-simple (seq={seq}): {len(result)}개")
+                    return result
+                return [{"_debug": True, "_raw": json.dumps(rows[:3], ensure_ascii=False)[:800], "_source": f"WS-simple/{key}"}]
+    except Exception as e:
+        logger.warning(f"[condition.run/WS-simple] 실패: {e}")
+
+    # ── 3단계: WebSocket CNSRREQ + REAL 수집 (기존 방식, 폴백) ──────────
+    logger.info("[condition.run] WS-simple 실패 → REAL 수집 방식 시도")
     try:
         ws_result = kiwoom_ws_condition_run("ka10172", {
             "trnm": "CNSRREQ",
@@ -785,81 +879,23 @@ def handle_condition_run(payload):
             "cont_yn": "N",
             "next_key": "",
         }, collect_seconds=5)
-    except Exception as e:
-        logger.error(f"condition.run WebSocket 실패 (seq={seq}): {e}")
-        raise
-
-    rows = ws_result.get("items", [])
-    raw_reals = ws_result.get("raw_reals", [])
-    cnsrreq_response = ws_result.get("cnsrreq_response")
-
-    logger.info(f"[condition.run] 수집: items={len(rows)}개, raw_reals={len(raw_reals)}개")
-    if cnsrreq_response:
-        logger.info(f"[condition.run] CNSRREQ 응답 상세: {json.dumps(cnsrreq_response, ensure_ascii=False)[:600]}")
-    if rows:
-        logger.info(f"[condition.run] raw items 샘플: {json.dumps(rows[:2], ensure_ascii=False)[:400]}")
-
-    result = []
-    for item in rows:
-        if not isinstance(item, dict):
-            logger.info(f"[condition.run] item이 dict 아님: type={type(item).__name__} val={str(item)[:100]}")
-            continue
-
-        logger.info(f"[condition.run] item 파싱 시도: keys={list(item.keys())} | 값={json.dumps(item, ensure_ascii=False)[:300]}")
-
-        # 키움 실시간 필드번호: 9001=종목코드, 302=종목명, 10=현재가, 12=등락률
-        # 또는 stck_cd, stck_nm 등 다양한 이름 시도
-        stock_code = str(
-            item.get("9001") or item.get("stck_cd") or item.get("stock_code") or
-            item.get("stk_cd") or item.get("cd") or item.get("code") or
-            item.get("종목코드") or item.get("item_code") or ""
-        ).replace("A", "", 1).strip()
-        stock_name = str(
-            item.get("302") or item.get("stck_nm") or item.get("stock_name") or
-            item.get("stk_nm") or item.get("nm") or item.get("name") or
-            item.get("종목명") or item.get("item_name") or ""
-        ).strip()
-        current_price = _normalize_abs_number(
-            item.get("10") or item.get("stck_prpr") or item.get("current_price") or
-            item.get("cur_prc") or item.get("price") or "0"
-        )
-        change_rate = _normalize_signed_number(
-            item.get("12") or item.get("prdy_ctrt") or item.get("change_rate") or
-            item.get("chng_rt") or "0"
-        )
-
-        if not stock_code:
-            logger.warning(f"[condition.run] stock_code 못 찾음. 전체 item: {json.dumps(item, ensure_ascii=False)[:400]}")
-            continue
-
-        logger.info(f"[condition.run] 종목 추출 성공: {stock_code} / {stock_name} / {current_price}")
-        result.append({
-            "stock_code": stock_code,
-            "stock_name": stock_name,
-            "current_price": current_price,
-            "change_rate": change_rate,
-        })
-
-    # 파싱 실패 시 raw 데이터를 결과에 포함 (서버/DB에서 실제 구조 확인용)
-    if not result:
-        debug_entry = {
-            "_debug": True,
-            "_raw_items_count": len(rows),
-            "_raw_reals_count": len(raw_reals),
-        }
-        if rows:
-            debug_entry["_raw_items_sample"] = json.dumps(rows[:3], ensure_ascii=False)[:800]
-            logger.warning(f"[condition.run] items 파싱 실패. raw: {json.dumps(rows[:2], ensure_ascii=False)[:400]}")
-        if raw_reals:
-            debug_entry["_raw_reals_sample"] = json.dumps(raw_reals[:3], ensure_ascii=False)[:800]
-            logger.warning(f"[condition.run] raw_reals: {json.dumps(raw_reals[:2], ensure_ascii=False)[:400]}")
+        rows = ws_result.get("items", [])
+        raw_reals = ws_result.get("raw_reals", [])
+        cnsrreq_response = ws_result.get("cnsrreq_response")
+        logger.info(f"[condition.run/WS-REAL] items={len(rows)}, raw_reals={len(raw_reals)}")
         if cnsrreq_response:
-            debug_entry["_cnsrreq_response"] = json.dumps(cnsrreq_response, ensure_ascii=False)[:800]
-        logger.warning(f"[condition.run] 종목 0개. debug 항목 반환")
-        return [debug_entry]
+            logger.info(f"[condition.run/WS-REAL] CNSRREQ 응답: {json.dumps(cnsrreq_response, ensure_ascii=False)[:400]}")
+        result = _parse_condition_stocks(rows, source="WS-REAL")
+        if result:
+            logger.info(f"condition.run 완료 WS-REAL (seq={seq}): {len(result)}개")
+            return result
+        if raw_reals:
+            logger.warning(f"[condition.run/WS-REAL] raw_reals 샘플: {json.dumps(raw_reals[:2], ensure_ascii=False)[:400]}")
+    except Exception as e:
+        logger.error(f"[condition.run/WS-REAL] 실패: {e}")
 
-    logger.info(f"condition.run 완료 (seq={seq}): {len(result)}개 종목")
-    return result
+    logger.warning(f"condition.run: 모든 방법 실패 (seq={seq}), 빈 결과 반환")
+    return []
 
 
 JOB_HANDLERS = {
