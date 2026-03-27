@@ -79,6 +79,42 @@ export class UserKiwoomService {
     return service;
   }
 
+  private readonly RETRIABLE_WS_ERRORS = [
+    "로그인 인증이 들어오기 전에 다른 전문이 들어왔습니다",
+    "키움 WS 오류",
+    "키움 WS 로그인 실패",
+    "Token이 유효하지 않습니다",
+    "WebSocket",
+  ];
+
+  private isRetriableWsError(message: string): boolean {
+    return this.RETRIABLE_WS_ERRORS.some((kw) => message.includes(kw));
+  }
+
+  private async callViaAgentWithRetry(
+    userId: string,
+    jobType: string,
+    payload: Record<string, unknown>,
+    maxRetries: number = 3,
+    retryDelayMs: number = 4000,
+  ): Promise<any> {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        return await callViaAgent(userId, jobType, payload, 22000);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error ?? "");
+        const shouldRetry = this.isRetriableWsError(message) && attempt < maxRetries;
+        if (shouldRetry) {
+          console.warn(`[KiwoomAgent] ${jobType} 시도 ${attempt}/${maxRetries} 실패 (${retryDelayMs}ms 후 재시도): ${message}`);
+          await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+        } else {
+          throw error;
+        }
+      }
+    }
+    throw new Error("에이전트 호출 실패");
+  }
+
   private async callViaAgentWithJobTypeFallback(
     userId: string,
     jobTypes: string[],
@@ -89,7 +125,7 @@ export class UserKiwoomService {
 
     for (const jobType of jobTypes) {
       try {
-        return await callViaAgent(userId, jobType, payload, 22000);
+        return await this.callViaAgentWithRetry(userId, jobType, payload, 3, 4000);
       } catch (error) {
         lastError = error;
         const message = error instanceof Error ? error.message : String(error ?? "");

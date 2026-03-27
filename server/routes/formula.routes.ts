@@ -108,6 +108,7 @@ export function registerFormulaRoutes(app: Router) {
       );
       res.json({ imported: imported.length, conditions: imported });
     } catch (error: any) {
+      console.error("[hts-list] 조건식 불러오기 실패:", error?.message ?? error);
       res.status(500).json({ error: error.message });
     }
   });
