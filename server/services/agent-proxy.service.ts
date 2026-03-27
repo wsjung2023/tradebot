@@ -38,8 +38,25 @@ export async function callViaAgent(
     if (!updated) throw new Error("job 소실: DB에서 찾을 수 없습니다");
     if (updated.status === "done") return updated.result;
     if (updated.status === "error") {
-      throw new Error(formatAgentError(jobType, updated.errorMessage));
+      const detail = updated.errorMessage || "에이전트 처리 중 오류 발생";
+      throw new Error(
+        `[AGENT_JOB_ERROR] jobId=${updated.id} jobType=${updated.jobType} agentId=${updated.agentId || "none"} status=${updated.status} detail=${detail}`,
+      );
     }
+  }
+
+  const latest = await storage.getKiwoomJobByIdInternal(job.id);
+  if (latest) {
+    const ageSec = Math.max(0, Math.round((Date.now() - latest.createdAt.getTime()) / 1000));
+    const phase =
+      latest.status === "pending"
+        ? "agent_not_polling_or_no_available_agent"
+        : latest.status === "processing"
+          ? "agent_got_job_but_no_result"
+          : "unknown";
+    throw new AgentTimeoutError(
+      `[AGENT_TIMEOUT] jobId=${latest.id} jobType=${latest.jobType} status=${latest.status} phase=${phase} agentId=${latest.agentId || "none"} ageSec=${ageSec}`,
+    );
   }
 
   throw new AgentTimeoutError(

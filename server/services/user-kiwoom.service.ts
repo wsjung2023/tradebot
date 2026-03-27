@@ -14,10 +14,27 @@ function toNumberString(value: unknown): string {
   return String(value).replace(/,/g, "").trim();
 }
 
+function parseJobTypeCandidates(envValue: string | undefined, defaults: string[]): string[] {
+  const parsed = (envValue || "")
+    .split(",")
+    .map((v) => v.trim())
+    .filter(Boolean);
+  if (parsed.length === 0) return defaults;
+  return Array.from(new Set(parsed));
+}
+
 export class UserKiwoomService {
   private readonly MAX_LEGACY_CACHE = 50;
   private globalLegacyKiwoom = getKiwoomService();
   private legacyByUser = new Map<string, CachedLegacyService>();
+  private readonly conditionListJobTypes = parseJobTypeCandidates(
+    process.env.KIWOOM_CONDITION_LIST_JOBTYPES,
+    ["condition.list", "condition_list", "conditions.list", "condition.get_list"],
+  );
+  private readonly conditionRunJobTypes = parseJobTypeCandidates(
+    process.env.KIWOOM_CONDITION_RUN_JOBTYPES,
+    ["condition.run", "condition_run", "conditions.run", "condition.search"],
+  );
 
   private evictOldLegacyCache() {
     if (this.legacyByUser.size <= this.MAX_LEGACY_CACHE) return;
@@ -60,6 +77,38 @@ export class UserKiwoomService {
     this.legacyByUser.set(userId, { fingerprint, service, lastUsed: Date.now() });
     this.evictOldLegacyCache();
     return service;
+  }
+
+  private async callViaAgentWithJobTypeFallback(
+    userId: string,
+    jobTypes: string[],
+    payload: Record<string, unknown>,
+  ): Promise<any> {
+    let lastError: unknown;
+    const attemptLogs: Array<{ jobType: string; message: string }> = [];
+
+    for (const jobType of jobTypes) {
+      try {
+        return await callViaAgent(userId, jobType, payload, 22000);
+      } catch (error) {
+        lastError = error;
+        const message = error instanceof Error ? error.message : String(error ?? "");
+        attemptLogs.push({ jobType, message });
+        const isUnsupportedType = message.includes("지원하지 않는 작업 타입");
+
+        if (!isUnsupportedType) {
+          throw error;
+        }
+      }
+    }
+
+    if (lastError) {
+      const detail = attemptLogs
+        .map((log, idx) => `${idx + 1}) ${log.jobType} -> ${log.message}`)
+        .join(" | ");
+      throw new Error(`조건검색 에이전트 호출 실패 (모든 jobType 시도 실패): ${detail}`);
+    }
+    throw new Error("에이전트 호출 실패");
   }
 
   async getPrice(userId: string, stockCode: string) {
@@ -152,20 +201,21 @@ export class UserKiwoomService {
   }
 
   async getConditionList(userId: string) {
-    const response = await callViaAgent(userId, "condition.list", {});
+    const response = await this.callViaAgentWithJobTypeFallback(
+      userId,
+      this.conditionListJobTypes,
+      {},
+    );
     return response?.output ?? response ?? [];
   }
 
   async runCondition(userId: string, seq: string) {
-    try {
-      const response = await callViaAgent(userId, "condition.run", { seq });
-      return response?.output1 ?? response?.output ?? response ?? [];
-    } catch (error) {
-      if (error instanceof AgentTimeoutError) throw error;
-      const legacyKiwoom = await this.getLegacyServiceForUser(userId);
-      const response = await legacyKiwoom.getConditionSearchResults(seq, 0);
-      return response?.output1 ?? response?.output ?? response ?? [];
-    }
+    const response = await this.callViaAgentWithJobTypeFallback(
+      userId,
+      this.conditionRunJobTypes,
+      { seq },
+    );
+    return response?.output1 ?? response?.output ?? response ?? [];
   }
 
   async getFinancials(userId: string, stockCode: string) {
