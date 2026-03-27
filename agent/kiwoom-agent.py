@@ -186,10 +186,10 @@ def kiwoom_ws_request(api_id, payload, is_mock=None):
 
     ws_app = websocket.WebSocketApp(
         ws_url,
-        header={
-            "api-id": api_id,
-            "Authorization": f"Bearer {token}",
-        },
+        header=[
+            f"api-id: {api_id}",
+            f"Authorization: Bearer {token}",
+        ],
         on_open=on_open,
         on_message=on_message,
         on_error=on_error,
