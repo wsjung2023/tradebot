@@ -705,7 +705,7 @@ def fetch_next_job():
                     logger.info(f"서버 #{idx+1} ({base_url[:40]}...)에서 job #{job['id']} 수신")
                 return job
         except Exception as e:
-            logger.debug(f"서버 #{idx+1} 폴링 오류: {e}")
+            logger.warning(f"서버 #{idx+1} 폴링 오류: {e}")
     return None
 
 
