@@ -174,7 +174,7 @@ export interface IStorage {
 
   // 키움 에이전트 작업 큐
   createKiwoomJob(job: InsertKiwoomJob): Promise<KiwoomJob>;
-  getNextPendingJob(agentId: string): Promise<KiwoomJob | undefined>;
+  getNextPendingJob(agentId: string, supportedJobTypes?: string[]): Promise<KiwoomJob | undefined>;
   updateKiwoomJobResult(id: number, status: string, result?: unknown, errorMessage?: string): Promise<KiwoomJob | undefined>;
   getKiwoomJobStatus(id: number, userId: string): Promise<KiwoomJob | undefined>;
   getRecentKiwoomJobsByUser(userId: string, limit?: number): Promise<KiwoomJob[]>;
