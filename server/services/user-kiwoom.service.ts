@@ -68,6 +68,7 @@ export class UserKiwoomService {
     payload: Record<string, unknown>,
   ): Promise<any> {
     let lastError: unknown;
+    const attemptLogs: Array<{ jobType: string; message: string }> = [];
 
     for (const jobType of jobTypes) {
       try {
@@ -75,6 +76,7 @@ export class UserKiwoomService {
       } catch (error) {
         lastError = error;
         const message = error instanceof Error ? error.message : String(error ?? "");
+        attemptLogs.push({ jobType, message });
         const isUnsupportedType = message.includes("지원하지 않는 작업 타입");
 
         if (!isUnsupportedType) {
@@ -83,7 +85,12 @@ export class UserKiwoomService {
       }
     }
 
-    if (lastError) throw lastError;
+    if (lastError) {
+      const detail = attemptLogs
+        .map((log, idx) => `${idx + 1}) ${log.jobType} -> ${log.message}`)
+        .join(" | ");
+      throw new Error(`조건검색 에이전트 호출 실패 (모든 jobType 시도 실패): ${detail}`);
+    }
     throw new Error("에이전트 호출 실패");
   }
 
