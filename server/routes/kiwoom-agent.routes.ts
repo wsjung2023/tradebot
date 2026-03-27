@@ -2,6 +2,8 @@
 // 구조: Replit(작업등록) ↔ 집PC에이전트(폴링) ↔ 키움REST
 // 보안: 작업은 소유자(userId) 본인만 조회 가능. AGENT_KEY는 저장/응답하지 않음.
 import type { Express, Request, Response } from "express";
+import { readFileSync, existsSync } from "fs";
+import { join } from "path";
 import { storage } from "../storage";
 import { insertKiwoomJobSchema } from "@shared/schema";
 import type { KiwoomJob } from "@shared/schema";
@@ -33,23 +35,21 @@ export function registerKiwoomAgentRoutes(app: Express): void {
 
   // 에이전트 스크립트 다운로드 — 공개 엔드포인트 (인증 불필요)
   // curl -o kiwoom-agent.py https://.../api/kiwoom-agent/script
-  app.get("/api/kiwoom-agent/script", async (_req: Request, res: Response) => {
+  app.get("/api/kiwoom-agent/script", (_req: Request, res: Response) => {
     try {
-      const fs = (await import("fs")).default;
-      const path = (await import("path")).default;
       const candidates = [
-        path.join(process.cwd(), "agent/kiwoom-agent.py"),
-        path.join(process.cwd(), "../agent/kiwoom-agent.py"),
-        path.join(__dirname, "../../agent/kiwoom-agent.py"),
+        join(process.cwd(), "agent/kiwoom-agent.py"),
+        join(process.cwd(), "../agent/kiwoom-agent.py"),
       ];
-      const scriptPath = candidates.find((p) => fs.existsSync(p));
+      const scriptPath = candidates.find((p) => existsSync(p));
       if (!scriptPath) {
         res.status(404).json({ error: "에이전트 파일을 찾을 수 없습니다" });
         return;
       }
+      const content = readFileSync(scriptPath, "utf-8");
       res.setHeader("Content-Type", "text/plain; charset=utf-8");
       res.setHeader("Content-Disposition", 'attachment; filename="kiwoom-agent.py"');
-      res.sendFile(scriptPath);
+      res.send(content);
     } catch (err) {
       console.error("[kiwoom-agent/script] 파일 전송 실패:", err);
       res.status(500).json({ error: "파일 전송 실패" });
