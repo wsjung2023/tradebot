@@ -180,8 +180,20 @@ def kiwoom_ws_request(api_id, payload, is_mock=None):
                     result["error"] = f"키움 WS 로그인 실패: {msg.get('return_msg')} (code: {rc})"
                 else:
                     state["logged_in"] = True
-                    ws.send(json.dumps(payload))
+                    # CNSRREQ는 먼저 CNSRLST를 보내야 동작함 (키움 API 요구사항)
+                    if payload.get("trnm") == "CNSRREQ":
+                        logger.info("[kiwoom_ws_request] CNSRREQ 요청 → CNSRLST 먼저 전송")
+                        ws.send(json.dumps({"trnm": "CNSRLST"}))
+                    else:
+                        ws.send(json.dumps(payload))
                     close_after = False
+                return
+
+            if trnm == "CNSRLST" and payload.get("trnm") == "CNSRREQ":
+                # CNSRLST 응답 수신 → 이제 CNSRREQ 전송
+                logger.info(f"[kiwoom_ws_request] CNSRLST 응답 수신 → CNSRREQ 전송 (seq={payload.get('seq')})")
+                ws.send(json.dumps(payload))
+                close_after = False
                 return
 
             if trnm == "PING":
@@ -290,7 +302,15 @@ def kiwoom_ws_condition_run(api_id, payload, collect_seconds=5, is_mock=None):
                     result["error"] = f"키움 WS 로그인 실패: {msg.get('return_msg')} (code: {rc})"
                     ws.close()
                 else:
-                    ws.send(json.dumps(payload))
+                    # ka10172(CNSRREQ) 호출 전 반드시 ka10171(CNSRLST) 먼저 호출 필요
+                    logger.info("[condition.run] LOGIN 완료 → CNSRLST(목록조회) 먼저 전송 후 CNSRREQ 예정")
+                    ws.send(json.dumps({"trnm": "CNSRLST"}))
+                return
+
+            if trnm == "CNSRLST":
+                # 목록조회 응답 수신 → 이제 CNSRREQ 실제 조건검색 요청
+                logger.info(f"[condition.run] CNSRLST 응답 수신 → CNSRREQ 전송 (seq={payload.get('seq')})")
+                ws.send(json.dumps(payload))
                 return
 
             if trnm == "PING":
