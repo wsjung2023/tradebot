@@ -186,10 +186,10 @@ def kiwoom_ws_request(api_id, payload, is_mock=None):
 
     ws_app = websocket.WebSocketApp(
         ws_url,
-        header={
-            "api-id": api_id,
-            "Authorization": f"Bearer {token}",
-        },
+        header=[
+            f"api-id: {api_id}",
+            f"Authorization: Bearer {token}",
+        ],
         on_open=on_open,
         on_message=on_message,
         on_error=on_error,
@@ -693,7 +693,7 @@ def fetch_next_job():
                     logger.info(f"서버 #{idx+1} ({base_url[:40]}...)에서 job #{job['id']} 수신")
                 return job
         except Exception as e:
-            logger.debug(f"서버 #{idx+1} 폴링 오류: {e}")
+            logger.warning(f"서버 #{idx+1} 폴링 오류: {e}")
     return None
 
 
