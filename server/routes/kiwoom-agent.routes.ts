@@ -70,7 +70,18 @@ export function registerKiwoomAgentRoutes(app: Express): void {
   app.get("/api/kiwoom-agent/jobs/next", async (req: Request, res: Response) => {
     try {
       if (!requireAgentKey(req, res)) return;
-      const job = await storage.getNextPendingJob(AGENT_ID);
+      const supportsRaw =
+        (req.headers["x-agent-supports"] as string | undefined) ||
+        (req.query.supports as string | undefined) ||
+        "";
+      const supportedJobTypes = supportsRaw
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const job = await storage.getNextPendingJob(
+        AGENT_ID,
+        supportedJobTypes.length > 0 ? supportedJobTypes : undefined,
+      );
       if (!job) {
         res.json({ job: null });
         return;

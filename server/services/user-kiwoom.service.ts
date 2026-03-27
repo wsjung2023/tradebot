@@ -62,6 +62,31 @@ export class UserKiwoomService {
     return service;
   }
 
+  private async callViaAgentWithJobTypeFallback(
+    userId: string,
+    jobTypes: string[],
+    payload: Record<string, unknown>,
+  ): Promise<any> {
+    let lastError: unknown;
+
+    for (const jobType of jobTypes) {
+      try {
+        return await callViaAgent(userId, jobType, payload, 22000);
+      } catch (error) {
+        lastError = error;
+        const message = error instanceof Error ? error.message : String(error ?? "");
+        const isUnsupportedType = message.includes("지원하지 않는 작업 타입");
+
+        if (!isUnsupportedType) {
+          throw error;
+        }
+      }
+    }
+
+    if (lastError) throw lastError;
+    throw new Error("에이전트 호출 실패");
+  }
+
   async getPrice(userId: string, stockCode: string) {
     try {
       return await callViaAgent(userId, "price.get", { stockCode });
@@ -152,27 +177,21 @@ export class UserKiwoomService {
   }
 
   async getConditionList(userId: string) {
-    try {
-      const response = await callViaAgent(userId, "condition.list", {});
-      return response?.output ?? response ?? [];
-    } catch (error) {
-      if (error instanceof AgentTimeoutError) throw error;
-      const legacyKiwoom = await this.getLegacyServiceForUser(userId);
-      const response = await legacyKiwoom.getConditionList();
-      return response?.output ?? response ?? [];
-    }
+    const response = await this.callViaAgentWithJobTypeFallback(
+      userId,
+      ["condition.list", "condition_list", "conditions.list", "condition.get_list"],
+      {},
+    );
+    return response?.output ?? response ?? [];
   }
 
   async runCondition(userId: string, seq: string) {
-    try {
-      const response = await callViaAgent(userId, "condition.run", { seq });
-      return response?.output1 ?? response?.output ?? response ?? [];
-    } catch (error) {
-      if (error instanceof AgentTimeoutError) throw error;
-      const legacyKiwoom = await this.getLegacyServiceForUser(userId);
-      const response = await legacyKiwoom.getConditionSearchResults(seq, 0);
-      return response?.output1 ?? response?.output ?? response ?? [];
-    }
+    const response = await this.callViaAgentWithJobTypeFallback(
+      userId,
+      ["condition.run", "condition_run", "conditions.run", "condition.search"],
+      { seq },
+    );
+    return response?.output1 ?? response?.output ?? response ?? [];
   }
 
   async getFinancials(userId: string, stockCode: string) {
