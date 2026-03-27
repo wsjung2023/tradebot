@@ -181,7 +181,23 @@ export function registerFormulaRoutes(app: Router) {
       if (!condition) return res.status(404).json({ error: "Condition formula not found" });
       if (condition.userId !== user!.id) return res.status(403).json({ error: "Not authorized" });
 
-      let conditionSeq = String((condition as any).kiwoomSeq ?? "").trim();
+      // formula_ast.seq 에서 먼저 읽기 (가장 신뢰할 수 있는 소스)
+      const formulaAst = (condition as any).formulaAst as any;
+      let conditionSeq = String(
+        (condition as any).kiwoomSeq ??
+        formulaAst?.seq ??
+        ""
+      ).trim();
+
+      if (!conditionSeq) {
+        // rawFormula가 "hts:30" 형태이면 파싱
+        const rawFormula = String((condition as any).rawFormula ?? "");
+        const htsMatch = rawFormula.match(/^hts:(\d+)$/);
+        if (htsMatch) {
+          conditionSeq = htsMatch[1];
+        }
+      }
+
       if (!conditionSeq) {
         try {
           const rows = await getConditionListForUser(user!.id);
@@ -193,9 +209,12 @@ export function registerFormulaRoutes(app: Router) {
           console.warn("[Formula] Kiwoom 조건식 seq 자동해결 실패:", seqResolveError);
         }
       }
+
       if (!conditionSeq) {
-        conditionSeq = String(condition.id);
+        return res.status(400).json({ error: "조건식 seq를 확인할 수 없습니다." });
       }
+
+      console.log(`[Formula] 조건식 실행: id=${conditionId} name=${condition.conditionName} seq=${conditionSeq}`);
 
       const results = await getConditionSearchResultsForUser(user!.id, conditionSeq);
 
