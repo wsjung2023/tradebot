@@ -164,7 +164,7 @@ def kiwoom_ws_request(api_id, payload, is_mock=None):
     state = {"logged_in": False}
 
     def on_open(ws):
-        login_msg = {"trnm": "LOGIN", "token": f"Bearer {token}"}
+        login_msg = {"trnm": "LOGIN", "token": token}
         ws.send(json.dumps(login_msg))
 
     def on_message(ws, raw):
