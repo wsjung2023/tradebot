@@ -275,8 +275,18 @@ def kiwoom_ws_condition_run(api_id, payload, collect_seconds=5, is_mock=None):
                 return
 
             if trnm == "REAL":
-                # 매칭 종목 REAL 메시지 수집
-                data = msg.get("data") or msg.get("output") or msg
+                # REAL 메시지 원본 전체 출력 (구조 파악)
+                try:
+                    logger.info(f"[condition.run] REAL 원본: {json.dumps(msg, ensure_ascii=False)[:500]}")
+                except Exception:
+                    logger.info(f"[condition.run] REAL 수신 keys={list(msg.keys())}")
+
+                # msg 전체를 raw 보관 (파싱 실패 시 서버에서 확인 가능)
+                result.setdefault("raw_reals", []).append(msg)
+
+                # data 추출 시도: data → output → body → msg 자체
+                data = (msg.get("data") or msg.get("output") or
+                        msg.get("body") or msg.get("response") or msg)
                 if isinstance(data, dict) and data:
                     result["items"].append(data)
                 elif isinstance(data, list):
@@ -754,36 +764,57 @@ def handle_condition_run(payload):
         logger.error(f"condition.run WebSocket 실패 (seq={seq}): {e}")
         raise
 
-    logger.debug(f"[condition.run] 수집된 raw items ({len(rows)}개): {rows[:2]}")
+    logger.info(f"[condition.run] 수집된 raw items ({len(rows)}개): {json.dumps(rows[:2], ensure_ascii=False)[:400]}")
 
     result = []
     for item in rows:
         if not isinstance(item, dict):
+            logger.info(f"[condition.run] item이 dict 아님: type={type(item).__name__} val={str(item)[:100]}")
             continue
+
+        logger.info(f"[condition.run] item 파싱 시도: keys={list(item.keys())} | 값={json.dumps(item, ensure_ascii=False)[:300]}")
+
         # 키움 실시간 필드번호: 9001=종목코드, 302=종목명, 10=현재가, 12=등락률
+        # 또는 stck_cd, stck_nm 등 다양한 이름 시도
         stock_code = str(
-            item.get("9001") or item.get("stck_cd") or item.get("stock_code") or ""
+            item.get("9001") or item.get("stck_cd") or item.get("stock_code") or
+            item.get("stk_cd") or item.get("cd") or item.get("code") or
+            item.get("종목코드") or item.get("item_code") or ""
         ).replace("A", "", 1).strip()
         stock_name = str(
-            item.get("302") or item.get("stck_nm") or item.get("stock_name") or ""
+            item.get("302") or item.get("stck_nm") or item.get("stock_name") or
+            item.get("stk_nm") or item.get("nm") or item.get("name") or
+            item.get("종목명") or item.get("item_name") or ""
         ).strip()
         current_price = _normalize_abs_number(
-            item.get("10") or item.get("stck_prpr") or item.get("current_price") or "0"
+            item.get("10") or item.get("stck_prpr") or item.get("current_price") or
+            item.get("cur_prc") or item.get("price") or "0"
         )
         change_rate = _normalize_signed_number(
-            item.get("12") or item.get("prdy_ctrt") or item.get("change_rate") or "0"
+            item.get("12") or item.get("prdy_ctrt") or item.get("change_rate") or
+            item.get("chng_rt") or "0"
         )
 
         if not stock_code:
-            logger.debug(f"[condition.run] stock_code 없음, item keys={list(item.keys())[:8]}")
+            logger.warning(f"[condition.run] stock_code 못 찾음. 전체 item: {json.dumps(item, ensure_ascii=False)[:400]}")
             continue
 
+        logger.info(f"[condition.run] 종목 추출 성공: {stock_code} / {stock_name} / {current_price}")
         result.append({
             "stock_code": stock_code,
             "stock_name": stock_name,
             "current_price": current_price,
             "change_rate": change_rate,
         })
+
+    # 파싱 실패 시 raw 데이터를 결과에 포함 (서버/DB에서 실제 구조 확인용)
+    if not result and rows:
+        logger.warning(f"[condition.run] 모든 종목 파싱 실패. raw 데이터를 debug 항목으로 반환")
+        return [{
+            "_debug": True,
+            "_raw_count": len(rows),
+            "_raw_sample": json.dumps(rows[:3], ensure_ascii=False)[:800],
+        }]
 
     logger.info(f"condition.run 완료 (seq={seq}): {len(result)}개 종목")
     return result
