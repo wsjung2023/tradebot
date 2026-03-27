@@ -246,7 +246,7 @@ def kiwoom_ws_condition_run(api_id, payload, collect_seconds=5, is_mock=None):
 
     base_ws = "wss://mockapi.kiwoom.com:10000" if use_mock else "wss://api.kiwoom.com:10000"
     ws_url = f"{base_ws}/api/dostk/websocket"
-    result = {"items": [], "error": None, "cnsrreq_done": False}
+    result = {"items": [], "error": None, "cnsrreq_done": False, "cnsrreq_response": None, "raw_reals": []}
     close_timer = [None]
 
     def schedule_close(ws, delay):
@@ -282,7 +282,7 @@ def kiwoom_ws_condition_run(api_id, payload, collect_seconds=5, is_mock=None):
                     logger.info(f"[condition.run] REAL 수신 keys={list(msg.keys())}")
 
                 # msg 전체를 raw 보관 (파싱 실패 시 서버에서 확인 가능)
-                result.setdefault("raw_reals", []).append(msg)
+                result["raw_reals"].append(msg)
 
                 # data 추출 시도: data → output → body → msg 자체
                 data = (msg.get("data") or msg.get("output") or
@@ -311,12 +311,12 @@ def kiwoom_ws_condition_run(api_id, payload, collect_seconds=5, is_mock=None):
                     logger.info(f"[condition.run] CNSRREQ 응답 '{key}'에서 {len(rows)}개 종목 추출")
                     break
 
-            # 응답 전체를 INFO로 출력해 구조 확인
+            # CNSRREQ 응답 원본 저장 + 출력
+            result["cnsrreq_response"] = msg
             try:
-                import json as _json
-                logger.info(f"[condition.run] CNSRREQ 응답 수신: keys={list(msg.keys())} | 현재 수집={len(result['items'])}개 | 내용(앞500자)={_json.dumps(msg, ensure_ascii=False)[:500]}")
+                logger.info(f"[condition.run] CNSRREQ 응답: keys={list(msg.keys())} | 현재 수집={len(result['items'])}개 | 내용={json.dumps(msg, ensure_ascii=False)[:500]}")
             except Exception:
-                logger.info(f"[condition.run] CNSRREQ 응답 수신: keys={list(msg.keys())} | 현재 수집={len(result['items'])}개")
+                logger.info(f"[condition.run] CNSRREQ 응답: keys={list(msg.keys())} | 현재 수집={len(result['items'])}개")
             result["cnsrreq_done"] = True
             # CNSRREQ 확인 후 collect_seconds 동안 REAL 수집 후 닫기
             schedule_close(ws, collect_seconds)
@@ -354,8 +354,8 @@ def kiwoom_ws_condition_run(api_id, payload, collect_seconds=5, is_mock=None):
     if result["error"]:
         raise ValueError(result["error"])
 
-    logger.info(f"[condition.run] REAL 수집 완료: {len(result['items'])}개 종목")
-    return result["items"]
+    logger.info(f"[condition.run] REAL 수집 완료: items={len(result['items'])}개, raw_reals={len(result['raw_reals'])}개")
+    return result  # 전체 반환 (items + cnsrreq_response + raw_reals)
 
 
 # ===== 종목 캐시 =====
@@ -752,7 +752,7 @@ def handle_condition_run(payload):
         raise ValueError("condition.run: seq 파라미터가 필요합니다.")
 
     try:
-        rows = kiwoom_ws_condition_run("ka10172", {
+        ws_result = kiwoom_ws_condition_run("ka10172", {
             "trnm": "CNSRREQ",
             "seq": seq,
             "search_type": "0",
@@ -764,7 +764,15 @@ def handle_condition_run(payload):
         logger.error(f"condition.run WebSocket 실패 (seq={seq}): {e}")
         raise
 
-    logger.info(f"[condition.run] 수집된 raw items ({len(rows)}개): {json.dumps(rows[:2], ensure_ascii=False)[:400]}")
+    rows = ws_result.get("items", [])
+    raw_reals = ws_result.get("raw_reals", [])
+    cnsrreq_response = ws_result.get("cnsrreq_response")
+
+    logger.info(f"[condition.run] 수집: items={len(rows)}개, raw_reals={len(raw_reals)}개")
+    if cnsrreq_response:
+        logger.info(f"[condition.run] CNSRREQ 응답 상세: {json.dumps(cnsrreq_response, ensure_ascii=False)[:600]}")
+    if rows:
+        logger.info(f"[condition.run] raw items 샘플: {json.dumps(rows[:2], ensure_ascii=False)[:400]}")
 
     result = []
     for item in rows:
@@ -808,13 +816,22 @@ def handle_condition_run(payload):
         })
 
     # 파싱 실패 시 raw 데이터를 결과에 포함 (서버/DB에서 실제 구조 확인용)
-    if not result and rows:
-        logger.warning(f"[condition.run] 모든 종목 파싱 실패. raw 데이터를 debug 항목으로 반환")
-        return [{
+    if not result:
+        debug_entry = {
             "_debug": True,
-            "_raw_count": len(rows),
-            "_raw_sample": json.dumps(rows[:3], ensure_ascii=False)[:800],
-        }]
+            "_raw_items_count": len(rows),
+            "_raw_reals_count": len(raw_reals),
+        }
+        if rows:
+            debug_entry["_raw_items_sample"] = json.dumps(rows[:3], ensure_ascii=False)[:800]
+            logger.warning(f"[condition.run] items 파싱 실패. raw: {json.dumps(rows[:2], ensure_ascii=False)[:400]}")
+        if raw_reals:
+            debug_entry["_raw_reals_sample"] = json.dumps(raw_reals[:3], ensure_ascii=False)[:800]
+            logger.warning(f"[condition.run] raw_reals: {json.dumps(raw_reals[:2], ensure_ascii=False)[:400]}")
+        if cnsrreq_response:
+            debug_entry["_cnsrreq_response"] = json.dumps(cnsrreq_response, ensure_ascii=False)[:800]
+        logger.warning(f"[condition.run] 종목 0개. debug 항목 반환")
+        return [debug_entry]
 
     logger.info(f"condition.run 완료 (seq={seq}): {len(result)}개 종목")
     return result
