@@ -7,6 +7,7 @@ import { join } from "path";
 import { storage } from "../storage";
 import { insertKiwoomJobSchema } from "@shared/schema";
 import type { KiwoomJob } from "@shared/schema";
+import { isAuthenticated } from "../auth";
 
 const AGENT_KEY = process.env.AGENT_KEY || "";
 const AGENT_ID = "home-pc-agent"; // 안전한 식별자만 DB에 저장 (실제 키 아님)
@@ -270,6 +271,67 @@ export function registerKiwoomAgentRoutes(app: Express): void {
       res.send(content);
     } catch (err) {
       res.status(500).json({ error: "에이전트 파일을 찾을 수 없습니다" });
+    }
+  });
+
+  // ─── 진단: 서버에서 직접 키움 API 호출 (에이전트 없이) ──────────────────
+  app.get("/api/kiwoom-agent/diagnose-condition", isAuthenticated, async (req: Request, res: Response) => {
+    const seq = String(req.query.seq || "30");
+    const logs: string[] = [];
+    const log = (msg: string) => { logs.push(msg); console.log("[DIAG]", msg); };
+
+    try {
+      const fetch = (await import("node-fetch")).default;
+
+      // 1. 토큰 발급
+      const appKey = process.env.KIWOOM_APP_KEY_REAL || process.env.KIWOOM_KEY_59190647 || process.env.KIWOOM_APP_KEY || "";
+      const appSecret = process.env.KIWOOM_APP_SECRET_REAL || process.env.KIWOOM_SECRET_59190647 || process.env.KIWOOM_APP_SECRET || "";
+      if (!appKey || !appSecret) {
+        return res.json({ error: "APP_KEY/APP_SECRET 없음", logs });
+      }
+      log(`토큰 발급 시도 appKey=${appKey.slice(0, 8)}...`);
+      const tokenResp = await fetch("https://api.kiwoom.com/oauth2/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json;charset=UTF-8" },
+        body: JSON.stringify({ grant_type: "client_credentials", appkey: appKey, appsecretkey: appSecret }),
+      });
+      const tokenData = await tokenResp.json() as any;
+      const token = tokenData.token || tokenData.access_token || "";
+      log(`토큰 발급: ${token ? "성공 " + token.slice(0, 20) + "..." : "실패 " + JSON.stringify(tokenData)}`);
+      if (!token) return res.json({ error: "토큰 발급 실패", tokenData, logs });
+
+      // 2. ka10172 REST 호출 (여러 엔드포인트 시도)
+      const endpoints = [
+        "/api/dostk/mrkcond",
+        "/api/dostk/cnsrsrch",
+        "/api/dostk/stkinfo",
+      ];
+      const body = { seq, search_type: "1", stex_tp: "K", cont_yn: "N", next_key: "" };
+      const results: Record<string, any> = {};
+
+      for (const ep of endpoints) {
+        try {
+          const r = await fetch(`https://api.kiwoom.com${ep}`, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${token}`,
+              "Content-Type": "application/json;charset=UTF-8",
+              "api-id": "ka10172",
+            },
+            body: JSON.stringify(body),
+          });
+          const d = await r.json() as any;
+          log(`${ep}: status=${r.status} keys=${Object.keys(d).join(",")} rc=${d.return_code} msg=${d.return_msg || ""}`);
+          results[ep] = d;
+        } catch (e: any) {
+          log(`${ep}: 오류 ${e.message}`);
+          results[ep] = { error: e.message };
+        }
+      }
+
+      return res.json({ seq, logs, results });
+    } catch (e: any) {
+      return res.json({ error: e.message, logs });
     }
   });
 
