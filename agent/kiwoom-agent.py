@@ -351,7 +351,7 @@ def kiwoom_ws_condition_run(api_id, payload, collect_seconds=5, is_mock=None):
         on_error=on_error,
     )
 
-    hard_timeout = collect_seconds + 20
+    hard_timeout = collect_seconds + 8
     def force_timeout():
         result["error"] = f"키움 WebSocket 타임아웃 ({hard_timeout}초)"
         ws_app.close()
@@ -961,6 +961,21 @@ def submit_result(job_id, status, result=None, error_message=None):
 
 # ===== 메인 루프 =====
 
+# WebSocket 블로킹이 있는 job 타입 — 별도 스레드로 실행해 메인 루프 폴링을 막지 않음
+ASYNC_JOB_TYPES = {"condition.run"}
+
+
+def _run_job_in_thread(job_id, job_type, handler, payload):
+    try:
+        result = handler(payload)
+        submit_result(job_id, "done", result=result)
+        logger.info(f"작업 완료(thread): #{job_id} [{job_type}]")
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"작업 실패(thread): #{job_id} [{job_type}] — {error_msg}")
+        submit_result(job_id, "error", error_message=error_msg)
+
+
 def process_job(job):
     job_id = job["id"]
     raw_job_type = str(job.get("jobType", ""))
@@ -974,6 +989,17 @@ def process_job(job):
         error_msg = f"지원하지 않는 작업 타입: {job_type}"
         logger.warning(error_msg)
         submit_result(job_id, "error", error_message=error_msg)
+        return
+
+    if job_type in ASYNC_JOB_TYPES:
+        # WebSocket 블로킹 job은 별도 스레드에서 처리 → 메인 루프 폴링 유지
+        t = threading.Thread(
+            target=_run_job_in_thread,
+            args=(job_id, job_type, handler, payload),
+            daemon=True,
+        )
+        t.start()
+        logger.info(f"작업 스레드 시작: #{job_id} [{job_type}]")
         return
 
     try:
