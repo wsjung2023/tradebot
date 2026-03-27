@@ -274,6 +274,15 @@ def kiwoom_ws_condition_run(api_id, payload, collect_seconds=5, is_mock=None):
                     ws.send(json.dumps(payload))
                 return
 
+            if trnm == "PING":
+                # PING에 PONG 응답 (키움 WebSocket 연결 유지 프로토콜)
+                try:
+                    ws.send(json.dumps({"trnm": "PONG"}))
+                    logger.info("[condition.run] PING 수신 → PONG 전송")
+                except Exception:
+                    pass
+                return
+
             if trnm == "REAL":
                 # REAL 메시지 원본 전체 출력 (구조 파악)
                 try:
@@ -296,7 +305,7 @@ def kiwoom_ws_condition_run(api_id, payload, collect_seconds=5, is_mock=None):
                     schedule_close(ws, 1.5)
                 return
 
-            # CNSRREQ 확인 응답
+            # CNSRREQ 확인 응답 (trnm="CNSRREQ" 또는 기타 응답)
             rc = msg.get("return_code")
             if rc is not None and rc != 0 and str(rc) != "0":
                 result["error"] = f"키움 WS 오류: {msg.get('return_msg')} (code: {rc})"
