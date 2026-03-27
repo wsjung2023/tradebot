@@ -6,6 +6,22 @@
 
 ---
 
+> ### ⚠️ 설치 폴더 경로 주의
+>
+> 이 가이드의 예시는 `C:\kiwoom-agent` 폴더를 기준으로 작성되었습니다.
+> **이미 다른 폴더에 설치하셨다면, 아래 모든 명령어의 경로를 본인 폴더로 바꿔서 사용하세요.**
+>
+> 예시:
+> - 예시 경로: `C:\kiwoom-agent`
+> - 내 경로 예: `D:\Projects\trdebot\agent`
+>
+> 에이전트 파일 업데이트 예시 (내 경로로 변경):
+> ```
+> curl -o "D:\Projects\trdebot\agent\kiwoom-agent.py" https://kiwoom-stock-ai-mainstop3.replit.app/api/kiwoom-agent/script
+> ```
+
+---
+
 ## 목차
 
 1. [에이전트가 뭔가요?](#에이전트가-뭔가요)
