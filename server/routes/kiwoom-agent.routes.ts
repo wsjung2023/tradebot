@@ -31,6 +31,31 @@ function sanitizeJob(job: KiwoomJob) {
 
 export function registerKiwoomAgentRoutes(app: Express): void {
 
+  // 에이전트 스크립트 다운로드 — 공개 엔드포인트 (인증 불필요)
+  // curl -o kiwoom-agent.py https://.../api/kiwoom-agent/script
+  app.get("/api/kiwoom-agent/script", async (_req: Request, res: Response) => {
+    try {
+      const fs = (await import("fs")).default;
+      const path = (await import("path")).default;
+      const candidates = [
+        path.join(process.cwd(), "agent/kiwoom-agent.py"),
+        path.join(process.cwd(), "../agent/kiwoom-agent.py"),
+        path.join(__dirname, "../../agent/kiwoom-agent.py"),
+      ];
+      const scriptPath = candidates.find((p) => fs.existsSync(p));
+      if (!scriptPath) {
+        res.status(404).json({ error: "에이전트 파일을 찾을 수 없습니다" });
+        return;
+      }
+      res.setHeader("Content-Type", "text/plain; charset=utf-8");
+      res.setHeader("Content-Disposition", 'attachment; filename="kiwoom-agent.py"');
+      res.sendFile(scriptPath);
+    } catch (err) {
+      console.error("[kiwoom-agent/script] 파일 전송 실패:", err);
+      res.status(500).json({ error: "파일 전송 실패" });
+    }
+  });
+
   // 작업 등록 — 인증된 사용자 본인 소유 작업으로 생성
   app.post("/api/kiwoom-agent/jobs", async (req: Request, res: Response) => {
     try {

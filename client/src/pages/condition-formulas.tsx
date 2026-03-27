@@ -70,7 +70,7 @@ export default function ConditionFormulasPage() {
       if (found) setResultCondition(found);
       const count = data.matchCount ?? 0;
       if (count === 0) {
-        toast({ title: "스크리닝 완료", description: "장중이 아니거나 조건에 맞는 종목이 없습니다." });
+        toast({ title: "스크리닝 완료", description: "현재 조건에 매칭된 종목이 없습니다." });
       } else {
         toast({ title: "스크리닝 완료", description: `${count}개 종목 매칭` });
       }
@@ -158,7 +158,7 @@ export default function ConditionFormulasPage() {
               ) : screeningResults.length === 0 ? (
                 <div className="text-center py-10 space-y-2">
                   <p className="text-muted-foreground">매칭된 종목이 없습니다.</p>
-                  <p className="text-xs text-muted-foreground">장중(09:00~15:30)에 실행하면 실시간 결과를 확인할 수 있습니다.</p>
+                  <p className="text-xs text-muted-foreground">조건을 확인하거나 ▶ 버튼으로 다시 실행해 보세요.</p>
                 </div>
               ) : (
                 <div className="space-y-2">
