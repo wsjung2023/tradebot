@@ -38,7 +38,7 @@ export async function callViaAgent(
     if (!updated) throw new Error("job 소실: DB에서 찾을 수 없습니다");
     if (updated.status === "done") return updated.result;
     if (updated.status === "error") {
-      throw new Error(updated.errorMessage || "에이전트 처리 중 오류 발생");
+      throw new Error(formatAgentError(jobType, updated.errorMessage));
     }
   }
 
@@ -56,4 +56,19 @@ export class AgentTimeoutError extends Error {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function formatAgentError(jobType: string, errorMessage?: string | null): string {
+  const message = (errorMessage || "에이전트 처리 중 오류 발생").trim();
+
+  if (message.includes("지원하지 않는 작업 타입")) {
+    return [
+      `${message}`,
+      `집 PC 에이전트가 구버전일 수 있습니다.`,
+      `에이전트를 최신으로 업데이트 후 재시작하세요 (run-agent.py 실행 권장).`,
+      `요청 작업: ${jobType}`,
+    ].join(" ");
+  }
+
+  return message;
 }
