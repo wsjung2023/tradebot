@@ -78,15 +78,10 @@ export function registerKiwoomAgentRoutes(app: Express): void {
         .split(",")
         .map((s) => s.trim())
         .filter(Boolean);
-
-      if (supportedJobTypes.length === 0) {
-        res.status(426).json({
-          error: "에이전트 업데이트 필요: x-agent-supports 헤더가 없습니다",
-        });
-        return;
-      }
-
-      const job = await storage.getNextPendingJob(AGENT_ID, supportedJobTypes);
+      const job = await storage.getNextPendingJob(
+        AGENT_ID,
+        supportedJobTypes.length > 0 ? supportedJobTypes : undefined,
+      );
       if (!job) {
         res.json({ job: null });
         return;
