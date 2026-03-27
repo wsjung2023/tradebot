@@ -189,7 +189,7 @@ def kiwoom_ws_request(api_id, payload, is_mock=None):
 
             rc = msg.get("return_code")
             if rc is not None and rc != 0 and str(rc) != "0":
-                result["error"] = f"키움 WS 오류: {msg.get('return_msg')} (code: {rc})"
+                result["error"] = f"키움 WS 오류: {msg.get('return_msg')} (code: {rc}, trnm={trnm!r}, raw={raw[:300]!r})"
             else:
                 result["data"] = msg
         except Exception as e:
