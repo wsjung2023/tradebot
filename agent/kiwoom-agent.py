@@ -294,13 +294,19 @@ def kiwoom_ws_condition_run(api_id, payload, collect_seconds=5, is_mock=None):
                 return
 
             # CNSRREQ 응답 자체에 데이터가 있을 수 있음 (직접 배치)
-            for key in ("data", "output1", "output"):
+            for key in ("data", "output1", "output", "stk_list", "stocks"):
                 rows = msg.get(key)
                 if isinstance(rows, list) and rows:
                     result["items"].extend(rows)
+                    logger.info(f"[condition.run] CNSRREQ 응답 '{key}'에서 {len(rows)}개 종목 추출")
                     break
 
-            logger.debug(f"[condition.run] CNSRREQ 응답 수신, 현재 수집: {len(result['items'])}개, msg keys={list(msg.keys())}")
+            # 응답 전체를 INFO로 출력해 구조 확인
+            try:
+                import json as _json
+                logger.info(f"[condition.run] CNSRREQ 응답 수신: keys={list(msg.keys())} | 현재 수집={len(result['items'])}개 | 내용(앞500자)={_json.dumps(msg, ensure_ascii=False)[:500]}")
+            except Exception:
+                logger.info(f"[condition.run] CNSRREQ 응답 수신: keys={list(msg.keys())} | 현재 수집={len(result['items'])}개")
             result["cnsrreq_done"] = True
             # CNSRREQ 확인 후 collect_seconds 동안 REAL 수집 후 닫기
             schedule_close(ws, collect_seconds)

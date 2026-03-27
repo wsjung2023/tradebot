@@ -2,7 +2,7 @@
 import type { Router } from "express";
 import { storage } from "../storage";
 import { isAuthenticated, getCurrentUser } from "../auth";
-import { AgentTimeoutError } from "../services/agent-proxy.service";
+import { AgentTimeoutError, callViaAgent } from "../services/agent-proxy.service";
 import { getUserKiwoomService } from "../services/user-kiwoom.service";
 import { getAIService } from "../services/ai.service";
 import { RainbowChartAnalyzer } from "../formula/rainbow-chart";
@@ -14,23 +14,41 @@ export function registerAutoTradingRoutes(app: Router) {
   /**
    * POST /api/auto-trading/backattack-scan
    * 백어택2 레인보우 차트 스캔
-   * 참고: 키움 REST API는 HTS 조건검색을 지원하지 않습니다.
-   * 종목 목록을 요청 본문(stockCodes)으로 직접 전달하거나,
-   * 커스텀 조건식 메뉴를 통해 종목을 선택하세요.
+   * stockCodes를 전달하면 그 종목을 분석하고,
+   * 없으면 에이전트로 뒷차기2(seq=30) 조건검색을 실행해 종목을 자동으로 가져옵니다.
    */
   app.post("/api/auto-trading/backattack-scan", isAuthenticated, async (req, res) => {
     try {
       const user = getCurrentUser(req);
       if (!user) return res.status(401).json({ error: "인증이 필요합니다" });
 
-      // 키움 REST API는 HTS 조건검색 미지원 — 종목 목록을 body로 직접 받음
-      const { stockCodes } = req.body as { stockCodes?: string[] };
+      let { stockCodes, conditionSeq } = req.body as { stockCodes?: string[]; conditionSeq?: string };
+      let conditionName = "뒷차기2";
+
+      // stockCodes가 없으면 에이전트로 조건검색 실행 (기본: 뒷차기2 seq=30)
       if (!stockCodes || stockCodes.length === 0) {
-        return res.status(400).json({
-          error: "키움 REST API는 HTS 조건검색을 지원하지 않습니다.",
-          guide: "요청 본문에 { stockCodes: ['005930', '000660', ...] } 형태로 종목 코드를 전달하세요.",
-          alternative: "커스텀 조건식 메뉴(조건검색)에서 직접 종목을 추가한 뒤 스캔할 수 있습니다.",
-        });
+        const seq = conditionSeq || "30";
+        console.log(`[backattack-scan] stockCodes 없음 → 에이전트 condition.run(seq=${seq}) 실행`);
+        try {
+          const conditionResult = await callViaAgent(user.id, "condition.run", { seq }, 30000);
+          if (Array.isArray(conditionResult) && conditionResult.length > 0) {
+            stockCodes = conditionResult
+              .map((item: any) => item.stock_code || item.stck_cd)
+              .filter(Boolean);
+            console.log(`[backattack-scan] 조건검색 결과: ${stockCodes.length}개 종목`);
+          } else {
+            return res.json({
+              message: `${conditionName} 조건에 현재 매칭된 종목이 없습니다.`,
+              conditionName, totalMatches: 0, processedCount: 0,
+              recommendationCount: 0, recommendations: [],
+            });
+          }
+        } catch (agentErr: any) {
+          if (agentErr instanceof AgentTimeoutError) {
+            return res.status(503).json({ error: `에이전트 응답 없음: ${agentErr.message}` });
+          }
+          return res.status(500).json({ error: `조건검색 실패: ${agentErr.message}` });
+        }
       }
 
       const userSettings = await storage.getUserSettings(user.id);
