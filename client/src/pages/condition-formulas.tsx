@@ -47,7 +47,10 @@ export default function ConditionFormulasPage() {
 
   const loadHTSMutation = useMutation({
     mutationFn: async () => (await apiRequest("GET", "/api/conditions/hts-list")).json(),
-    onSuccess: () => toast({ title: "HTS 조건식 불러오기 완료" }),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/conditions"] });
+      toast({ title: "HTS 조건식 불러오기 완료", description: `${data.imported}개 조건식을 가져왔습니다.` });
+    },
     onError: (e: any) => toast({ variant: "destructive", title: "불러오기 실패", description: e.message }),
   });
 
