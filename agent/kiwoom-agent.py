@@ -817,9 +817,22 @@ _current_url_index = 0
 _job_source_url = {}  # job_id → url 매핑 (결과 전송 시 같은 서버로 보내기)
 
 
+# 글로벌 rate-limit 해제 시각 (에포크 초)
+_rate_limited_until: float = 0.0
+
+
 def fetch_next_job():
     """REPLIT_URLS 목록을 순서대로 폴링하여 job 반환"""
-    global _current_url_index
+    global _current_url_index, _rate_limited_until
+
+    # 서버가 429를 반환한 경우 해제 시각까지 대기
+    now = time.time()
+    if _rate_limited_until > now:
+        wait = _rate_limited_until - now
+        logger.warning(f"Rate Limit 대기 중 — {wait:.0f}초 남음")
+        time.sleep(min(wait, 60))
+        return None
+
     for i in range(len(REPLIT_URLS)):
         idx = (_current_url_index + i) % len(REPLIT_URLS)
         base_url = REPLIT_URLS[idx]
@@ -834,6 +847,18 @@ def fetch_next_job():
                 },
                 timeout=10
             )
+
+            # 429 Too Many Requests — Retry-After 헤더 또는 기본 60초 대기
+            if resp.status_code == 429:
+                retry_after = int(resp.headers.get("Retry-After", "60"))
+                retry_after = max(retry_after, 30)  # 최소 30초
+                _rate_limited_until = time.time() + retry_after
+                logger.warning(
+                    f"서버 #{idx+1} Rate Limit (429) — {retry_after}초 후 재시도 "
+                    f"(AGENT_KEY가 올바른지, 서버가 에이전트 KEY를 인식하는지 확인하세요)"
+                )
+                return None
+
             resp.raise_for_status()
             job = resp.json().get("job")
             if job:

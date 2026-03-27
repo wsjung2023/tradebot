@@ -52,11 +52,18 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false,
 }));
 
+const AGENT_KEY_ENV = process.env.AGENT_KEY || "";
+
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 200,
   standardHeaders: true,
   legacyHeaders: false,
+  // 에이전트 KEY가 있는 요청은 rate limit 제외 (폴링이 잦아서 금방 한도 초과됨)
+  skip: (req) => {
+    const key = (req.query.agent_key as string) || (req.headers["x-agent-key"] as string) || "";
+    return !!(AGENT_KEY_ENV && key === AGENT_KEY_ENV);
+  },
 });
 
 const authLimiter = rateLimit({
