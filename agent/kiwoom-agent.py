@@ -705,6 +705,19 @@ def handle_ping(_payload):
     }
 
 
+def handle_token_refresh(payload):
+    """토큰 강제 재발급 — _tokens 캐시 초기화 후 재발급"""
+    account_type = payload.get("accountType", "real")
+    is_mock = account_type == "mock"
+    key = "mock" if is_mock else "real"
+    _tokens[key] = None
+    _token_expires[key] = 0
+    ok = refresh_kiwoom_token(is_mock=is_mock)
+    new_token = _tokens[key]
+    logger.info(f"[token.refresh] 강제 갱신 완료 ({'모의' if is_mock else '실계좌'}): success={ok} hasToken={bool(new_token)}")
+    return {"success": ok, "hasToken": bool(new_token), "accountType": account_type}
+
+
 def handle_token_test(payload):
     """실계좌/모의 토큰 발급 테스트 — 키움 /oauth2/token 직접 호출"""
     account_type = payload.get("accountType", "real")
@@ -951,6 +964,7 @@ JOB_HANDLERS = {
     "financials.get": handle_financials_get,
     "ping": handle_ping,
     "token.test": handle_token_test,
+    "token.refresh": handle_token_refresh,
     "condition.list": handle_condition_list,
     "condition.run": handle_condition_run,
 }

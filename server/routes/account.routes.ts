@@ -125,10 +125,26 @@ export function registerAccountRoutes(app: Router) {
       const account = await getAuthorizedAccount(user!.id, accountId);
       if (!account) return res.status(404).json({ error: "Account not found" });
 
-      const result = await callViaAgent(user!.id, "balance.get", {
+      const balancePayload = {
         accountNumber: account.accountNumber,
         accountType: account.accountType || "real",
-      });
+      };
+      let result: any;
+      try {
+        result = await callViaAgent(user!.id, "balance.get", balancePayload, 15000);
+      } catch (firstErr: any) {
+        const msg = String(firstErr?.message ?? "");
+        // 빈 응답(JSONDecodeError) 또는 토큰 오류 → 토큰 강제 갱신 후 재시도
+        if (msg.includes("Expecting value") || msg.includes("빈 응답") || msg.includes("token") || msg.includes("401")) {
+          console.warn("[fetch-balance] 첫 시도 실패 → 토큰 갱신 후 재시도:", msg);
+          try {
+            await callViaAgent(user!.id, "token.refresh", { accountType: balancePayload.accountType }, 8000);
+          } catch (_) { /* 갱신 실패 무시 */ }
+          result = await callViaAgent(user!.id, "balance.get", balancePayload, 15000);
+        } else {
+          throw firstErr;
+        }
+      }
 
       // ────────────────────────────────────────────────────────────────────
       // ⚠️  잔고 파싱 로직 — 변경 금지 (재발 방지 2025)
