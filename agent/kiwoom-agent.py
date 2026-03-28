@@ -112,12 +112,15 @@ def refresh_kiwoom_token(is_mock=False):
     app_key = KIWOOM_APP_KEY_MOCK if is_mock else KIWOOM_APP_KEY_REAL
     app_secret = KIWOOM_APP_SECRET_MOCK if is_mock else KIWOOM_APP_SECRET_REAL
     mode = "모의" if is_mock else "실계좌"
+    if not app_key or not app_secret:
+        logger.warning(f"[토큰갱신] {mode} 앱키 없음 — 스킵")
+        return False
     try:
         url = f"{base_url}/oauth2/token"
         payload = {
             "grant_type": "client_credentials",
             "appkey": app_key,
-            "appsecretkey": app_secret,
+            "secretkey": app_secret,
         }
         logger.debug(f"[토큰갱신] {mode} 요청: url={url} appKey={app_key[:8] if app_key else '없음'}...")
         resp = requests.post(
@@ -799,7 +802,7 @@ def handle_token_test(payload):
     req_body = {
         "grant_type": "client_credentials",
         "appkey": app_key,
-        "appsecretkey": app_secret,
+        "secretkey": app_secret,
     }
     resp = None
     try:
@@ -855,7 +858,7 @@ def handle_system_status(_payload):
     try:
         resp = requests.post(
             check_url,
-            json={"grant_type": "client_credentials", "appkey": "probe", "appsecretkey": "probe"},
+            json={"grant_type": "client_credentials", "appkey": "probe", "secretkey": "probe"},
             headers={"Content-Type": "application/json;charset=UTF-8"},
             timeout=8,
             allow_redirects=False,

@@ -433,7 +433,7 @@ export function registerKiwoomAgentRoutes(app: Express): void {
       const tokenResp = await fetch("https://api.kiwoom.com/oauth2/token", {
         method: "POST",
         headers: { "Content-Type": "application/json;charset=UTF-8" },
-        body: JSON.stringify({ grant_type: "client_credentials", appkey: appKey, appsecretkey: appSecret }),
+        body: JSON.stringify({ grant_type: "client_credentials", appkey: appKey, secretkey: appSecret }),
       });
       const tokenData = await tokenResp.json() as any;
       const token = tokenData.token || tokenData.access_token || "";
