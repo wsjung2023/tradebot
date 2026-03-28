@@ -32,7 +32,34 @@ function sanitizeJob(job: KiwoomJob) {
   return safe;
 }
 
+// 에이전트 로그 인메모리 버퍼 (최근 200개)
+const AGENT_LOG_BUFFER: Array<{ts: number; level: string; message: string; logger?: string}> = [];
+const AGENT_LOG_MAX = 200;
+
+function pushAgentLog(entry: {ts: number; level: string; message: string; logger?: string}) {
+  AGENT_LOG_BUFFER.push(entry);
+  if (AGENT_LOG_BUFFER.length > AGENT_LOG_MAX) AGENT_LOG_BUFFER.shift();
+  // 서버 콘솔에도 출력
+  const tag = entry.level === "ERROR" ? "🔴" : entry.level === "WARNING" ? "🟡" : "⚪";
+  console.log(`${tag}[AGENT-LOG] ${entry.message}`);
+}
+
 export function registerKiwoomAgentRoutes(app: Express): void {
+
+  // ──────────────────────────────────────────────
+  // 에이전트 로그 수신 (에이전트 → 서버)
+  // ──────────────────────────────────────────────
+  app.post("/api/kiwoom-agent/logs", (req: Request, res: Response) => {
+    if (!requireAgentKey(req, res)) return;
+    const { level = "INFO", message = "", logger: loggerName, ts } = req.body || {};
+    pushAgentLog({ ts: ts || Date.now() / 1000, level: String(level).toUpperCase(), message: String(message), logger: loggerName });
+    res.json({ ok: true });
+  });
+
+  // 에이전트 로그 조회 (서버 관리자/사용자용)
+  app.get("/api/kiwoom-agent/agent-logs", isAuthenticated, (_req: Request, res: Response) => {
+    res.json({ logs: [...AGENT_LOG_BUFFER].reverse() });
+  });
 
   // 에이전트 스크립트 다운로드 — 공개 엔드포인트 (인증 불필요)
   // curl -o kiwoom-agent.py https://.../api/kiwoom-agent/script

@@ -68,6 +68,30 @@ logging.basicConfig(
 )
 logger = logging.getLogger("kiwoom-agent")
 
+
+class ServerLogHandler(logging.Handler):
+    """WARNING 이상 로그를 서버로 실시간 전송"""
+    def __init__(self, server_url: str, agent_key: str):
+        super().__init__(logging.WARNING)
+        self.server_url = server_url.rstrip("/")
+        self.agent_key = agent_key
+
+    def emit(self, record: logging.LogRecord):
+        try:
+            requests.post(
+                f"{self.server_url}/api/kiwoom-agent/logs",
+                json={
+                    "level": record.levelname,
+                    "message": self.format(record),
+                    "logger": record.name,
+                    "ts": record.created,
+                },
+                headers={"x-agent-key": self.agent_key},
+                timeout=2,
+            )
+        except Exception:
+            pass  # 로그 전송 실패는 무시 (무한루프 방지)
+
 KIWOOM_REAL_BASE = "https://api.kiwoom.com"
 KIWOOM_MOCK_BASE = "https://mockapi.kiwoom.com"
 
@@ -118,7 +142,11 @@ def get_kiwoom_token(is_mock=False):
     key = "mock" if is_mock else "real"
     if not _tokens[key] or time.time() >= _token_expires[key]:
         refresh_kiwoom_token(is_mock=is_mock)
-    return _tokens[key]
+    token = _tokens[key]
+    if not token:
+        mode = "모의" if is_mock else "실계좌"
+        raise ValueError(f"키움 {mode} 토큰 없음 — 발급 실패. 앱키/시크릿 확인 필요")
+    return token
 
 
 def kiwoom_post(path, api_id, body=None, is_mock=None, _retry=True):
@@ -1155,6 +1183,16 @@ def validate_config():
 
 
 def main():
+    # 서버 로그 전송 핸들러 등록 (WARNING 이상만 전송)
+    agent_key = os.getenv("AGENT_KEY", "")
+    if REPLIT_URL and agent_key:
+        _server_log_handler = ServerLogHandler(REPLIT_URL, agent_key)
+        _server_log_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+        logging.getLogger().addHandler(_server_log_handler)
+        logger.info("[ServerLogHandler] 서버 로그 전송 활성화")
+    else:
+        logger.warning("[ServerLogHandler] REPLIT_URL 또는 AGENT_KEY 없음 → 서버 로그 전송 비활성")
+
     logger.info("=" * 55)
     logger.info("키움 에이전트 시작")
     for i, url in enumerate(REPLIT_URLS):
