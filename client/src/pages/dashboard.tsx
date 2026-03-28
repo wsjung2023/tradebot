@@ -74,8 +74,10 @@ export default function Dashboard() {
     cached?: boolean;
   }>({
     queryKey: ['/api/kiwoom-agent/system-status'],
-    refetchInterval: 10 * 60 * 1000,
-    staleTime: 5 * 60 * 1000,
+    staleTime: Infinity,
+    refetchInterval: false,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
     retry: false,
   });
 

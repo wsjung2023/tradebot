@@ -35,9 +35,11 @@ function sanitizeJob(job: KiwoomJob) {
 // 에이전트 로그 인메모리 버퍼 (최근 200개)
 const AGENT_LOG_BUFFER: Array<{ts: number; level: string; message: string; logger?: string}> = [];
 
-// 키움 시스템 점검 상태 캐시 (5분 TTL)
+// 키움 시스템 점검 상태 캐시
 let _sysStatusCache: { status: string; message: string; httpStatus?: number; location?: string | null; checkedAt: number } | null = null;
-const SYS_STATUS_TTL_MS = 5 * 60 * 1000;
+const SYS_STATUS_TTL_MS = 10 * 60 * 1000;   // 정상/점검 결과: 10분
+const SYS_STATUS_FAIL_TTL_MS = 2 * 60 * 1000; // 타임아웃/오류 결과: 2분
+let _sysStatusPending = false;               // 진행 중 중복 요청 방지
 const AGENT_LOG_MAX = 200;
 
 function pushAgentLog(entry: {ts: number; level: string; message: string; logger?: string}) {
@@ -361,36 +363,52 @@ export function registerKiwoomAgentRoutes(app: Express): void {
   app.get("/api/kiwoom-agent/system-status", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const now = Date.now();
-      // 캐시 유효하면 즉시 반환 (5분 TTL)
-      if (_sysStatusCache && (now - _sysStatusCache.checkedAt * 1000) < SYS_STATUS_TTL_MS) {
-        return res.json({ ..._sysStatusCache, cached: true });
+      // 캐시 유효하면 즉시 반환
+      if (_sysStatusCache) {
+        const ttl = (_sysStatusCache.status === "ok" || _sysStatusCache.status === "maintenance")
+          ? SYS_STATUS_TTL_MS : SYS_STATUS_FAIL_TTL_MS;
+        if (now - _sysStatusCache.checkedAt * 1000 < ttl) {
+          return res.json({ ..._sysStatusCache, cached: true });
+        }
+      }
+      // 이미 진행 중인 요청이 있으면 현재 캐시(만료됐어도) 반환
+      if (_sysStatusPending) {
+        const fallback = _sysStatusCache || { status: "unknown", message: "상태 확인 중...", checkedAt: now / 1000 };
+        return res.json({ ...fallback, cached: true, pending: true });
       }
       const userId = getAuthUserId(req);
       if (!userId) return res.status(401).json({ error: "로그인 필요" });
-      const job = await storage.createKiwoomJob({
-        userId,
-        jobType: "system.status",
-        payload: {},
-        status: "pending",
-        result: null,
-        errorMessage: null,
-        agentId: null,
-      });
-      const start = Date.now();
-      while (Date.now() - start < 15000) {
-        await new Promise((r) => setTimeout(r, 600));
-        const updated = await storage.getKiwoomJob(job.id);
-        if (!updated) break;
-        if (updated.status === "done" && updated.result) {
-          const r = updated.result as any;
-          _sysStatusCache = { ...r, checkedAt: r.checkedAt || Date.now() / 1000 };
-          return res.json({ ...r, cached: false });
+      _sysStatusPending = true;
+      try {
+        const job = await storage.createKiwoomJob({
+          userId,
+          jobType: "system.status",
+          payload: {},
+          status: "pending",
+          result: null,
+          errorMessage: null,
+          agentId: null,
+        });
+        const start = Date.now();
+        while (Date.now() - start < 15000) {
+          await new Promise((r) => setTimeout(r, 600));
+          const updated = await storage.getKiwoomJob(job.id);
+          if (!updated) break;
+          if (updated.status === "done" && updated.result) {
+            const r = updated.result as any;
+            _sysStatusCache = { ...r, checkedAt: r.checkedAt || Date.now() / 1000 };
+            return res.json({ ...r, cached: false });
+          }
+          if (updated.status === "error") {
+            _sysStatusCache = { status: "unknown", message: updated.errorMessage || "에이전트 오류", checkedAt: Date.now() / 1000 };
+            return res.json({ ..._sysStatusCache, cached: false });
+          }
         }
-        if (updated.status === "error") {
-          return res.json({ status: "unknown", message: updated.errorMessage || "에이전트 오류", cached: false });
-        }
+        _sysStatusCache = { status: "unknown", message: "에이전트 타임아웃 — 에이전트가 실행 중인지 확인하세요", checkedAt: Date.now() / 1000 };
+        return res.json({ ..._sysStatusCache, cached: false });
+      } finally {
+        _sysStatusPending = false;
       }
-      return res.json({ status: "unknown", message: "에이전트 타임아웃 — 에이전트가 실행 중인지 확인하세요", cached: false });
     } catch (e: any) {
       res.status(500).json({ status: "unknown", message: e.message });
     }
