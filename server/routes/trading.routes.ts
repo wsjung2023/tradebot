@@ -190,6 +190,56 @@ export function registerTradingRoutes(app: Router) {
     }
   });
 
+  // 종목 상세정보 조회 (기본정보 + 재무비율 통합)
+  // GET /api/stocks/:stockCode/details
+  app.get("/api/stocks/:stockCode/details", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const stockCode = req.params.stockCode;
+
+      const [infoResult, financialsResult] = await Promise.allSettled([
+        userKiwoomService.getStockInfo(user!.id, stockCode),
+        userKiwoomService.getFinancials(user!.id, stockCode),
+      ]);
+
+      const info = infoResult.status === "fulfilled" ? infoResult.value : null;
+      const financials = financialsResult.status === "fulfilled" ? financialsResult.value : null;
+
+      // 재무 데이터 정규화 — 에이전트·레거시 모두 대응
+      const fin = financials?.output?.[0] || financials?.[0] || financials || {};
+      const rawInfo = (info as any)?.raw || info || {};
+
+      const details = {
+        stockCode,
+        name: (info as any)?.name || (info as any)?.stk_nm || (rawInfo as any)?.stk_nm || stockCode,
+        marketName: (info as any)?.marketName || (rawInfo as any)?.mrkt_cls_nm || "",
+        currentPrice: (info as any)?.currentPrice || (rawInfo as any)?.cur_prc || 0,
+        // 재무비율
+        per:    String((rawInfo as any)?.per   || (rawInfo as any)?.PER   || fin?.per   || "-"),
+        pbr:    String((rawInfo as any)?.pbr   || (rawInfo as any)?.PBR   || fin?.pbr   || "-"),
+        roe:    String((rawInfo as any)?.roe   || (rawInfo as any)?.ROE   || fin?.roe   || "-"),
+        eps:    String((rawInfo as any)?.eps   || (rawInfo as any)?.EPS   || fin?.eps   || "-"),
+        bps:    String((rawInfo as any)?.bps   || (rawInfo as any)?.BPS   || fin?.bps   || "-"),
+        debtRatio:    String((rawInfo as any)?.debt_ratio    || "-"),
+        reserveRatio: String((rawInfo as any)?.reserve_ratio || "-"),
+        // 재무제표 스냅샷 (최신 단일 데이터 — Kiwoom REST API 한계)
+        revenue:       String(fin?.sale_account || fin?.sale_acnt || "-"),
+        operatingProfit: String(fin?.bsop_prti  || fin?.oprt_prft || "-"),
+        netIncome:     String(fin?.ntin         || fin?.net_incm  || "-"),
+        totalAssets:   String(fin?.total_aset   || fin?.tot_aset  || "-"),
+        totalDebt:     String(fin?.total_lblt   || fin?.tot_lblt  || "-"),
+        capital:       String(fin?.cpfn         || fin?.cap       || "-"),
+        // 원본 응답 (디버깅용)
+        _raw: process.env.NODE_ENV !== "production" ? { info, financials } : undefined,
+      };
+
+      res.json(details);
+    } catch (error: any) {
+      if (error instanceof AgentTimeoutError) return res.status(503).json({ error: error.message });
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // 차트 시그널 오버레이 조회 (조건검색 결과 기반)
   app.get("/api/stocks/:stockCode/chart-signals", isAuthenticated, async (req, res) => {
     try {

@@ -1,20 +1,29 @@
 import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Loader2, TrendingUp, AlertCircle, CheckCircle2, XCircle, Brain, Target } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Loader2, TrendingUp, AlertCircle, CheckCircle2, Star,
+  Building2, BarChart3, ArrowUpRight, ArrowDownRight, Minus,
+} from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { RainbowChart } from "@/components/rainbow-chart";
+import { RainbowChart, getRecommendationBadge } from "@/components/rainbow-chart";
 
-interface BackAttackRecommendation {
+// ─── 타입 정의 ─────────────────────────────────────────────────────────────
+
+interface ScannedStock {
   stockCode: string;
   stockName: string;
   currentPrice: number;
+  changeRate: number;
+  isRecommended: boolean;
   currentPosition: number;
   clWidth: number;
+  CL: number;
   recommendation: string;
   signals: {
     nearCL: boolean;
@@ -24,32 +33,14 @@ interface BackAttackRecommendation {
   };
   rainbowAnalysis: {
     current: number;
-    cl: number;
-    high240: number;
-    low240: number;
+    CL: number;
     clWidth: number;
     currentPosition: number;
-    lines: Array<{ label: string; value: number; color: string }>;
+    recommendation: string;
+    lines: any[];
     chartData: any[];
     signals: any;
-    recommendation: string;
   };
-  aiAnalysis?: {
-    action: 'buy' | 'sell' | 'hold';
-    confidence: number;
-    targetPrice?: number;
-    reasoning: string;
-    keyIndicators: string[];
-  } | null;
-  priority: 'high' | 'medium';
-}
-
-interface FilteredStock {
-  stockCode: string;
-  stockName: string;
-  currentPosition: number;
-  clWidth: number;
-  filterReason: string;
 }
 
 interface ScanResult {
@@ -58,17 +49,104 @@ interface ScanResult {
   totalMatches: number;
   processedCount: number;
   recommendationCount: number;
-  errorCount?: number;
-  recommendations: BackAttackRecommendation[];
-  filtered?: FilteredStock[];
+  errorCount: number;
+  stocks: ScannedStock[];
   errors?: Array<{ stockCode: string; stockName: string; error: string }>;
 }
+
+interface StockDetails {
+  stockCode: string;
+  name: string;
+  marketName: string;
+  currentPrice: number;
+  per: string;
+  pbr: string;
+  roe: string;
+  eps: string;
+  bps: string;
+  debtRatio: string;
+  reserveRatio: string;
+  revenue: string;
+  operatingProfit: string;
+  netIncome: string;
+  totalAssets: string;
+  totalDebt: string;
+  capital: string;
+}
+
+// ─── 유틸 함수 ─────────────────────────────────────────────────────────────
+
+function formatKRW(value: number) {
+  if (!value) return '-';
+  return `₩${value.toLocaleString('ko-KR')}`;
+}
+
+function formatFinancialValue(raw: string): string {
+  if (!raw || raw === '-' || raw === '0') return '-';
+  const n = Number(raw);
+  if (isNaN(n) || n === 0) return '-';
+  const abs = Math.abs(n);
+  const sign = n < 0 ? '-' : '';
+  if (abs >= 1_000_000_000_000) return `${sign}${(abs / 1_000_000_000_000).toFixed(1)}조`;
+  if (abs >= 100_000_000) return `${sign}${(abs / 100_000_000).toFixed(0)}억`;
+  if (abs >= 10_000) return `${sign}${(abs / 10_000).toFixed(0)}만`;
+  return `${sign}${abs.toLocaleString('ko-KR')}`;
+}
+
+function formatRatio(raw: string): string {
+  if (!raw || raw === '-' || raw === '0') return '-';
+  const n = Number(raw);
+  if (isNaN(n)) return raw;
+  return n.toFixed(2);
+}
+
+function ChangeRateBadge({ rate }: { rate: number }) {
+  if (rate > 0) return (
+    <span className="flex items-center gap-0.5 text-green-600 text-sm font-medium">
+      <ArrowUpRight className="w-3.5 h-3.5" />
+      +{rate.toFixed(2)}%
+    </span>
+  );
+  if (rate < 0) return (
+    <span className="flex items-center gap-0.5 text-red-500 text-sm font-medium">
+      <ArrowDownRight className="w-3.5 h-3.5" />
+      {rate.toFixed(2)}%
+    </span>
+  );
+  return (
+    <span className="flex items-center gap-0.5 text-muted-foreground text-sm">
+      <Minus className="w-3.5 h-3.5" />
+      0.00%
+    </span>
+  );
+}
+
+function CLPositionBar({ position }: { position: number }) {
+  const clipped = Math.max(0, Math.min(100, position));
+  const color = position >= 40 && position <= 60
+    ? 'bg-green-500'
+    : position > 60 ? 'bg-blue-500' : 'bg-orange-500';
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+        <div
+          className={`h-full rounded-full ${color}`}
+          style={{ width: `${clipped}%` }}
+        />
+      </div>
+      <span className="text-xs font-mono w-12 text-right">{position.toFixed(1)}%</span>
+    </div>
+  );
+}
+
+// ─── 메인 컴포넌트 ──────────────────────────────────────────────────────────
 
 export default function BackAttackScan() {
   const { toast } = useToast();
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
-  const [selectedStock, setSelectedStock] = useState<BackAttackRecommendation | null>(null);
+  const [selectedStock, setSelectedStock] = useState<ScannedStock | null>(null);
 
+  // 조건검색 스캔 뮤테이션
   const scanMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest('POST', '/api/auto-trading/backattack-scan', {});
@@ -76,27 +154,30 @@ export default function BackAttackScan() {
     },
     onSuccess: (data: ScanResult) => {
       setScanResult(data);
-      if (data.recommendations.length > 0) {
-        setSelectedStock(data.recommendations[0]);
-        toast({
-          title: "스캔 완료",
-          description: `${data.recommendationCount}개의 추천 종목을 발견했습니다.`,
-        });
-      } else {
-        toast({
-          title: "스캔 완료",
-          description: "조건에 맞는 종목이 없습니다.",
-          variant: "default",
-        });
-      }
-    },
-    onError: (error: any) => {
+      setSelectedStock(data.stocks?.[0] ?? null);
+      const count = data.stocks?.length ?? 0;
+      const recommended = data.recommendationCount ?? 0;
       toast({
-        variant: "destructive",
-        title: "스캔 실패",
-        description: error.message,
+        title: "스캔 완료",
+        description: `${count}개 종목 분석 완료${recommended > 0 ? ` (추천 ${recommended}개)` : ''}`,
       });
     },
+    onError: (error: any) => {
+      toast({ variant: "destructive", title: "스캔 실패", description: error.message });
+    },
+  });
+
+  // 선택된 종목의 상세 정보 (PER, PBR, ROE 등) — 클릭 시 지연 로딩
+  const detailsQuery = useQuery<StockDetails>({
+    queryKey: ['/api/stocks', selectedStock?.stockCode, 'details'],
+    queryFn: async () => {
+      const res = await fetch(`/api/stocks/${selectedStock!.stockCode}/details`, { credentials: 'include' });
+      if (!res.ok) throw new Error('상세정보 조회 실패');
+      return res.json();
+    },
+    enabled: !!selectedStock,
+    staleTime: 5 * 60 * 1000,
+    retry: false,
   });
 
   const handleScan = () => {
@@ -105,336 +186,347 @@ export default function BackAttackScan() {
     scanMutation.mutate();
   };
 
-  const getPriorityBadge = (priority: 'high' | 'medium') => {
-    return priority === 'high' 
-      ? <Badge variant="default" data-testid={`badge-priority-high`}>높은 우선순위</Badge>
-      : <Badge variant="secondary" data-testid={`badge-priority-medium`}>중간 우선순위</Badge>;
-  };
-
   return (
-    <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold" data-testid="text-backattack-title">뒷차기2 자동 스캔</h1>
-        <p className="text-muted-foreground">HTS 조건검색 자동 실행 + 레인보우 차트 분석</p>
-      </div>
-
-      {/* 스캔 버튼 */}
-      <Card>
-        <CardHeader>
-          <CardTitle>조건 검색</CardTitle>
-          <CardDescription>
-            키움 HTS의 "뒷차기2" 조건식을 자동으로 실행하고, 각 종목에 레인보우 차트 분석을 적용합니다.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button 
+    <div className="flex flex-col h-full overflow-hidden">
+      {/* 헤더 */}
+      <div className="p-6 border-b flex-shrink-0">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold" data-testid="text-backattack-title">뒷차기2 스캔</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              HTS 조건검색 자동 실행 → 레인보우 차트 분석 + 기업 정보
+            </p>
+          </div>
+          <Button
             onClick={handleScan}
             disabled={scanMutation.isPending}
-            size="lg"
             data-testid="button-scan"
           >
             {scanMutation.isPending ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                스캔 중...
-              </>
+              <><Loader2 className="mr-2 h-4 w-4 animate-spin" />스캔 중...</>
             ) : (
-              <>
-                <TrendingUp className="mr-2 h-4 w-4" />
-                뒷차기2 스캔 시작
-              </>
+              <><TrendingUp className="mr-2 h-4 w-4" />뒷차기2 스캔 시작</>
             )}
           </Button>
-          
-          {scanMutation.isPending && (
-            <p className="text-sm text-muted-foreground mt-2">
-              HTS에서 조건을 실행하고, 종목별로 레인보우 차트를 분석하는 중입니다. 
-              잠시만 기다려주세요...
-            </p>
-          )}
-        </CardContent>
-      </Card>
+        </div>
 
-      {/* 스캔 결과 요약 */}
-      {scanResult && (
-        <Card>
-          <CardHeader>
-            <CardTitle>스캔 결과</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div>
-                <p className="text-sm text-muted-foreground">조건식 매칭</p>
-                <p className="text-2xl font-bold" data-testid="text-total-matches">{scanResult.totalMatches}</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">처리 완료</p>
-                <p className="text-2xl font-bold" data-testid="text-processed-count">{scanResult.processedCount}</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">추천 종목</p>
-                <p className="text-2xl font-bold text-primary" data-testid="text-recommendation-count">{scanResult.recommendationCount}</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">에러</p>
-                <p className="text-2xl font-bold" data-testid="text-error-count">{scanResult.errorCount || 0}</p>
-              </div>
+        {/* 스캔 통계 */}
+        {scanResult && (
+          <div className="flex flex-wrap gap-4 mt-4">
+            <div className="text-sm">
+              <span className="text-muted-foreground">조건식 매칭 </span>
+              <span className="font-semibold" data-testid="text-total-matches">{scanResult.totalMatches}개</span>
             </div>
-
-            {scanResult.errorCount && scanResult.errorCount > 0 && scanResult.errors && (
-              <Alert variant="destructive">
-                <AlertCircle className="h-4 w-4" />
-                <AlertTitle>일부 종목 분석 실패</AlertTitle>
-                <AlertDescription>
-                  {scanResult.errorCount}개 종목 분석 중 오류가 발생했습니다.
-                  <details className="mt-2">
-                    <summary className="cursor-pointer text-sm">오류 상세보기</summary>
-                    <ul className="mt-2 space-y-1 text-xs">
-                      {scanResult.errors.map((err, idx) => (
-                        <li key={idx}>
-                          {err.stockName} ({err.stockCode}): {err.error}
-                        </li>
-                      ))}
-                    </ul>
-                  </details>
-                </AlertDescription>
-              </Alert>
+            <div className="text-sm">
+              <span className="text-muted-foreground">분석 완료 </span>
+              <span className="font-semibold" data-testid="text-processed-count">{scanResult.processedCount}개</span>
+            </div>
+            <div className="text-sm">
+              <span className="text-muted-foreground">추천 종목 </span>
+              <span className="font-semibold text-green-600" data-testid="text-recommendation-count">
+                {scanResult.recommendationCount}개
+              </span>
+            </div>
+            {(scanResult.errorCount ?? 0) > 0 && (
+              <div className="text-sm">
+                <span className="text-muted-foreground">에러 </span>
+                <span className="font-semibold text-destructive">{scanResult.errorCount}개</span>
+              </div>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        )}
+      </div>
+
+      {/* 대기 화면 */}
+      {!scanResult && !scanMutation.isPending && (
+        <div className="flex-1 flex items-center justify-center p-6">
+          <div className="max-w-md text-center space-y-4">
+            <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mx-auto">
+              <TrendingUp className="w-6 h-6 text-muted-foreground" />
+            </div>
+            <div>
+              <p className="font-semibold">뒷차기2 조건 검색 준비 완료</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                HTS 조건식으로 종목을 스캔하고, 각 종목의 레인보우 차트와 기업정보를 분석합니다.
+              </p>
+            </div>
+            <div className="text-left bg-muted/50 rounded-md p-4 text-sm space-y-1">
+              <p className="font-medium text-xs text-muted-foreground mb-2">조건식 기준</p>
+              <p>• 코스피 60일내 29.5% 상승 OR 코스닥 20% 상승</p>
+              <p>• 240일 신고가 달성</p>
+              <p>• 거래대금 2억원 이상</p>
+              <p>• CL(50% 라인) 근처 ±3%</p>
+            </div>
+            <Button onClick={handleScan} size="lg">
+              <TrendingUp className="mr-2 h-4 w-4" />
+              스캔 시작
+            </Button>
+          </div>
+        </div>
       )}
 
-      {/* 필터 미통과 종목 */}
-      {scanResult && scanResult.filtered && scanResult.filtered.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">조건식 매칭 → 레인보우 필터 미통과 종목</CardTitle>
-            <CardDescription>
-              HTS 조건식은 통과했지만 CL위치(40~60%) + CL폭(10%↑) 기준에서 제외된 종목입니다.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {scanResult.filtered.map((item) => (
-                <div key={item.stockCode} className="flex items-center justify-between py-2 border-b last:border-0" data-testid={`row-filtered-${item.stockCode}`}>
-                  <div>
-                    <span className="font-medium" data-testid={`text-filtered-name-${item.stockCode}`}>{item.stockName}</span>
-                    <span className="text-sm text-muted-foreground ml-2">{item.stockCode}</span>
+      {/* 스캔 중 */}
+      {scanMutation.isPending && (
+        <div className="flex-1 flex items-center justify-center p-6">
+          <div className="text-center space-y-3">
+            <Loader2 className="w-10 h-10 animate-spin mx-auto text-primary" />
+            <p className="font-medium">HTS에서 조건식 실행 중...</p>
+            <p className="text-sm text-muted-foreground">
+              에이전트가 조건식을 실행하고 각 종목의 레인보우 차트를 분석합니다.<br />
+              종목 수에 따라 20~40초 소요됩니다.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* 결과 없음 */}
+      {scanResult && (scanResult.stocks?.length ?? 0) === 0 && (
+        <div className="flex-1 flex items-center justify-center p-6">
+          <Alert className="max-w-md">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>매칭 종목 없음</AlertTitle>
+            <AlertDescription>
+              현재 뒷차기2 조건에 매칭되는 종목이 없습니다.
+            </AlertDescription>
+          </Alert>
+        </div>
+      )}
+
+      {/* 결과 — 2패널 레이아웃 */}
+      {scanResult && (scanResult.stocks?.length ?? 0) > 0 && (
+        <div className="flex-1 flex overflow-hidden">
+          {/* 좌측: 종목 리스트 */}
+          <div className="w-72 border-r flex-shrink-0 overflow-y-auto">
+            <div className="p-3 border-b bg-muted/30">
+              <p className="text-xs font-medium text-muted-foreground">
+                {scanResult.stocks.length}개 종목 (추천 먼저 정렬)
+              </p>
+            </div>
+            {scanResult.stocks.map((stock) => (
+              <button
+                key={stock.stockCode}
+                className={`w-full text-left p-4 border-b hover-elevate transition-colors ${
+                  selectedStock?.stockCode === stock.stockCode
+                    ? 'bg-accent/60'
+                    : ''
+                }`}
+                onClick={() => setSelectedStock(stock)}
+                data-testid={`button-select-stock-${stock.stockCode}`}
+              >
+                <div className="flex items-start justify-between mb-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      {stock.isRecommended && (
+                        <Star className="w-3.5 h-3.5 text-yellow-500 flex-shrink-0" />
+                      )}
+                      <p className="font-semibold text-sm truncate" data-testid={`text-stock-name-${stock.stockCode}`}>
+                        {stock.stockName}
+                      </p>
+                    </div>
+                    <p className="text-xs text-muted-foreground">{stock.stockCode}</p>
                   </div>
-                  <div className="text-right text-sm text-muted-foreground" data-testid={`text-filtered-reason-${item.stockCode}`}>
-                    {item.filterReason}
+                  {getRecommendationBadge(stock.recommendation)}
+                </div>
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-sm font-medium">{formatKRW(stock.currentPrice)}</span>
+                    <ChangeRateBadge rate={stock.changeRate} />
+                  </div>
+                  <div className="space-y-0.5">
+                    <p className="text-xs text-muted-foreground">CL 위치</p>
+                    <CLPositionBar position={stock.currentPosition} />
+                  </div>
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>CL폭 {stock.clWidth.toFixed(1)}%</span>
+                    {stock.signals.inBuyZone && (
+                      <Badge variant="default" className="text-xs py-0">매수구간</Badge>
+                    )}
                   </div>
                 </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
+              </button>
+            ))}
 
-      {/* 추천 종목 없음 메시지 */}
-      {scanResult && scanResult.recommendations.length === 0 && scanResult.processedCount > 0 && (
-        <Alert>
-          <AlertCircle className="h-4 w-4" />
-          <AlertTitle>추천 종목 없음</AlertTitle>
-          <AlertDescription>
-            {scanResult.totalMatches}개 종목을 분석했지만, CL위치 40~60% + CL폭 10% 이상 조건을 동시에 만족하는 종목이 없습니다.
-          </AlertDescription>
-        </Alert>
-      )}
+            {/* 에러 종목 */}
+            {(scanResult.errors?.length ?? 0) > 0 && (
+              <div className="p-3 border-t">
+                <p className="text-xs text-muted-foreground font-medium mb-2">분석 실패</p>
+                {scanResult.errors!.map((err) => (
+                  <div key={err.stockCode} className="text-xs text-destructive py-1">
+                    {err.stockName}({err.stockCode})
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
-      {/* 추천 종목 리스트 및 상세 */}
-      {scanResult && scanResult.recommendations.length > 0 && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* 종목 리스트 */}
-          <Card className="lg:col-span-1">
-            <CardHeader>
-              <CardTitle>추천 종목 ({scanResult.recommendationCount})</CardTitle>
-              <CardDescription>우선순위 순으로 정렬됨</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-2 max-h-[600px] overflow-auto">
-              {scanResult.recommendations.map((rec, idx) => (
-                <Card 
-                  key={rec.stockCode}
-                  className={`cursor-pointer hover-elevate ${selectedStock?.stockCode === rec.stockCode ? 'ring-2 ring-primary' : ''}`}
-                  onClick={() => setSelectedStock(rec)}
-                  data-testid={`card-stock-${rec.stockCode}`}
-                >
-                  <CardContent className="p-4">
-                    <div className="flex items-start justify-between mb-2">
-                      <div>
-                        <h3 className="font-semibold" data-testid={`text-stock-name-${rec.stockCode}`}>{rec.stockName}</h3>
-                        <p className="text-sm text-muted-foreground" data-testid={`text-stock-code-${rec.stockCode}`}>{rec.stockCode}</p>
-                      </div>
-                      {getPriorityBadge(rec.priority)}
+          {/* 우측: 상세 패널 */}
+          <div className="flex-1 overflow-y-auto">
+            {!selectedStock ? (
+              <div className="flex items-center justify-center h-full text-muted-foreground">
+                <p className="text-sm">왼쪽에서 종목을 선택하세요</p>
+              </div>
+            ) : (
+              <div className="p-6 space-y-6">
+                {/* 종목 헤더 */}
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-2xl font-bold" data-testid="text-selected-stock-name">
+                        {selectedStock.stockName}
+                      </h2>
+                      {selectedStock.isRecommended && (
+                        <Badge variant="default">
+                          <Star className="w-3 h-3 mr-1" />
+                          추천
+                        </Badge>
+                      )}
                     </div>
-                    
-                    <div className="space-y-1 text-sm">
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">현재가</span>
-                        <span className="font-mono font-semibold">₩{rec.currentPrice.toLocaleString('ko-KR')}</span>
+                    <p className="text-muted-foreground text-sm" data-testid="text-selected-stock-code">
+                      {selectedStock.stockCode}
+                      {detailsQuery.data?.marketName && ` · ${detailsQuery.data.marketName}`}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-2xl font-bold font-mono">{formatKRW(selectedStock.currentPrice)}</p>
+                    <ChangeRateBadge rate={selectedStock.changeRate} />
+                  </div>
+                </div>
+
+                {/* 기업 정보 카드 */}
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Building2 className="w-4 h-4" />
+                      기업 정보 · 재무비율
+                    </CardTitle>
+                    <CardDescription className="text-xs">
+                      키움 REST API 기준 최신 스냅샷 (3년치 제공 불가 — API 한계)
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {detailsQuery.isLoading && (
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        {Array.from({ length: 8 }).map((_, i) => (
+                          <Skeleton key={i} className="h-16 w-full rounded-md" />
+                        ))}
                       </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">CL 위치</span>
-                        <span className="font-mono">{rec.currentPosition.toFixed(1)}%</span>
+                    )}
+                    {detailsQuery.isError && (
+                      <Alert variant="destructive">
+                        <AlertCircle className="h-4 w-4" />
+                        <AlertDescription>기업 정보 로드 실패 (에이전트 확인 필요)</AlertDescription>
+                      </Alert>
+                    )}
+                    {detailsQuery.data && (
+                      <div className="space-y-4">
+                        {/* 재무비율 */}
+                        <div>
+                          <p className="text-xs font-medium text-muted-foreground mb-2">밸류에이션 지표</p>
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                            {[
+                              { label: 'PER', value: formatRatio(detailsQuery.data.per), unit: '배' },
+                              { label: 'PBR', value: formatRatio(detailsQuery.data.pbr), unit: '배' },
+                              { label: 'ROE', value: formatRatio(detailsQuery.data.roe), unit: '%' },
+                              { label: 'EPS', value: detailsQuery.data.eps !== '-' ? formatKRW(Number(detailsQuery.data.eps)) : '-', unit: '' },
+                              { label: 'BPS', value: detailsQuery.data.bps !== '-' ? formatKRW(Number(detailsQuery.data.bps)) : '-', unit: '' },
+                              { label: '부채비율', value: formatRatio(detailsQuery.data.debtRatio), unit: '%' },
+                              { label: '유보율', value: formatRatio(detailsQuery.data.reserveRatio), unit: '%' },
+                            ].map(({ label, value, unit }) => (
+                              <div key={label} className="rounded-md border p-3" data-testid={`info-${label}`}>
+                                <p className="text-xs text-muted-foreground">{label}</p>
+                                <p className="text-base font-bold font-mono mt-0.5">
+                                  {value}{value !== '-' && unit ? <span className="text-xs font-normal text-muted-foreground ml-0.5">{unit}</span> : null}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* 재무제표 스냅샷 */}
+                        {(detailsQuery.data.revenue !== '-' || detailsQuery.data.operatingProfit !== '-') && (
+                          <div>
+                            <p className="text-xs font-medium text-muted-foreground mb-2">재무제표 (최신 스냅샷)</p>
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                              {[
+                                { label: '매출', value: formatFinancialValue(detailsQuery.data.revenue) },
+                                { label: '영업이익', value: formatFinancialValue(detailsQuery.data.operatingProfit) },
+                                { label: '순이익', value: formatFinancialValue(detailsQuery.data.netIncome) },
+                                { label: '총자산', value: formatFinancialValue(detailsQuery.data.totalAssets) },
+                                { label: '총부채', value: formatFinancialValue(detailsQuery.data.totalDebt) },
+                                { label: '자본금', value: formatFinancialValue(detailsQuery.data.capital) },
+                              ].map(({ label, value }) => (
+                                <div key={label} className="rounded-md border p-3" data-testid={`financial-${label}`}>
+                                  <p className="text-xs text-muted-foreground">{label}</p>
+                                  <p className="text-base font-bold font-mono mt-0.5">{value}</p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">CL 폭</span>
-                        <span className="font-mono">{rec.clWidth.toFixed(1)}%</span>
-                      </div>
-                    </div>
+                    )}
                   </CardContent>
                 </Card>
-              ))}
-            </CardContent>
-          </Card>
 
-          {/* 선택된 종목 상세 */}
-          <Card className="lg:col-span-2">
-            <CardHeader>
-              <div className="flex items-start justify-between">
-                <div>
-                  <CardTitle data-testid="text-selected-stock-name">{selectedStock?.stockName || '종목을 선택하세요'}</CardTitle>
-                  <CardDescription data-testid="text-selected-stock-code">{selectedStock?.stockCode}</CardDescription>
-                </div>
-                {selectedStock && getPriorityBadge(selectedStock.priority)}
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {selectedStock ? (
-                <>
-                  {/* 레인보우 차트 */}
-                  <div>
-                    <h3 className="text-lg font-semibold mb-4">레인보우 차트</h3>
+                {/* 레인보우 차트 */}
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <BarChart3 className="w-4 h-4" />
+                      레인보우 차트 분석
+                    </CardTitle>
+                    <CardDescription className="text-xs">
+                      BackAttack Line — CL(50%) 기준 240일 rolling window
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
                     <RainbowChart
-                      data={selectedStock.rainbowAnalysis.chartData}
+                      data={selectedStock.rainbowAnalysis.chartData || []}
                       current={selectedStock.currentPrice}
                       currentPosition={selectedStock.currentPosition}
                       clWidth={selectedStock.clWidth}
                       recommendation={selectedStock.recommendation}
                       signals={selectedStock.signals}
                       showMetrics={true}
+                      height={380}
                     />
-                  </div>
 
-                  {/* AI 분석 결과 */}
-                  {selectedStock.aiAnalysis && (
-                    <div className="border-t pt-6">
-                      <div className="flex items-center gap-2 mb-4">
-                        <Brain className="h-5 w-5 text-primary" />
-                        <h3 className="text-lg font-semibold">AI 종합 분석</h3>
-                      </div>
-                      
-                      <div className="space-y-4">
-                        {/* 추천 액션 및 신뢰도 */}
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                          <div className="p-4 bg-muted/50 rounded-lg">
-                            <p className="text-sm text-muted-foreground mb-1">추천 액션</p>
-                            <div className="flex items-center gap-2">
-                              {selectedStock.aiAnalysis.action === 'buy' && (
-                                <Badge variant="default" className="bg-green-600">
-                                  <TrendingUp className="h-3 w-3 mr-1" />
-                                  BUY
-                                </Badge>
-                              )}
-                              {selectedStock.aiAnalysis.action === 'sell' && (
-                                <Badge variant="destructive">
-                                  <XCircle className="h-3 w-3 mr-1" />
-                                  SELL
-                                </Badge>
-                              )}
-                              {selectedStock.aiAnalysis.action === 'hold' && (
-                                <Badge variant="secondary">
-                                  <CheckCircle2 className="h-3 w-3 mr-1" />
-                                  HOLD
-                                </Badge>
-                              )}
-                            </div>
-                          </div>
-                          
-                          <div className="p-4 bg-muted/50 rounded-lg">
-                            <p className="text-sm text-muted-foreground mb-1">신뢰도</p>
-                            <p className="text-2xl font-bold">{selectedStock.aiAnalysis.confidence}%</p>
-                          </div>
-                          
-                          {selectedStock.aiAnalysis.targetPrice && (
-                            <div className="p-4 bg-muted/50 rounded-lg">
-                              <p className="text-sm text-muted-foreground mb-1 flex items-center gap-1">
-                                <Target className="h-3 w-3" />
-                                목표가
-                              </p>
-                              <p className="text-xl font-bold font-mono">
-                                ₩{selectedStock.aiAnalysis.targetPrice.toLocaleString('ko-KR')}
-                              </p>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* 분석 근거 */}
-                        <div>
-                          <p className="text-sm font-semibold mb-2">분석 근거</p>
-                          <p className="text-sm text-muted-foreground leading-relaxed">
-                            {selectedStock.aiAnalysis.reasoning}
-                          </p>
-                        </div>
-
-                        {/* 주요 지표 */}
-                        <div>
-                          <p className="text-sm font-semibold mb-2">주요 지표</p>
-                          <ul className="space-y-1">
-                            {selectedStock.aiAnalysis.keyIndicators.map((indicator, idx) => (
-                              <li key={idx} className="text-sm text-muted-foreground flex items-start gap-2">
-                                <CheckCircle2 className="h-4 w-4 text-primary mt-0.5 flex-shrink-0" />
-                                <span>{indicator}</span>
-                              </li>
+                    {/* 11개 라인 가격표 */}
+                    {selectedStock.rainbowAnalysis.lines?.length > 0 && (
+                      <div className="mt-4">
+                        <p className="text-xs font-medium text-muted-foreground mb-2">레인보우 라인 가격</p>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                          {[...selectedStock.rainbowAnalysis.lines]
+                            .sort((a, b) => b.percentage - a.percentage)
+                            .map((line) => (
+                              <div
+                                key={line.name}
+                                className={`flex items-center justify-between px-3 py-1.5 rounded-md text-sm ${
+                                  line.name === 'CL' ? 'border-2 border-green-500 bg-green-50 dark:bg-green-950/30' : 'border'
+                                }`}
+                                data-testid={`line-${line.name}`}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <div
+                                    className="w-3 h-3 rounded-full flex-shrink-0"
+                                    style={{ backgroundColor: line.color }}
+                                  />
+                                  <span className="font-medium">{line.name}</span>
+                                </div>
+                                <span className="font-mono text-xs">
+                                  {formatKRW(Math.round(line.price))}
+                                </span>
+                              </div>
                             ))}
-                          </ul>
                         </div>
                       </div>
-                    </div>
-                  )}
-
-                  {/* AI 분석 없음 표시 */}
-                  {!selectedStock.aiAnalysis && (
-                    <div className="border-t pt-6">
-                      <Alert>
-                        <Brain className="h-4 w-4" />
-                        <AlertTitle>AI 분석 없음</AlertTitle>
-                        <AlertDescription>
-                          이 종목은 AI 분석이 실행되지 않았거나 분석에 실패했습니다.
-                        </AlertDescription>
-                      </Alert>
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div className="text-center py-12 text-muted-foreground">
-                  왼쪽에서 종목을 선택하면 레인보우 차트와 AI 분석이 표시됩니다.
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+          </div>
         </div>
-      )}
-
-      {/* 스캔 안내 */}
-      {!scanResult && !scanMutation.isPending && (
-        <Alert>
-          <CheckCircle2 className="h-4 w-4" />
-          <AlertTitle>뒷차기2 조건 검색</AlertTitle>
-          <AlertDescription>
-            <ul className="list-disc list-inside space-y-1 mt-2">
-              <li>코스피 60일내 29.5% 상승 OR 코스닥 20% 상승</li>
-              <li>240일 신고가 달성</li>
-              <li>거래대금 2억원 이상</li>
-              <li>CL (50% 라인) 근처 ±3%</li>
-              <li>최근 5일간 CL 위 유지</li>
-            </ul>
-            <p className="mt-2 text-sm">
-              스캔을 시작하면 자동으로 HTS에서 조건을 실행하고, 
-              40-60% 구간(주력 매수 구간) + CL폭 10% 이상인 종목만 추천합니다.
-            </p>
-          </AlertDescription>
-        </Alert>
       )}
     </div>
   );
