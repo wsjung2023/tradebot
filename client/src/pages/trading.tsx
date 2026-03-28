@@ -483,7 +483,14 @@ export default function Trading() {
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="date" tick={{ fontSize: 10 }} />
                   <YAxis domain={["auto", "auto"]} tick={{ fontSize: 10 }} />
-                  <Tooltip formatter={(value: any) => formatCurrency(Number(value))} />
+                  <Tooltip
+                    formatter={(value: number | number[], name: string) => {
+                      if (name === "가격" && Array.isArray(value)) {
+                        return [`${formatCurrency(value[0])} ~ ${formatCurrency(value[1])}`, "고저"];
+                      }
+                      return [formatCurrency(Number(value)), name];
+                    }}
+                  />
                   {chartType === "line" && (
                     <Line
                       type="monotone"
