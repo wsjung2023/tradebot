@@ -387,18 +387,10 @@ export default function Dashboard() {
               <WifiOff className="h-5 w-5 text-destructive mt-0.5 shrink-0" />
               <div>
                 <p className="text-sm font-medium text-destructive">
-                  {kiwoom.status === "agent_timeout"
-                    ? "집 PC 에이전트 미연결"
-                    : "Kiwoom API 연결 실패"}
+                  잔고 조회 실패
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  {kiwoom.status === "agent_timeout"
-                    ? "집 PC에서 에이전트 프로그램을 실행한 뒤 다시 시도해주세요."
-                    : kiwoom.errorCode === "ACCOUNT_TYPE_MISMATCH"
-                    ? "실계좌 전용 API 키를 설정 페이지에서 등록해주세요."
-                    : kiwoom.errorCode === "IP_NOT_REGISTERED"
-                    ? "키움 포털에서 이 서버의 IP를 지정단말기로 등록해주세요."
-                    : "잔고 조회 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요."}
+                  {kiwoom.error || "알 수 없는 오류"}
                 </p>
               </div>
             </CardContent>
