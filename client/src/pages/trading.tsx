@@ -459,7 +459,7 @@ export default function Trading() {
                     ))}
                   </SelectContent>
                 </Select>
-                {rainbowData && showRainbow && (
+                {rainbowData && showRainbow && rainbowLines.length > 0 && (
                   <Badge variant="outline" className="text-xs">
                     CL폭 {rainbowData.clWidth}%
                   </Badge>
