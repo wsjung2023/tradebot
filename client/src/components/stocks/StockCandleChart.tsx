@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -7,10 +7,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, AlertCircle } from "lucide-react";
+import { Loader2, AlertCircle, ZoomIn, ZoomOut } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
-
-// ─── 타입 ───────────────────────────────────────────────────────────────────
 
 type ChartPoint = {
   date: string;
@@ -41,7 +39,6 @@ export interface StockCandleChartProps {
   stockName?: string;
   height?: number;
   defaultShowRainbow?: boolean;
-  /** 비제어(기본): defaultPeriod 사용. 제어: period + onPeriodChange 함께 전달 */
   defaultPeriod?: "D" | "W" | "M";
   period?: "D" | "W" | "M";
   onPeriodChange?: (p: "D" | "W" | "M") => void;
@@ -51,8 +48,6 @@ export interface StockCandleChartProps {
   formulaSelector?: React.ReactNode;
   className?: string;
 }
-
-// ─── 캔들 렌더러 ─────────────────────────────────────────────────────────────
 
 type CandlePayload = { open: number; close: number; high: number; low: number };
 
@@ -104,22 +99,28 @@ function ChartStatusMessage({ title, description }: { title: string; description
   );
 }
 
-// 레인보우 라인별 색상·두께 설정 (line0=MIN ~ line10=MAX)
-const RAINBOW_LINE_CONFIG = [
-  { key: "line0",  label: "MIN", color: "#7c3aed", width: 1.5 },
-  { key: "line1",  label: "10%", color: "#ef4444", width: 1   },
-  { key: "line2",  label: "20%", color: "#f97316", width: 1   },
-  { key: "line3",  label: "30%", color: "#eab308", width: 1   },
-  { key: "line4",  label: "40%", color: "#64748b", width: 1   },
-  { key: "line5",  label: "CL",  color: "#22c55e", width: 2   },
-  { key: "line6",  label: "60%", color: "#64748b", width: 1   },
-  { key: "line7",  label: "70%", color: "#3b82f6", width: 1   },
-  { key: "line8",  label: "80%", color: "#1e40af", width: 1   },
-  { key: "line9",  label: "90%", color: "#334155", width: 1   },
-  { key: "line10", label: "MAX", color: "#0f172a", width: 1.5 },
+const RAINBOW_LINES = [
+  { key: "line0",  label: "MIN", color: "#7c3aed", width: 1.5, dash: ""    },
+  { key: "line1",  label: "",    color: "#ef4444", width: 0.7, dash: "3 2" },
+  { key: "line2",  label: "",    color: "#f97316", width: 0.7, dash: "3 2" },
+  { key: "line3",  label: "",    color: "#eab308", width: 0.7, dash: "3 2" },
+  { key: "line4",  label: "",    color: "#94a3b8", width: 0.7, dash: "3 2" },
+  { key: "line5",  label: "CL",  color: "#22c55e", width: 2,   dash: ""    },
+  { key: "line6",  label: "",    color: "#94a3b8", width: 0.7, dash: "3 2" },
+  { key: "line7",  label: "",    color: "#3b82f6", width: 0.7, dash: "3 2" },
+  { key: "line8",  label: "",    color: "#1e40af", width: 0.7, dash: "3 2" },
+  { key: "line9",  label: "",    color: "#64748b", width: 0.7, dash: "3 2" },
+  { key: "line10", label: "MAX", color: "#0f172a", width: 1.5, dash: ""    },
 ] as const;
 
-// ─── 메인 컴포넌트 ───────────────────────────────────────────────────────────
+const ZOOM_STEPS = [
+  { bars: 5,   label: "1주" },
+  { bars: 20,  label: "1개월" },
+  { bars: 60,  label: "3개월" },
+  { bars: 120, label: "6개월" },
+  { bars: 240, label: "1년" },
+  { bars: 480, label: "2년" },
+] as const;
 
 export function StockCandleChart({
   stockCode,
@@ -138,16 +139,18 @@ export function StockCandleChart({
   const [chartType, setChartType] = useState<"candle" | "line">(defaultChartType);
   const [internalPeriod, setInternalPeriod] = useState<"D" | "W" | "M">(defaultPeriod);
   const [showRainbow, setShowRainbow] = useState(defaultShowRainbow);
+  const [zoomIdx, setZoomIdx] = useState(3);
 
-  // 제어/비제어 period 지원
   const period = controlledPeriod ?? internalPeriod;
   const setPeriod = (p: "D" | "W" | "M") => {
     setInternalPeriod(p);
     onPeriodChange?.(p);
   };
 
-  // 레인보우 ON → /rainbow-chart (per-bar OHLCV+라인, oldest-first)
-  // 레인보우 OFF → /chart (OHLCV, newest-first → reverse)
+  const zoomIn = useCallback(() => setZoomIdx((i) => Math.max(0, i - 1)), []);
+  const zoomOut = useCallback(() => setZoomIdx((i) => Math.min(ZOOM_STEPS.length - 1, i + 1)), []);
+  const visibleBars = ZOOM_STEPS[zoomIdx].bars;
+
   const { data: rawChartData = [], isPending: chartLoading, error: chartError } = useQuery<ChartPoint[]>({
     queryKey: ["stock-chart", stockCode, period, showRainbow],
     enabled: !!stockCode,
@@ -159,30 +162,32 @@ export function StockCandleChart({
       } else {
         const res = await apiRequest("GET", `/api/stocks/${stockCode}/chart?period=${period}`);
         const data = await res.json();
-        // Kiwoom는 최신순(newest-first) → oldest-first로 역순
         return Array.isArray(data) ? [...data].reverse() : [];
       }
     },
   });
 
-  // 레인보우 ON 여부 (per-bar 데이터에 라인이 포함됨)
   const hasRainbowData = showRainbow && rawChartData.length > 0 && "line5" in (rawChartData[0] ?? {});
 
-  // 차트 데이터 + 캔들 범위 + 수식 오버레이 병합
   const chartData = useMemo<ChartPoint[]>(() => {
     if (!rawChartData.length) return [];
     const overlayMap: Record<string, number | null> = {};
     if (overlayLine) {
       for (const pt of overlayLine.values) overlayMap[pt.date] = pt.value;
     }
-    return rawChartData.map((bar) => ({
+
+    const sliced = rawChartData.length > visibleBars
+      ? rawChartData.slice(-visibleBars)
+      : rawChartData;
+
+    return sliced.map((bar) => ({
       ...bar,
+      date: formatDateLabel(bar.date),
       candleRange: [bar.low, bar.high] as [number, number],
       formulaValue: overlayLine ? (overlayMap[bar.date] ?? null) : undefined,
     }));
-  }, [rawChartData, overlayLine]);
+  }, [rawChartData, overlayLine, visibleBars]);
 
-  // 레인보우 로딩 상태 (rainbow-chart 재요청 중)
   const rainbowLoading = chartLoading && showRainbow;
 
   const formatCurrency = (v: number) =>
@@ -195,10 +200,12 @@ export function StockCandleChart({
     : chartData.length === 0 ? "no-data"
     : "ready";
 
+  const lastBar = chartData.length > 0 ? chartData[chartData.length - 1] : null;
+
   return (
     <div className={className}>
       <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-        <div className="flex gap-1">
+        <div className="flex items-center gap-1">
           <Button
             size="sm"
             variant={chartType === "candle" ? "default" : "outline"}
@@ -233,11 +240,17 @@ export function StockCandleChart({
 
           {formulaSelector}
 
-          {showRainbow && hasRainbowData && (
-            <Badge variant="outline" className="text-xs">
-              레인보우 240일
-            </Badge>
-          )}
+          <div className="flex items-center gap-1">
+            <Button size="icon" variant="ghost" onClick={zoomIn} disabled={zoomIdx <= 0} data-testid="button-zoom-in">
+              <ZoomIn className="h-4 w-4" />
+            </Button>
+            <span className="text-xs text-muted-foreground w-12 text-center font-mono" data-testid="text-zoom-level">
+              {ZOOM_STEPS[zoomIdx].label}
+            </span>
+            <Button size="icon" variant="ghost" onClick={zoomOut} disabled={zoomIdx >= ZOOM_STEPS.length - 1} data-testid="button-zoom-out">
+              <ZoomOut className="h-4 w-4" />
+            </Button>
+          </div>
 
           <Button
             size="sm"
@@ -254,83 +267,90 @@ export function StockCandleChart({
       </div>
 
       {chartState === "ready" ? (
-        <ResponsiveContainer width="100%" height={height}>
-          <ComposedChart data={chartData} margin={{ top: 4, right: 4, left: 4, bottom: 4 }}>
-            <CartesianGrid strokeDasharray="3 3" opacity={0.4} />
-            <XAxis dataKey="date" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
-            <YAxis
-              domain={["auto", "auto"]}
-              tick={{ fontSize: 10 }}
-              tickFormatter={(v) => `${Math.round(v / 1000)}k`}
-            />
-            <Tooltip
-              formatter={(value: number | number[], name: string) => {
-                if (name === "가격" && Array.isArray(value)) {
-                  return [`${formatCurrency(value[0])} ~ ${formatCurrency(value[1])}`, "고저"];
-                }
-                return [formatCurrency(Number(value)), name];
-              }}
-            />
-
-            {chartType === "line" && (
-              <Line type="monotone" dataKey="close" stroke="#8884d8" strokeWidth={2} dot={false} name="종가" />
-            )}
-            {chartType === "candle" && (
-              <Bar
-                dataKey="candleRange"
-                shape={CandleStickShape}
-                maxBarSize={14}
-                isAnimationActive={false}
-                name="가격"
+        <div className="relative">
+          <ResponsiveContainer width="100%" height={height}>
+            <ComposedChart data={chartData} margin={{ top: 4, right: hasRainbowData ? 48 : 4, left: 4, bottom: 4 }}>
+              <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+              <XAxis
+                dataKey="date"
+                tick={{ fontSize: 10 }}
+                interval={chartData.length > 60 ? Math.floor(chartData.length / 8) : "preserveStartEnd"}
               />
-            )}
-
-            {overlayLine && (
-              <Line
-                type="monotone"
-                dataKey="formulaValue"
-                stroke={overlayLine.color || "#8b5cf6"}
-                dot={false}
-                strokeWidth={2}
-                name={overlayLine.name || "수식"}
-                connectNulls
+              <YAxis
+                domain={["auto", "auto"]}
+                tick={{ fontSize: 10 }}
+                tickFormatter={(v) => v >= 1000 ? `${(v / 1000).toFixed(v >= 10000 ? 0 : 1)}k` : String(v)}
               />
-            )}
-
-            {hasRainbowData &&
-              RAINBOW_LINE_CONFIG.map((cfg) => (
-                <Line
-                  key={cfg.key}
-                  type="stepAfter"
-                  dataKey={cfg.key}
-                  stroke={cfg.color}
-                  strokeWidth={cfg.width}
-                  dot={false}
-                  isAnimationActive={false}
-                  name={cfg.label}
-                  connectNulls
-                  strokeDasharray={cfg.label === "CL" || cfg.label === "MAX" || cfg.label === "MIN" ? "0" : "4 2"}
-                  label={
-                    cfg.label === "CL" || cfg.label === "MAX" || cfg.label === "MIN"
-                      ? { value: cfg.label, fill: cfg.color, fontSize: 9, position: "insideTopRight" }
-                      : undefined
+              <Tooltip
+                formatter={(value: number | number[], name: string) => {
+                  if (name === "가격" && Array.isArray(value)) {
+                    return [`${formatCurrency(value[0])} ~ ${formatCurrency(value[1])}`, "고저"];
                   }
+                  if (RAINBOW_LINES.some((l) => l.key === name || l.label === name)) return [null, null];
+                  return [formatCurrency(Number(value)), name];
+                }}
+                content={hasRainbowData ? undefined : undefined}
+              />
+
+              {hasRainbowData &&
+                RAINBOW_LINES.map((cfg) => (
+                  <Line
+                    key={cfg.key}
+                    type="stepAfter"
+                    dataKey={cfg.key}
+                    stroke={cfg.color}
+                    strokeWidth={cfg.width}
+                    dot={false}
+                    isAnimationActive={false}
+                    name={cfg.key}
+                    connectNulls
+                    strokeDasharray={cfg.dash || undefined}
+                  />
+                ))}
+
+              {chartType === "line" && (
+                <Line type="monotone" dataKey="close" stroke="#8884d8" strokeWidth={2} dot={false} name="종가" />
+              )}
+              {chartType === "candle" && (
+                <Bar
+                  dataKey="candleRange"
+                  shape={CandleStickShape}
+                  maxBarSize={visibleBars <= 20 ? 18 : visibleBars <= 60 ? 10 : 6}
+                  isAnimationActive={false}
+                  name="가격"
+                />
+              )}
+
+              {overlayLine && (
+                <Line
+                  type="monotone"
+                  dataKey="formulaValue"
+                  stroke={overlayLine.color || "#8b5cf6"}
+                  dot={false}
+                  strokeWidth={2}
+                  name={overlayLine.name || "수식"}
+                  connectNulls
+                />
+              )}
+
+              {signalDots?.map((signal, idx) => (
+                <ReferenceDot
+                  key={`signal-${signal.id}-${idx}`}
+                  x={signal.chartDate}
+                  y={signal.chartPrice}
+                  r={5}
+                  fill={signal.signal === "buy" ? "#22c55e" : "#f59e0b"}
+                  stroke={signal.signal === "buy" ? "#15803d" : "#b45309"}
+                  ifOverflow="visible"
                 />
               ))}
+            </ComposedChart>
+          </ResponsiveContainer>
 
-            {signalDots?.map((signal, idx) => (
-              <ReferenceDot
-                key={`signal-${signal.id}-${idx}`}
-                x={signal.chartDate}
-                y={signal.chartPrice}
-                r={5}
-                fill={signal.signal === "buy" ? "#22c55e" : "#f59e0b"}
-                stroke={signal.signal === "buy" ? "#15803d" : "#b45309"}
-                ifOverflow="visible"
-              />
-            ))}
-          </ComposedChart>
-        </ResponsiveContainer>
+          {hasRainbowData && lastBar && (
+            <RainbowLabels lastBar={lastBar} height={height} chartData={chartData} />
+          )}
+        </div>
       ) : chartState === "loading" ? (
         <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground" style={{ minHeight: height }}>
           <Loader2 className="h-4 w-4 animate-spin" /> 차트 데이터를 불러오는 중입니다.
@@ -353,4 +373,51 @@ export function StockCandleChart({
       )}
     </div>
   );
+}
+
+function RainbowLabels({ lastBar, height: _height, chartData }: { lastBar: ChartPoint; height: number; chartData: ChartPoint[] }) {
+  const allPrices: number[] = [];
+  for (const bar of chartData) {
+    allPrices.push(bar.high, bar.low);
+    for (const cfg of RAINBOW_LINES) {
+      const v = (bar as Record<string, unknown>)[cfg.key];
+      if (typeof v === "number" && v > 0) allPrices.push(v);
+    }
+  }
+  if (allPrices.length === 0) return null;
+
+  const minPrice = Math.min(...allPrices);
+  const maxPrice = Math.max(...allPrices);
+  const range = maxPrice - minPrice;
+  if (range <= 0) return null;
+
+  const keyLines = RAINBOW_LINES.filter((l) => l.label);
+
+  return (
+    <div className="absolute right-0 top-1 bottom-5 w-12 pointer-events-none" style={{ marginRight: 0 }}>
+      {keyLines.map((cfg) => {
+        const price = (lastBar as Record<string, unknown>)[cfg.key];
+        if (typeof price !== "number" || price <= 0) return null;
+        const pct = 1 - (price - minPrice) / range;
+        const topPx = 4 + pct * (_height - 28);
+        return (
+          <span
+            key={cfg.key}
+            className="absolute text-[9px] font-bold leading-none"
+            style={{ top: topPx, right: 2, color: cfg.color }}
+          >
+            {cfg.label}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+function formatDateLabel(raw: string): string {
+  if (!raw) return raw;
+  const s = raw.replace(/[-\/]/g, "");
+  if (s.length >= 8) return `${s.slice(4, 6)}/${s.slice(6, 8)}`;
+  if (s.length >= 6) return `${s.slice(2, 4)}/${s.slice(4, 6)}`;
+  return raw;
 }
