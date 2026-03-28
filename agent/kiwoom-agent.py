@@ -140,6 +140,7 @@ def kiwoom_post(path, api_id, body=None, is_mock=None, _retry=True):
     }
     url = f"{base_url}{path}"
     resp = requests.post(url, headers=headers, json=body or {}, timeout=10)
+    logger.debug(f"[kiwoom_post] {api_id} → status={resp.status_code} len={len(resp.text)} body_preview={resp.text[:200]!r}")
     # 401 Unauthorized → 토큰 재발급 후 1회 재시도
     if resp.status_code == 401 and _retry:
         logger.warning(f"[kiwoom_post] 401 Unauthorized ({api_id}) → 토큰 재발급 후 재시도")
@@ -150,6 +151,7 @@ def kiwoom_post(path, api_id, body=None, is_mock=None, _retry=True):
     resp.raise_for_status()
     raw_text = resp.text.strip() if resp.text else ""
     if not raw_text:
+        logger.error(f"[kiwoom_post] 빈 응답! api-id={api_id} status={resp.status_code} headers={dict(resp.headers)}")
         raise ValueError(f"키움 API 빈 응답 (api-id: {api_id}, status: {resp.status_code}) — 토큰 만료 또는 서버 오류일 수 있음")
     data = json.loads(raw_text)
     rc = data.get("return_code")
