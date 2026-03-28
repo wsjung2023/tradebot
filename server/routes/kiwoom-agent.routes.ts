@@ -88,6 +88,29 @@ export function registerKiwoomAgentRoutes(app: Express): void {
     }
   });
 
+  // 에이전트 자동재시작 배치 스크립트 다운로드 — 공개 엔드포인트
+  // curl -o start-agent.bat https://.../api/kiwoom-agent/start-script
+  app.get("/api/kiwoom-agent/start-script", (_req: Request, res: Response) => {
+    try {
+      const candidates = [
+        join(process.cwd(), "agent/start-agent.bat"),
+        join(process.cwd(), "../agent/start-agent.bat"),
+      ];
+      const scriptPath = candidates.find((p) => existsSync(p));
+      if (!scriptPath) {
+        res.status(404).json({ error: "배치 스크립트 파일을 찾을 수 없습니다" });
+        return;
+      }
+      const content = readFileSync(scriptPath, "utf-8");
+      res.setHeader("Content-Type", "text/plain; charset=utf-8");
+      res.setHeader("Content-Disposition", 'attachment; filename="start-agent.bat"');
+      res.send(content);
+    } catch (err) {
+      console.error("[kiwoom-agent/start-script] 파일 전송 실패:", err);
+      res.status(500).json({ error: "파일 전송 실패" });
+    }
+  });
+
   // 작업 등록 — 인증된 사용자 본인 소유 작업으로 생성
   app.post("/api/kiwoom-agent/jobs", async (req: Request, res: Response) => {
     try {

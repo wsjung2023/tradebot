@@ -421,7 +421,7 @@ export default function Dashboard() {
             <CardContent className="pt-0">
               <div className="text-lg md:text-2xl font-bold font-mono" data-testid="text-total-return">
                 {isLoading ? <span className="text-muted-foreground text-base">조회 중...</span>
-                  : isSuccess ? fmt(balance?.output1?.dnca_tot_amt)
+                  : isSuccess ? fmt(balance?.depositAmount)
                   : <span className="text-muted-foreground text-sm">-</span>}
               </div>
               <p className="text-xs text-muted-foreground">출금가능금액</p>
@@ -442,20 +442,18 @@ export default function Dashboard() {
           </Card>
         </div>
 
-        {/* 포트폴리오 & 보유종목 */}
-        <div className="grid gap-3 md:gap-4 grid-cols-1 md:grid-cols-2">
-          <Card className="hover-elevate">
-            <CardHeader className="pb-2">
-              <CardTitle className="flex items-center gap-2 text-base md:text-lg">
-                포트폴리오 구성
-                <div className="w-2 h-2 rounded-full bg-[hsl(var(--neon-cyan))] animate-pulse-glow" />
-              </CardTitle>
-              <CardDescription className="text-xs md:text-sm">종목별 비중</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {holdingsLoading ? (
-                <p className="text-sm text-muted-foreground text-center py-8">조회 중...</p>
-              ) : holdings && holdings.length > 0 ? (
+        {/* 포트폴리오 & 보유종목 — 잔고 조회 성공 시에만 표시 */}
+        {isSuccess && holdings && holdings.length > 0 && (
+          <div className="grid gap-3 md:gap-4 grid-cols-1 md:grid-cols-2">
+            <Card className="hover-elevate">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-base md:text-lg">
+                  포트폴리오 구성
+                  <div className="w-2 h-2 rounded-full bg-[hsl(var(--neon-cyan))] animate-pulse-glow" />
+                </CardTitle>
+                <CardDescription className="text-xs md:text-sm">종목별 비중</CardDescription>
+              </CardHeader>
+              <CardContent>
                 <ResponsiveContainer width="100%" height={200} className="md:!h-[300px]">
                   <PieChart>
                     <Pie
@@ -473,50 +471,46 @@ export default function Dashboard() {
                     <Tooltip formatter={(v: any) => fmt(v)} />
                   </PieChart>
                 </ResponsiveContainer>
-              ) : (
-                <p className="text-sm text-muted-foreground text-center py-8">
-                  {selectedAccountId ? "보유 종목이 없습니다" : "계좌를 선택해주세요"}
-                </p>
-              )}
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
 
-          <Card className="hover-elevate">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                보유 종목
-                <div className="w-2 h-2 rounded-full bg-[hsl(var(--neon-purple))] animate-pulse-glow" />
-              </CardTitle>
-              <CardDescription>종목별 수익률</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {holdingsLoading ? (
-                <p className="text-sm text-muted-foreground text-center py-8">조회 중...</p>
-              ) : holdings && holdings.length > 0 ? (
+            <Card className="hover-elevate">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  보유 종목
+                  <div className="w-2 h-2 rounded-full bg-[hsl(var(--neon-purple))] animate-pulse-glow" />
+                </CardTitle>
+                <CardDescription>종목별 수익률</CardDescription>
+              </CardHeader>
+              <CardContent>
                 <div className="space-y-2">
-                  {holdings.map((h: any) => (
-                    <div key={h.id} className="flex items-center justify-between p-3 border rounded-md" data-testid={`holding-${h.stockCode}`}>
-                      <div>
-                        <p className="font-medium">{h.stockName}</p>
-                        <p className="text-sm text-muted-foreground">{h.stockCode}</p>
+                  {holdings.map((h: any) => {
+                    const storedRate = parseFloat(h.profitLossRate);
+                    const cur = parseFloat(h.currentPrice);
+                    const avg = parseFloat(h.averagePrice);
+                    const rate = storedRate !== 0
+                      ? storedRate
+                      : (cur > 0 && avg > 0 ? ((cur - avg) / avg) * 100 : NaN);
+                    return (
+                      <div key={h.id} className="flex items-center justify-between p-3 border rounded-md" data-testid={`holding-${h.stockCode}`}>
+                        <div>
+                          <p className="font-medium">{h.stockName}</p>
+                          <p className="text-sm text-muted-foreground">{h.stockCode}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-mono text-sm">{h.quantity}주</p>
+                          <p className={`text-sm font-medium ${rate > 0 ? "text-green-600 dark:text-green-400" : rate < 0 ? "text-red-600 dark:text-red-400" : "text-muted-foreground"}`}>
+                            {isNaN(rate) ? "-" : fmtPct(rate)}
+                          </p>
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <p className="font-mono text-sm">{h.quantity}주</p>
-                        <p className={`text-sm font-medium ${parseFloat(h.profitLossRate) > 0 ? "text-green-600 dark:text-green-400" : parseFloat(h.profitLossRate) < 0 ? "text-red-600 dark:text-red-400" : "text-muted-foreground"}`}>
-                          {fmtPct(h.profitLossRate)}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
-              ) : (
-                <p className="text-sm text-muted-foreground text-center py-8">
-                  {selectedAccountId ? "보유 종목이 없습니다" : "계좌를 선택해주세요"}
-                </p>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
 
         {/* 자산 추이 */}
         <Card className="hover-elevate">

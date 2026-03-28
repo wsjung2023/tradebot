@@ -8,6 +8,7 @@ export interface BalanceResult {
   totalAssets: number;
   todayProfit: number;
   todayProfitRate: number;
+  depositAmount: number;
 }
 
 type Status = "idle" | "loading" | "success" | "agent_timeout" | "error";
@@ -60,6 +61,7 @@ export function useKiwoomBalance(): UseKiwoomBalanceResult {
         totalAssets: body.totalAssets ?? 0,
         todayProfit: body.todayProfit ?? 0,
         todayProfitRate: body.todayProfitRate ?? 0,
+        depositAmount: body.depositAmount ?? 0,
       });
       setStatus("success");
       queryClient.invalidateQueries({ queryKey: ["/api/accounts", accountId, "holdings"] });
