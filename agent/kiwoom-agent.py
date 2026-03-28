@@ -111,6 +111,7 @@ def refresh_kiwoom_token(is_mock=False):
     base_url = KIWOOM_MOCK_BASE if is_mock else KIWOOM_REAL_BASE
     app_key = KIWOOM_APP_KEY_MOCK if is_mock else KIWOOM_APP_KEY_REAL
     app_secret = KIWOOM_APP_SECRET_MOCK if is_mock else KIWOOM_APP_SECRET_REAL
+    mode = "모의" if is_mock else "실계좌"
     try:
         url = f"{base_url}/oauth2/token"
         payload = {
@@ -118,23 +119,31 @@ def refresh_kiwoom_token(is_mock=False):
             "appkey": app_key,
             "secretkey": app_secret,
         }
+        logger.debug(f"[토큰갱신] {mode} 요청: url={url} appKey={app_key[:8] if app_key else '없음'}...")
         resp = requests.post(
             url,
             json=payload,
             headers={"Content-Type": "application/json;charset=UTF-8"},
-            timeout=10
+            timeout=10,
+            allow_redirects=True,  # 302 리다이렉트 허용
         )
+        logger.debug(f"[토큰갱신] {mode} 응답: status={resp.status_code} len={len(resp.text)}")
         resp.raise_for_status()
-        data = resp.json()
+        raw_text = resp.text.strip()
+        if not raw_text:
+            raise ValueError(f"키움 토큰 발급 빈 응답 (status={resp.status_code}) — 앱키 확인 필요. appKey={app_key[:8] if app_key else '없음'}...")
+        data = json.loads(raw_text)
         if data.get("return_code") and data["return_code"] != 0:
             raise ValueError(f"토큰 발급 실패: {data.get('return_msg')} (code: {data['return_code']})")
         _tokens[key] = data.get("access_token") or data.get("token")
         expires_in = int(data.get("expires_in", 86400))
         _token_expires[key] = time.time() + expires_in - 60
-        logger.info(f"키움 토큰 갱신 완료 ({'모의' if is_mock else '실계좌'})")
+        logger.info(f"키움 토큰 갱신 완료 ({mode})")
         return True
     except Exception as e:
-        logger.error(f"키움 토큰 갱신 실패 ({'모의' if is_mock else '실계좌'}): {e}")
+        import traceback
+        logger.error(f"키움 토큰 갱신 실패 ({mode}): {type(e).__name__}: {e}")
+        logger.error(traceback.format_exc())
         return False
 
 
