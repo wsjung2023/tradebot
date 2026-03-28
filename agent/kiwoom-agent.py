@@ -801,14 +801,30 @@ def handle_token_test(payload):
         "appkey": app_key,
         "appsecretkey": app_secret,
     }
+    resp = None
     try:
         resp = requests.post(
             url,
             json=req_body,
             headers={"Content-Type": "application/json;charset=UTF-8"},
-            timeout=10
+            timeout=10,
+            allow_redirects=False,  # 302를 따라가지 않고 직접 캡처
         )
-        data = resp.json()
+        logger.info(f"[token.test] {account_type} HTTP {resp.status_code} appKey={app_key[:8] if app_key else '없음(empty)'}...")
+        if resp.status_code in (301, 302, 303, 307, 308):
+            return {
+                "accountType": account_type,
+                "url": url,
+                "httpStatus": resp.status_code,
+                "error": f"302 리다이렉트 → {resp.headers.get('Location','?')} — 앱키가 비어있거나 잘못됨",
+                "appKeyPrefix": app_key[:8] if app_key else "(empty)",
+                "appKeyLen": len(app_key),
+                "hasToken": False,
+            }
+        raw_text = resp.text.strip()
+        if not raw_text:
+            return {"accountType": account_type, "url": url, "httpStatus": resp.status_code, "error": "빈 응답", "hasToken": False}
+        data = json.loads(raw_text)
         return {
             "accountType": account_type,
             "url": url,
@@ -816,14 +832,20 @@ def handle_token_test(payload):
             "returnCode": data.get("return_code"),
             "returnMsg": data.get("return_msg"),
             "hasToken": bool(data.get("access_token") or data.get("token")),
+            "appKeyPrefix": app_key[:8] if app_key else "(empty)",
             "raw": data,
         }
     except Exception as e:
+        import traceback
         return {
             "accountType": account_type,
             "url": url,
-            "error": str(e),
+            "httpStatus": resp.status_code if resp else None,
+            "appKeyPrefix": app_key[:8] if app_key else "(empty)",
+            "appKeyLen": len(app_key) if app_key else 0,
+            "error": f"{type(e).__name__}: {e}",
             "hasToken": False,
+            "trace": traceback.format_exc()[-300:],
         }
 
 
