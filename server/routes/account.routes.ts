@@ -219,10 +219,10 @@ export function registerAccountRoutes(app: Router) {
         const updates = {
           stockName: item.prdt_name || item.stk_nm || item.stockName || "",
           quantity: parseInt(item.hldg_qty || item.rmnd_qty || String(item.quantity ?? "0"), 10),
-          averagePrice: cleanStr(item.pchs_avg_pric) || cleanStr(item.avg_pric) || cleanStr(item.averagePrice) || "0",
+          averagePrice: cleanStr(item.pchs_avg_pric) || cleanStr(item.avg_pric) || cleanStr(item.pur_pric) || cleanStr(item.averagePrice) || "0",
           currentPrice: cleanStr(item.prpr) || cleanStr(item.cur_prc) || cleanStr(item.currentPrice) || "0",
-          profitLoss: cleanStr(item.evlu_pfls_amt) || cleanStr(item.evlu_pfls) || "0",
-          profitLossRate: cleanStr(item.evlu_pfls_rt) || cleanStr(item.pfls_rt) || "0",
+          profitLoss: cleanStr(item.evlu_pfls_amt) || cleanStr(item.evlu_pfls) || cleanStr(item.evltv_prft) || "0",
+          profitLossRate: cleanStr(item.evlu_pfls_rt) || cleanStr(item.pfls_rt) || cleanStr(item.prft_rt) || "0",
         };
         const existing = await storage.getHoldingByStock(account.id, stockCode);
         if (existing) await storage.updateHolding(existing.id, updates);

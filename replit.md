@@ -116,6 +116,20 @@ _STALE_THRESHOLD_SEC = 30
 `depositAmount` 필드는 `pchs_avg_pric` 대신 전용 필드(`dnca_tot_amt` 등)를 우선 사용.  
 `average_price` DB 값 "0.00"은 키움 API가 빈 문자열을 주는 것이 원인 — 서버 파싱에서 `cleanStr()` 헬퍼로 폴백 처리됨.
 
+### 9. 실계좌 보유종목 API 필드명 (2026-03-28 확정)
+**파일**: `server/routes/account.routes.ts` (216~229번 줄 holdings 루프)  
+**규칙**: 키움 실계좌 `acnt_evlt_remn_indv_tot` 배열의 실제 필드명은 아래와 같음. 폴백 순서 변경 금지.
+
+| 항목 | 실계좌 필드명 | 모의계좌 필드명 (폴백 유지) |
+|------|------------|--------------------------|
+| 평균매수가 | `pur_pric` | `pchs_avg_pric`, `avg_pric` |
+| 수익률(%) | `prft_rt` | `evlu_pfls_rt`, `pfls_rt` |
+| 평가손익(원) | `evltv_prft` | `evlu_pfls_amt`, `evlu_pfls` |
+| 현재가 | `cur_prc` | `prpr` |
+
+실계좌 응답 예시: `"pur_pric": "000000000006336"`, `"prft_rt": "-26.71"`, `"evltv_prft": "-00000000863228"`  
+모의계좌 필드명은 폴백으로 유지해야 모의계좌 호환이 깨지지 않음. 어느 쪽 필드명도 삭제 금지.
+
 ---
 
 ## External Dependencies
