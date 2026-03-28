@@ -117,7 +117,7 @@ def refresh_kiwoom_token(is_mock=False):
         payload = {
             "grant_type": "client_credentials",
             "appkey": app_key,
-            "secretkey": app_secret,
+            "appsecretkey": app_secret,
         }
         logger.debug(f"[토큰갱신] {mode} 요청: url={url} appKey={app_key[:8] if app_key else '없음'}...")
         resp = requests.post(
@@ -766,7 +766,7 @@ def handle_token_test(payload):
     req_body = {
         "grant_type": "client_credentials",
         "appkey": app_key,
-        "secretkey": app_secret,
+        "appsecretkey": app_secret,
     }
     try:
         resp = requests.post(
