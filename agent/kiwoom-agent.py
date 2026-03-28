@@ -849,6 +849,37 @@ def handle_token_test(payload):
         }
 
 
+def handle_system_status(_payload):
+    """키움 API 서버 점검/정상 상태 확인 — 302 리다이렉트이면 점검 중"""
+    check_url = f"{KIWOOM_REAL_BASE}/oauth2/token"
+    try:
+        resp = requests.post(
+            check_url,
+            json={"grant_type": "client_credentials", "appkey": "probe", "appsecretkey": "probe"},
+            headers={"Content-Type": "application/json;charset=UTF-8"},
+            timeout=8,
+            allow_redirects=False,
+        )
+        is_maintenance = resp.status_code in (301, 302, 303, 307, 308)
+        location = resp.headers.get("Location", "")
+        logger.info(f"[system.status] HTTP {resp.status_code} {'점검중' if is_maintenance else '정상'} location={location}")
+        return {
+            "status": "maintenance" if is_maintenance else "ok",
+            "httpStatus": resp.status_code,
+            "location": location if is_maintenance else None,
+            "message": f"키움 시스템 점검 중 (HTTP {resp.status_code} → {location})" if is_maintenance else "정상",
+            "checkedAt": time.time(),
+        }
+    except Exception as e:
+        logger.warning(f"[system.status] 상태 확인 실패: {e}")
+        return {
+            "status": "unknown",
+            "error": str(e),
+            "message": f"상태 확인 실패: {e}",
+            "checkedAt": time.time(),
+        }
+
+
 def handle_financials_get(payload):
     """
     종목 재무 스냅샷 조회 — ka10001 기반
@@ -1060,6 +1091,7 @@ JOB_HANDLERS = {
     "condition.list": handle_condition_list,
     "condition.run": handle_condition_run,
     "agent.selfUpdate": handle_agent_self_update,
+    "system.status": handle_system_status,
 }
 JOB_TYPE_ALIASES = {
     "condition_list": "condition.list",

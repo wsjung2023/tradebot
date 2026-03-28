@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { TrendingUp, TrendingDown, Wallet, Target, Plus, Trash2, RefreshCw, WifiOff, ArrowLeftRight } from "lucide-react";
+import { TrendingUp, TrendingDown, Wallet, Target, Plus, Trash2, RefreshCw, WifiOff, ArrowLeftRight, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useKiwoomBalance } from "@/hooks/use-kiwoom-balance";
@@ -63,6 +63,20 @@ export default function Dashboard() {
   const { data: recentTrades = [] } = useQuery<any[]>({
     queryKey: ['/api/accounts', selectedAccountId, 'trades'],
     enabled: !!selectedAccountId,
+  });
+
+  const { data: sysStatus, refetch: recheckSysStatus, isFetching: sysStatusChecking } = useQuery<{
+    status: "ok" | "maintenance" | "unknown";
+    message: string;
+    httpStatus?: number;
+    location?: string;
+    checkedAt?: number;
+    cached?: boolean;
+  }>({
+    queryKey: ['/api/kiwoom-agent/system-status'],
+    refetchInterval: 10 * 60 * 1000,
+    staleTime: 5 * 60 * 1000,
+    retry: false,
   });
 
   const { data: assetSnapshots = [] } = useQuery<any[]>({
@@ -211,6 +225,45 @@ export default function Dashboard() {
       <div className="fixed inset-0 bg-gradient-to-br from-[hsl(var(--background))] via-[hsl(var(--neon-cyan))]/5 to-[hsl(var(--neon-purple))]/5 animate-gradient-flow -z-10" />
 
       <div className="p-3 md:p-6 space-y-4 md:space-y-6 relative z-0">
+        {/* 키움 시스템 점검 배너 */}
+        {sysStatus && sysStatus.status !== "ok" && (
+          <div
+            data-testid="banner-kiwoom-system-status"
+            className={`flex flex-wrap items-center gap-3 rounded-md px-4 py-3 text-sm font-medium ${
+              sysStatus.status === "maintenance"
+                ? "bg-amber-500/15 border border-amber-500/40 text-amber-700 dark:text-amber-400"
+                : "bg-muted border border-border text-muted-foreground"
+            }`}
+          >
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            <span className="flex-1">
+              {sysStatus.status === "maintenance"
+                ? `키움증권 시스템 점검 중 — 잔고·토큰 조회가 일시적으로 불가합니다. (${sysStatus.message})`
+                : `키움 서버 상태 확인 불가 — ${sysStatus.message}`}
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={sysStatusChecking}
+              onClick={() => recheckSysStatus()}
+              data-testid="button-recheck-system-status"
+            >
+              <RefreshCw className={`h-3 w-3 mr-1 ${sysStatusChecking ? "animate-spin" : ""}`} />
+              재확인
+            </Button>
+          </div>
+        )}
+        {sysStatus?.status === "ok" && (
+          <div
+            data-testid="banner-kiwoom-system-ok"
+            className="flex items-center gap-2 rounded-md px-4 py-2 text-xs bg-green-500/10 border border-green-500/30 text-green-700 dark:text-green-400"
+          >
+            <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+            <span>키움 API 서버 정상</span>
+            {sysStatus.cached && <span className="text-muted-foreground">(캐시)</span>}
+          </div>
+        )}
+
         {/* 헤더 */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
