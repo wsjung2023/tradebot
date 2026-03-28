@@ -1205,12 +1205,38 @@ def _run_job_in_thread(job_id, job_type, handler, payload):
         submit_result(job_id, "error", error_message=error_msg)
 
 
+_STALE_SKIP_JOB_TYPES = {
+    "balance.get", "watchlist.get", "price.get", "stock.info",
+    "system.status", "financials.get", "chart.get", "orderbook.get",
+}
+_STALE_THRESHOLD_SEC = 30  # 이 초 이상 된 단순조회 작업은 스킵
+
+
 def process_job(job):
     job_id = job["id"]
     raw_job_type = str(job.get("jobType", ""))
     normalized_job_type = raw_job_type.strip().lower()
     job_type = JOB_TYPE_ALIASES.get(normalized_job_type, normalized_job_type)
     payload = job.get("payload") or {}
+
+    # 오래된 단순조회 작업 스킵 (에이전트 재시작 후 쌓인 작업 처리 방지)
+    if job_type in _STALE_SKIP_JOB_TYPES:
+        created_at_raw = job.get("createdAt")
+        if created_at_raw:
+            try:
+                import datetime as _dt
+                if isinstance(created_at_raw, str):
+                    ca = _dt.datetime.fromisoformat(created_at_raw.replace("Z", "+00:00"))
+                    age_sec = (_dt.datetime.now(_dt.timezone.utc) - ca).total_seconds()
+                else:
+                    age_sec = time.time() - float(created_at_raw)
+                if age_sec > _STALE_THRESHOLD_SEC:
+                    logger.warning(f"오래된 작업 스킵: #{job_id} [{job_type}] {age_sec:.0f}초 경과 (서버가 이미 타임아웃 처리)")
+                    submit_result(job_id, "error", error_message=f"[STALE_JOB] {age_sec:.0f}초 경과 — 클라이언트 재요청 필요")
+                    return
+            except Exception:
+                pass
+
     logger.info(f"작업 처리 시작: #{job_id} [{raw_job_type} → {job_type}]")
 
     handler = JOB_HANDLERS.get(job_type)

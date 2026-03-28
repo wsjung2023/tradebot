@@ -129,9 +129,11 @@ export function registerAccountRoutes(app: Router) {
         accountNumber: account.accountNumber,
         accountType: account.accountType || "real",
       };
+      // dedupeKey: 같은 계좌로 동시에 여러 요청이 오면 하나의 에이전트 job만 등록
+      const dedupeKey = `balance.get:${accountId}`;
       let result: any;
       try {
-        result = await callViaAgent(user!.id, "balance.get", balancePayload, 15000);
+        result = await callViaAgent(user!.id, "balance.get", balancePayload, 15000, dedupeKey);
       } catch (firstErr: any) {
         const msg = String(firstErr?.message ?? "");
         // 빈 응답(JSONDecodeError) 또는 토큰 오류 → 토큰 강제 갱신 후 재시도
@@ -140,7 +142,7 @@ export function registerAccountRoutes(app: Router) {
           try {
             await callViaAgent(user!.id, "token.refresh", { accountType: balancePayload.accountType }, 8000);
           } catch (_) { /* 갱신 실패 무시 */ }
-          result = await callViaAgent(user!.id, "balance.get", balancePayload, 15000);
+          result = await callViaAgent(user!.id, "balance.get", balancePayload, 15000, dedupeKey);
         } else {
           throw firstErr;
         }

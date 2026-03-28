@@ -5,12 +5,16 @@ import { storage } from "../storage";
 const POLL_INTERVAL_MS = 600;
 const DEFAULT_TIMEOUT_MS = 14000;
 
+// 동시 중복 요청 방지: 같은 dedupeKey로 진행 중인 Promise를 공유
+const _inflightJobs = new Map<string, Promise<any>>();
+
 /**
  * 키움 에이전트 job을 등록하고 결과를 기다립니다.
- * @param userId  - 작업 소유자 (추적용)
- * @param jobType - 에이전트 핸들러 이름 (예: "balance.get", "price.get")
- * @param payload - 에이전트에 전달할 파라미터
+ * @param userId    - 작업 소유자 (추적용)
+ * @param jobType   - 에이전트 핸들러 이름 (예: "balance.get", "price.get")
+ * @param payload   - 에이전트에 전달할 파라미터
  * @param timeoutMs - 최대 대기 시간 (기본 14초)
+ * @param dedupeKey - 지정 시, 같은 키로 진행 중인 요청이 있으면 새 job 대신 기존 것을 공유
  * @returns 에이전트가 반환한 result 객체
  * @throws 에이전트 오류 메시지 또는 타임아웃 에러
  */
@@ -19,6 +23,27 @@ export async function callViaAgent(
   jobType: string,
   payload: Record<string, unknown>,
   timeoutMs = DEFAULT_TIMEOUT_MS,
+  dedupeKey?: string,
+): Promise<any> {
+  if (dedupeKey) {
+    const key = `${userId}:${dedupeKey}`;
+    const inflight = _inflightJobs.get(key);
+    if (inflight) {
+      return inflight; // 이미 진행 중인 요청 재활용 — 새 job 미등록
+    }
+    const promise = _callViaAgentInternal(userId, jobType, payload, timeoutMs)
+      .finally(() => _inflightJobs.delete(key));
+    _inflightJobs.set(key, promise);
+    return promise;
+  }
+  return _callViaAgentInternal(userId, jobType, payload, timeoutMs);
+}
+
+async function _callViaAgentInternal(
+  userId: string,
+  jobType: string,
+  payload: Record<string, unknown>,
+  timeoutMs: number,
 ): Promise<any> {
   const job = await storage.createKiwoomJob({
     userId,
