@@ -96,7 +96,7 @@ export class PostgreSQLCoreStorage {
   }
 
   async updateHolding(id: number, updates: Partial<Holding>): Promise<Holding | undefined> {
-    const result = await db.update(schema.holdings).set(updates).where(eq(schema.holdings.id, id)).returning();
+    const result = await db.update(schema.holdings).set({ ...updates, updatedAt: new Date() }).where(eq(schema.holdings.id, id)).returning();
     return result[0];
   }
 

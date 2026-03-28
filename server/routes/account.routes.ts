@@ -293,16 +293,17 @@ export function registerAccountRoutes(app: Router) {
 
       const { output1, output2 } = req.body;
       if (Array.isArray(output2)) {
+        const cleanS = (v: any): string => { const s = String(v ?? "").trim(); return s && s !== "0" ? s : ""; };
         for (const item of output2) {
-          const stockCode = item.pdno;
+          const stockCode = item.acnt_pdno || item.pdno || item.stk_cd || item.stockCode;
           if (!stockCode) continue;
           const updates = {
-            stockName: item.prdt_name || "",
-            quantity: parseInt(item.hldg_qty || "0", 10),
-            averagePrice: item.pchs_avg_pric || "0",
-            currentPrice: item.prpr || "0",
-            profitLoss: item.evlu_pfls_amt || "0",
-            profitLossRate: item.evlu_pfls_rt || "0",
+            stockName: item.prdt_name || item.stk_nm || "",
+            quantity: parseInt(item.hldg_qty || item.rmnd_qty || "0", 10),
+            averagePrice: cleanS(item.pchs_avg_pric) || cleanS(item.avg_pric) || cleanS(item.pur_pric) || "0",
+            currentPrice: cleanS(item.prpr) || cleanS(item.cur_prc) || "0",
+            profitLoss: cleanS(item.evlu_pfls_amt) || cleanS(item.evlu_pfls) || cleanS(item.evltv_prft) || "0",
+            profitLossRate: cleanS(item.evlu_pfls_rt) || cleanS(item.pfls_rt) || cleanS(item.prft_rt) || "0",
           };
           const existing = await storage.getHoldingByStock(account.id, stockCode);
           if (existing) {
