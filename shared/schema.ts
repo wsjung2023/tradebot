@@ -43,6 +43,12 @@ export const kiwoomAccounts = pgTable("kiwoom_accounts", {
   accountName: text("account_name"),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+  // Cached balance from last successful fetch
+  lastTotalAssets: decimal("last_total_assets", { precision: 16, scale: 2 }),
+  lastDepositAmount: decimal("last_deposit_amount", { precision: 16, scale: 2 }),
+  lastTodayProfit: decimal("last_today_profit", { precision: 16, scale: 2 }),
+  lastTodayProfitRate: decimal("last_today_profit_rate", { precision: 10, scale: 4 }),
+  lastBalanceFetchedAt: timestamp("last_balance_fetched_at"),
 });
 
 // Portfolio holdings

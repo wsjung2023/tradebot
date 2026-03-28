@@ -25,8 +25,17 @@ interface DashboardSettings {
   tradingMode?: "mock" | "real";
 }
 
+interface CachedBalanceSummary {
+  totalAssets: number;
+  depositAmount: number;
+  todayProfit: number;
+  todayProfitRate: number;
+  fetchedAt?: string;
+}
+
 interface DashboardCachedBalance {
   assetHistory?: Array<{ date: string; value: number }>;
+  cachedBalance?: CachedBalanceSummary | null;
 }
 
 interface DashboardHolding {
@@ -96,22 +105,11 @@ export default function Dashboard() {
     }
   }, [accounts, accountsLoading, selectedAccountId]);
 
-  // 계좌 선택 or accountType 변경 시 잔고 즉시 재조회
-  // selectedAccountId: 다른 계좌 선택 시
-  // selectedAccount?.accountType: 같은 계좌에서 실계좌↔모의계좌 토글 시
-  useEffect(() => {
-    if (selectedAccount) {
-      kiwoom.fetch(
-        selectedAccount.id,
-        selectedAccount.accountNumber,
-        selectedAccount.accountType as "mock" | "real"
-      );
-    }
-  }, [selectedAccountId, selectedAccount?.accountType]);
-
   // ACCOUNT_TYPE_MISMATCH / IP_NOT_REGISTERED 에러 토스트 표시
+  // fetchedAccountId === selectedAccountId 일 때만 표시 (계좌 전환 시 스테일 오류 방지)
   useEffect(() => {
     if (selectedAccount?.accountType !== "real") return;
+    if (kiwoom.fetchedAccountId !== selectedAccount?.id) return;
     
     if (kiwoom.errorCode === "ACCOUNT_TYPE_MISMATCH") {
       toast({
@@ -211,10 +209,16 @@ export default function Dashboard() {
     return `${n >= 0 ? "+" : ""}${n.toFixed(2)}%`;
   };
 
-  const isLoading = kiwoom.status === "loading";
-  const isSuccess = kiwoom.status === "success";
-  const hasError = kiwoom.status === "error" || kiwoom.status === "agent_timeout";
-  const balance = kiwoom.data;
+  // kiwoom 결과가 현재 선택된 계좌의 것인지 확인 (계좌 전환 시 스테일 방지)
+  const kiwoomIsForCurrentAccount = kiwoom.fetchedAccountId === selectedAccountId;
+  const isIdle = kiwoom.status === "idle" || !kiwoomIsForCurrentAccount;
+  const isLoading = kiwoom.status === "loading" && kiwoomIsForCurrentAccount;
+  const isSuccess = kiwoom.status === "success" && kiwoomIsForCurrentAccount;
+  const hasError = (kiwoom.status === "error" || kiwoom.status === "agent_timeout") && kiwoomIsForCurrentAccount;
+  const balance = isSuccess ? kiwoom.data : null;
+
+  // 마지막 성공한 잔고 조회 캐시 (새로고침 전 기존 데이터 표시용)
+  const cached = cachedBalance?.cachedBalance ?? null;
 
   const assetHistory = assetSnapshots?.map((s: any) => ({
     date: s.date,
@@ -331,7 +335,7 @@ export default function Dashboard() {
               </Select>
               {selectedAccountId && selectedAccount && (
                 <>
-                  {selectedAccount.accountType === "real" && (kiwoom.errorCode === "ACCOUNT_TYPE_MISMATCH" || kiwoom.errorCode === "IP_NOT_REGISTERED") ? (
+                  {selectedAccount.accountType === "real" && hasError && (kiwoom.errorCode === "ACCOUNT_TYPE_MISMATCH" || kiwoom.errorCode === "IP_NOT_REGISTERED") ? (
                     <Badge variant="destructive" data-testid="badge-account-type-error">
                       {kiwoom.errorCode === "ACCOUNT_TYPE_MISMATCH" ? "API 키 오류" : "IP 미등록"}
                     </Badge>
@@ -389,9 +393,11 @@ export default function Dashboard() {
               <div className="text-lg md:text-2xl font-bold font-mono text-glow-cyan truncate" data-testid="text-total-assets">
                 {isLoading ? <span className="text-muted-foreground text-base">조회 중...</span>
                   : isSuccess ? fmt(balance?.totalAssets)
+                  : cached ? fmt(cached.totalAssets)
                   : <span className="text-muted-foreground text-sm">-</span>}
               </div>
               {!selectedAccountId && <p className="text-xs text-muted-foreground">계좌를 연결해주세요</p>}
+              {selectedAccountId && isIdle && !cached && <p className="text-xs text-muted-foreground">새로고침 버튼으로 조회</p>}
             </CardContent>
           </Card>
 
@@ -402,15 +408,23 @@ export default function Dashboard() {
             </CardHeader>
             <CardContent className="pt-0">
               <div
-                className={`text-lg md:text-2xl font-bold font-mono truncate ${isSuccess && balance?.todayProfit && balance.todayProfit > 0 ? "text-[hsl(var(--neon-green))]" : isSuccess && balance?.todayProfit && balance.todayProfit < 0 ? "text-[hsl(var(--neon-red))]" : ""}`}
+                className={`text-lg md:text-2xl font-bold font-mono truncate ${
+                  (isSuccess ? (balance?.todayProfit ?? 0) : (cached?.todayProfit ?? 0)) > 0 ? "text-[hsl(var(--neon-green))]"
+                  : (isSuccess ? (balance?.todayProfit ?? 0) : (cached?.todayProfit ?? 0)) < 0 ? "text-[hsl(var(--neon-red))]" : ""
+                }`}
                 data-testid="text-today-profit"
               >
                 {isLoading ? <span className="text-muted-foreground text-base">조회 중...</span>
                   : isSuccess ? fmt(balance?.todayProfit)
+                  : cached ? fmt(cached.todayProfit)
                   : <span className="text-muted-foreground text-sm">-</span>}
               </div>
-              <p className={`text-xs ${isSuccess && balance?.todayProfitRate && balance.todayProfitRate > 0 ? "text-[hsl(var(--neon-green))]" : isSuccess && balance?.todayProfitRate && balance.todayProfitRate < 0 ? "text-[hsl(var(--neon-red))]" : "text-muted-foreground"}`}>
-                {isSuccess ? fmtPct(balance?.todayProfitRate) : ""}
+              <p className={`text-xs ${
+                (isSuccess ? (balance?.todayProfitRate ?? 0) : (cached?.todayProfitRate ?? 0)) > 0 ? "text-[hsl(var(--neon-green))]"
+                : (isSuccess ? (balance?.todayProfitRate ?? 0) : (cached?.todayProfitRate ?? 0)) < 0 ? "text-[hsl(var(--neon-red))]"
+                : "text-muted-foreground"
+              }`}>
+                {isSuccess ? fmtPct(balance?.todayProfitRate) : cached ? fmtPct(cached.todayProfitRate) : ""}
               </p>
             </CardContent>
           </Card>
@@ -424,6 +438,7 @@ export default function Dashboard() {
               <div className="text-lg md:text-2xl font-bold font-mono" data-testid="text-total-return">
                 {isLoading ? <span className="text-muted-foreground text-base">조회 중...</span>
                   : isSuccess ? fmt(balance?.depositAmount)
+                  : cached ? fmt(cached.depositAmount)
                   : <span className="text-muted-foreground text-sm">-</span>}
               </div>
               <p className="text-xs text-muted-foreground">출금가능금액</p>
@@ -444,8 +459,8 @@ export default function Dashboard() {
           </Card>
         </div>
 
-        {/* 포트폴리오 & 보유종목 — 잔고 조회 성공 시에만 표시 */}
-        {isSuccess && holdings && holdings.length > 0 && (
+        {/* 포트폴리오 & 보유종목 — DB 저장 데이터 표시 (새로고침 전에도 유지) */}
+        {holdings && holdings.length > 0 && (
           <div className="grid gap-3 md:gap-4 grid-cols-1 md:grid-cols-2">
             <Card className="hover-elevate">
               <CardHeader className="pb-2">

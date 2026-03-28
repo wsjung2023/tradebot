@@ -1,5 +1,5 @@
 // use-kiwoom-balance.ts — 서버사이드 에이전트 프록시를 통한 잔고 조회
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { queryClient } from "@/lib/queryClient";
 
 export interface BalanceResult {
@@ -18,6 +18,7 @@ interface UseKiwoomBalanceResult {
   data: BalanceResult | null;
   error: string | null;
   errorCode: string | null;
+  fetchedAccountId: number | null;
   fetch: (accountId: number, accountNumber: string, accountType: "mock" | "real") => Promise<void>;
 }
 
@@ -26,19 +27,31 @@ export function useKiwoomBalance(): UseKiwoomBalanceResult {
   const [data, setData] = useState<BalanceResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<string | null>(null);
+  const [fetchedAccountId, setFetchedAccountId] = useState<number | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   const fetchBalance = useCallback(async (
     accountId: number,
     _accountNumber: string,
     _accountType: "mock" | "real"
   ) => {
+    // 이전 진행 중인 요청 취소 (계좌 전환 시 스테일 응답 방지)
+    if (abortRef.current) {
+      abortRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     setStatus("loading");
-    setData(null);   // 계좌 전환 시 이전 데이터 즉시 초기화 (다른 계좌 데이터가 보이는 버그 방지)
+    setData(null);
     setError(null);
     setErrorCode(null);
+    setFetchedAccountId(accountId);
 
     try {
-      const res = await window.fetch(`/api/accounts/${accountId}/fetch-balance`);
+      const res = await window.fetch(`/api/accounts/${accountId}/fetch-balance`, {
+        signal: controller.signal,
+      });
       const body = await res.json();
 
       if (!res.ok) {
@@ -65,7 +78,9 @@ export function useKiwoomBalance(): UseKiwoomBalanceResult {
       });
       setStatus("success");
       queryClient.invalidateQueries({ queryKey: ["/api/accounts", accountId, "holdings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/accounts", accountId, "balance"] });
     } catch (e: any) {
+      if (e?.name === "AbortError") return;
       setStatus("error");
       setError(e.message || "잔고 조회 중 오류가 발생했습니다.");
       setErrorCode("UNKNOWN");
@@ -73,5 +88,5 @@ export function useKiwoomBalance(): UseKiwoomBalanceResult {
     }
   }, []);
 
-  return { status, data, error, errorCode, fetch: fetchBalance };
+  return { status, data, error, errorCode, fetchedAccountId, fetch: fetchBalance };
 }

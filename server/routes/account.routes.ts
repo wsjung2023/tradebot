@@ -221,6 +221,16 @@ export function registerAccountRoutes(app: Router) {
 
       // 총 자산 = 주식 평가금액 + 예수금
       const totalAssetsWithDeposit = totalAssets + depositAmount;
+      const todayProfitRate = totalAssetsWithDeposit > 0 ? (todayProfit / totalAssetsWithDeposit) * 100 : 0;
+
+      // 마지막 잔고 캐시를 계좌 레코드에 저장 (페이지 진입 시 표시용)
+      await storage.updateKiwoomAccount(account.id, {
+        lastTotalAssets: String(totalAssetsWithDeposit),
+        lastDepositAmount: String(depositAmount),
+        lastTodayProfit: String(todayProfit),
+        lastTodayProfitRate: String(todayProfitRate),
+        lastBalanceFetchedAt: new Date(),
+      });
 
       res.json({
         output1,
@@ -229,7 +239,7 @@ export function registerAccountRoutes(app: Router) {
         stockEvalAmount: totalAssets,
         depositAmount,
         todayProfit,
-        todayProfitRate: totalAssetsWithDeposit > 0 ? (todayProfit / totalAssetsWithDeposit) * 100 : 0,
+        todayProfitRate,
       });
     } catch (err: any) {
       console.error("[fetch-balance] 오류:", err.message);
@@ -252,7 +262,7 @@ export function registerAccountRoutes(app: Router) {
     }
   });
 
-  // 잔고 히스토리 조회 (자산 추이 차트용)
+  // 잔고 캐시 & 히스토리 조회
   app.get("/api/accounts/:accountId/balance", isAuthenticated, async (req, res) => {
     try {
       const user = getCurrentUser(req);
@@ -267,7 +277,16 @@ export function registerAccountRoutes(app: Router) {
         profit: parseFloat(s.profit || "0"),
       }));
 
-      res.json({ assetHistory });
+      // 마지막으로 성공한 잔고 조회 값 반환
+      const cachedBalance = (account as any).lastTotalAssets != null ? {
+        totalAssets: parseFloat((account as any).lastTotalAssets),
+        depositAmount: parseFloat((account as any).lastDepositAmount || "0"),
+        todayProfit: parseFloat((account as any).lastTodayProfit || "0"),
+        todayProfitRate: parseFloat((account as any).lastTodayProfitRate || "0"),
+        fetchedAt: (account as any).lastBalanceFetchedAt,
+      } : null;
+
+      res.json({ assetHistory, cachedBalance });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
