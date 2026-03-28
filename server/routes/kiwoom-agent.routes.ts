@@ -12,6 +12,14 @@ import { isAuthenticated } from "../auth";
 const AGENT_KEY = process.env.AGENT_KEY || "";
 const AGENT_ID = "home-pc-agent"; // 안전한 식별자만 DB에 저장 (실제 키 아님)
 
+// 에이전트 last-seen 추적 (메모리, 재시작 시 리셋)
+let _agentLastSeen: Date | null = null;
+let _agentPollCount = 0;
+function touchAgentSeen() {
+  _agentLastSeen = new Date();
+  _agentPollCount++;
+}
+
 function requireAgentKey(req: Request, res: Response): boolean {
   const key = (req.query.agent_key as string) || (req.headers["x-agent-key"] as string);
   if (!AGENT_KEY || key !== AGENT_KEY) {
@@ -152,6 +160,7 @@ export function registerKiwoomAgentRoutes(app: Express): void {
   app.get("/api/kiwoom-agent/jobs/next", async (req: Request, res: Response) => {
     try {
       if (!requireAgentKey(req, res)) return;
+      touchAgentSeen();
       const supportsRaw =
         (req.headers["x-agent-supports"] as string | undefined) ||
         (req.query.supports as string | undefined) ||
@@ -357,6 +366,24 @@ export function registerKiwoomAgentRoutes(app: Express): void {
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
+  });
+
+  // ─── 에이전트 연결 정보 — 설정 페이지용 ──────────────────────────────────
+  app.get("/api/kiwoom-agent/connection-info", isAuthenticated, async (req: Request, res: Response) => {
+    const domain = process.env.REPLIT_DOMAINS || "";
+    const serverUrl = domain ? `https://${domain}` : "";
+    const agentKeyConfigured = !!AGENT_KEY;
+    const lastSeen = _agentLastSeen ? _agentLastSeen.toISOString() : null;
+    const secondsAgo = _agentLastSeen ? Math.round((Date.now() - _agentLastSeen.getTime()) / 1000) : null;
+    const isActive = secondsAgo !== null && secondsAgo < 30;
+    res.json({
+      serverUrl,
+      agentKeyConfigured,
+      agentLastSeen: lastSeen,
+      agentLastSeenSecondsAgo: secondsAgo,
+      isAgentActive: isActive,
+      pollCount: _agentPollCount,
+    });
   });
 
   // ─── 키움 시스템 점검 상태 확인 (에이전트 경유) ─────────────────────────
