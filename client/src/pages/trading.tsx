@@ -7,17 +7,14 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import {
-  ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, ReferenceLine, ReferenceDot,
-} from "recharts";
-import { TrendingUp, DollarSign, AlertCircle, Loader2 } from "lucide-react";
+import { TrendingUp, DollarSign } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useMarketStream } from "@/hooks/use-market-stream";
 import { ConnectionStatus } from "@/components/connection-status";
 import type { KiwoomAccount } from "@shared/schema";
 import { StockSelector } from "@/components/stocks/StockSelector";
+import { StockCandleChart } from "@/components/stocks/StockCandleChart";
 import type { SelectedStock } from "@/lib/stocks";
 
 type ChartSignal = {
@@ -28,14 +25,6 @@ type ChartSignal = {
   chartDate?: string;
 };
 
-type ChartPoint = {
-  date: string;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume: number;
-};
 
 type ChartFormula = {
   id: number;
@@ -54,76 +43,6 @@ type FormulaOverlay = {
   };
 };
 
-type RainbowLine = { price: number; label: string; color: string; width: number };
-type RainbowData = {
-  lines: RainbowLine[] | null;
-  clWidth: number;
-} | null;
-
-type CandlePayload = {
-  open: number;
-  close: number;
-  high: number;
-  low: number;
-  [key: string]: unknown;
-};
-
-type CandleShapeProps = {
-  x?: number | string;
-  y?: number | string;
-  width?: number | string;
-  height?: number | string;
-  payload?: CandlePayload;
-  [key: string]: unknown;
-};
-
-function isCandlePayload(p: unknown): p is CandlePayload {
-  return (
-    typeof p === "object" && p !== null &&
-    typeof (p as CandlePayload).open === "number" &&
-    typeof (p as CandlePayload).close === "number" &&
-    typeof (p as CandlePayload).high === "number" &&
-    typeof (p as CandlePayload).low === "number"
-  );
-}
-
-function CandleStickShape(props: unknown) {
-  if (typeof props !== "object" || props === null) return <g />;
-  const p = props as Record<string, unknown>;
-  const nx = Number(p.x ?? 0);
-  const ny = Number(p.y ?? 0);
-  const nw = Number(p.width ?? 0);
-  const nh = Number(p.height ?? 0);
-  if (!isCandlePayload(p.payload) || nh <= 0 || nw <= 0) return <g />;
-  const { open, close, high, low } = p.payload;
-  const isUp = close >= open;
-  const color = isUp ? "#ef4444" : "#3b82f6";
-  const centerX = nx + nw / 2;
-  const range = high - low;
-  if (range === 0) {
-    return <g><line x1={centerX} y1={ny} x2={centerX} y2={ny + nh} stroke={color} strokeWidth={1} /></g>;
-  }
-  const bodyTopRaw = Math.max(open, close);
-  const bodyBottomRaw = Math.min(open, close);
-  const bodyTop = ny + nh * (high - bodyTopRaw) / range;
-  const bodyH = Math.max(1, nh * (bodyTopRaw - bodyBottomRaw) / range);
-  return (
-    <g>
-      <line x1={centerX} y1={ny} x2={centerX} y2={ny + nh} stroke={color} strokeWidth={1} />
-      <rect x={nx + 1} y={bodyTop} width={Math.max(1, nw - 2)} height={bodyH} fill={color} stroke={color} strokeWidth={0.5} />
-    </g>
-  );
-}
-
-function ChartStatusMessage({ title, description }: { title: string; description?: string }) {
-  return (
-    <div className="flex min-h-[250px] flex-col items-center justify-center gap-2 text-center text-muted-foreground md:min-h-[400px]">
-      <AlertCircle className="h-5 w-5" />
-      <p className="text-sm font-medium text-foreground">{title}</p>
-      {description && <p className="max-w-md text-xs md:text-sm">{description}</p>}
-    </div>
-  );
-}
 
 export default function Trading() {
   const { toast } = useToast();
@@ -135,8 +54,6 @@ export default function Trading() {
   const [priceType, setPriceType] = useState<"market" | "limit">("market");
   const [quantity, setQuantity] = useState("");
   const [price, setPrice] = useState("");
-  const [showRainbow, setShowRainbow] = useState(false);
-  const [chartType, setChartType] = useState<"line" | "candle">("candle");
   const [chartPeriod, setChartPeriod] = useState<"D" | "W" | "M">("D");
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
   const [activeFormulaId, setActiveFormulaId] = useState<number | null>(null);
@@ -157,15 +74,6 @@ export default function Trading() {
     }
   }, [stockPrice?.currentPrice, priceType]);
 
-  const { data: chartData = [], isPending: isChartLoading, error: chartError } = useQuery<ChartPoint[]>({
-    queryKey: ["stock-chart", stockCode, chartPeriod],
-    enabled: !!stockCode,
-    queryFn: async () => {
-      const response = await apiRequest("GET", `/api/stocks/${stockCode}/chart?period=${chartPeriod}`);
-      const data = await response.json();
-      return Array.isArray(data) ? data : [];
-    },
-  });
 
   const { data: chartFormulas = [] } = useQuery<ChartFormula[]>({
     queryKey: ["/api/chart-formulas"],
@@ -185,15 +93,6 @@ export default function Trading() {
       const response = await apiRequest("GET", `/api/stocks/${stockCode}/chart-signals`);
       const data = await response.json();
       return Array.isArray(data) ? data : [];
-    },
-  });
-
-  const { data: rainbowData, isFetching: rainbowLoading } = useQuery<RainbowData>({
-    queryKey: ["stock-rainbow", stockCode],
-    enabled: !!stockCode && showRainbow,
-    queryFn: async () => {
-      const response = await apiRequest("GET", `/api/stocks/${stockCode}/rainbow-lines`);
-      return response.json();
     },
   });
 
@@ -289,32 +188,15 @@ export default function Trading() {
     .filter((signal) => signal.chartDate && signal.chartPrice > 0)
     .slice(-200), [chartSignals, stockPrice?.currentPrice]);
 
-  const rainbowLines: RainbowLine[] = rainbowData?.lines ?? [];
-  const formulaValueMap = useMemo(() => {
-    const map = new Map<string, number | null>();
-    for (const point of formulaOverlay?.signalLine?.values ?? []) {
-      map.set(point.date, point.value);
-    }
-    return map;
+  // 수식 오버레이 데이터를 StockCandleChart의 overlayLine 형식으로 변환
+  const overlayLine = useMemo(() => {
+    if (!formulaOverlay?.signalLine?.values) return null;
+    return {
+      values: formulaOverlay.signalLine.values,
+      color: formulaOverlay.signalLine.color,
+      name: formulaOverlay.signalLine.name || formulaOverlay.formulaName,
+    };
   }, [formulaOverlay]);
-  const mergedChartData = useMemo(
-    () => chartData.map((candle) => ({
-      ...candle,
-      formulaValue: formulaValueMap.get(candle.date) ?? null,
-      candleRange: [candle.low, candle.high],
-    })),
-    [chartData, formulaValueMap],
-  );
-
-  const chartState = !stockCode
-    ? "empty"
-    : isChartLoading
-      ? "loading"
-      : chartError
-        ? "error"
-        : chartData.length === 0
-          ? "no-data"
-          : "ready";
 
   return (
     <div className="p-3 md:p-6 space-y-4 md:space-y-6">
@@ -424,44 +306,23 @@ export default function Trading() {
       <div className="grid gap-3 md:gap-4 grid-cols-1 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader className="pb-2">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <CardTitle className="text-base md:text-lg">{stockPrice?.stockName || stockName || "종목 선택 필요"} 차트</CardTitle>
-                <CardDescription className="text-xs md:text-sm">
-                  {chartPeriod === "D" ? "일봉" : chartPeriod === "W" ? "주봉" : "월봉"} 차트
-                </CardDescription>
-              </div>
-              <div className="flex flex-wrap items-center justify-end gap-2">
-                <div className="flex gap-1">
-                  <Button
-                    size="sm"
-                    variant={chartType === "candle" ? "default" : "outline"}
-                    onClick={() => setChartType("candle")}
-                    className="text-xs"
-                    data-testid="button-chart-candle"
-                  >
-                    봉차트
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant={chartType === "line" ? "default" : "outline"}
-                    onClick={() => setChartType("line")}
-                    className="text-xs"
-                    data-testid="button-chart-line"
-                  >
-                    선차트
-                  </Button>
-                </div>
-                <Select value={chartPeriod} onValueChange={(value: "D" | "W" | "M") => setChartPeriod(value)}>
-                  <SelectTrigger className="w-24" data-testid="select-chart-period">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="D">일봉</SelectItem>
-                    <SelectItem value="W">주봉</SelectItem>
-                    <SelectItem value="M">월봉</SelectItem>
-                  </SelectContent>
-                </Select>
+            <CardTitle className="text-base md:text-lg">
+              {stockPrice?.stockName || stockName || "종목 선택 필요"} 차트
+            </CardTitle>
+            <CardDescription className="text-xs md:text-sm">
+              {chartPeriod === "D" ? "일봉" : chartPeriod === "W" ? "주봉" : "월봉"} 차트
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <StockCandleChart
+              stockCode={stockCode}
+              stockName={stockPrice?.stockName || stockName}
+              height={400}
+              period={chartPeriod}
+              onPeriodChange={setChartPeriod}
+              overlayLine={overlayLine}
+              signalDots={normalizedSignalDots}
+              formulaSelector={
                 <Select
                   value={activeFormulaId ? String(activeFormulaId) : "none"}
                   onValueChange={(value) => setActiveFormulaId(value === "none" ? null : Number(value))}
@@ -478,114 +339,8 @@ export default function Trading() {
                     ))}
                   </SelectContent>
                 </Select>
-                {rainbowData && showRainbow && rainbowLines.length > 0 && (
-                  <Badge variant="outline" className="text-xs">
-                    CL폭 {rainbowData.clWidth}%
-                  </Badge>
-                )}
-                <Button
-                  size="sm"
-                  variant={showRainbow ? "default" : "outline"}
-                  onClick={() => setShowRainbow((value) => !value)}
-                  disabled={rainbowLoading || !stockCode}
-                  className="text-xs"
-                >
-                  {rainbowLoading ? "로딩..." : showRainbow ? "🌈 레인보우 ON" : "🌈 레인보우"}
-                </Button>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {chartState === "ready" ? (
-              <ResponsiveContainer width="100%" height={250} className="md:!h-[400px]">
-                <ComposedChart data={mergedChartData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="date" tick={{ fontSize: 10 }} />
-                  <YAxis domain={["auto", "auto"]} tick={{ fontSize: 10 }} />
-                  <Tooltip
-                    formatter={(value: number | number[], name: string) => {
-                      if (name === "가격" && Array.isArray(value)) {
-                        return [`${formatCurrency(value[0])} ~ ${formatCurrency(value[1])}`, "고저"];
-                      }
-                      return [formatCurrency(Number(value)), name];
-                    }}
-                  />
-                  {chartType === "line" && (
-                    <Line
-                      type="monotone"
-                      dataKey="close"
-                      stroke="#8884d8"
-                      strokeWidth={2}
-                      dot={false}
-                      name="종가"
-                    />
-                  )}
-                  {chartType === "candle" && (
-                    <Bar
-                      dataKey="candleRange"
-                      shape={CandleStickShape}
-                      maxBarSize={14}
-                      isAnimationActive={false}
-                      name="가격"
-                    />
-                  )}
-                  {formulaOverlay && (
-                    <Line
-                      type="monotone"
-                      dataKey="formulaValue"
-                      stroke={formulaOverlay.signalLine?.color || "#8b5cf6"}
-                      dot={false}
-                      strokeWidth={2}
-                      name={formulaOverlay.signalLine?.name || formulaOverlay.formulaName || "수식"}
-                      connectNulls
-                    />
-                  )}
-                  {showRainbow &&
-                    rainbowLines.map((line) => (
-                      <ReferenceLine
-                        key={line.label}
-                        y={line.price}
-                        stroke={line.color}
-                        strokeWidth={line.width}
-                        strokeDasharray={line.label === "CL" ? "0" : "4 2"}
-                        label={{ value: line.label, fill: line.color, fontSize: 10, position: "insideTopRight" }}
-                      />
-                    ))}
-                  {normalizedSignalDots.map((signal, index) => (
-                    <ReferenceDot
-                      key={`signal-${signal.id}-${index}`}
-                      x={signal.chartDate}
-                      y={signal.chartPrice}
-                      r={5}
-                      fill={signal.signal === "buy" ? "#22c55e" : "#f59e0b"}
-                      stroke={signal.signal === "buy" ? "#15803d" : "#b45309"}
-                      ifOverflow="visible"
-                    />
-                  ))}
-                </ComposedChart>
-              </ResponsiveContainer>
-            ) : chartState === "loading" ? (
-              <div className="flex min-h-[250px] items-center justify-center md:min-h-[400px]">
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" /> 차트 데이터를 불러오는 중입니다.
-                </div>
-              </div>
-            ) : chartState === "error" ? (
-              <ChartStatusMessage
-                title="차트 조회에 실패했습니다."
-                description={chartError instanceof Error ? chartError.message : "에이전트 연결 또는 응답 데이터를 확인해주세요."}
-              />
-            ) : chartState === "no-data" ? (
-              <ChartStatusMessage
-                title="차트 데이터가 없습니다."
-                description="선택한 종목에 대한 응답은 왔지만 차트 데이터가 비어 있습니다. 에이전트 응답과 종목 코드를 확인해주세요."
-              />
-            ) : (
-              <ChartStatusMessage
-                title="종목을 먼저 선택해주세요."
-                description="검색 결과에서 종목을 선택하면 차트와 호가가 함께 연결됩니다."
-              />
-            )}
+              }
+            />
           </CardContent>
         </Card>
 

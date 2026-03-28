@@ -1,70 +1,11 @@
-﻿// trading.routes.ts - 실시간 시세 조회, 주문 처리 및 거래 로그 라우터
+// trading.routes.ts - 실시간 시세 조회, 주문 처리 및 거래 로그 라우터
 import type { Router } from "express";
 import { storage } from "../storage";
 import { isAuthenticated, getCurrentUser } from "../auth";
 import { insertOrderSchema } from "@shared/schema";
 import { callViaAgent, AgentTimeoutError } from "../services/agent-proxy.service";
 import { getUserKiwoomService } from "../services/user-kiwoom.service";
-
-type RainbowLineItem = { label: string; price: number; color: string; width: number };
-
-// BackAttack 레인보우 라인 계산 (BackAttackLine.md 수식 기반)
-function calcRainbowLines(chartItems: { date: string; high: number; low: number; close: number }[]): { lines: RainbowLineItem[]; clWidth: number } | null {
-  const PERIOD = 240;
-  if (chartItems.length < PERIOD) return null;
-
-  const slice = chartItems.slice(-PERIOD);
-  const highs = slice.map((d) => d.high);
-  const lows = slice.map((d) => d.low);
-
-  // valuewhen: 최고가 갱신 시점의 (최고가+최저가)/2
-  let CL = 0;
-  const prevHighest = Math.max(...chartItems.slice(-PERIOD - 1, -1).map((d) => d.high));
-  const curHighest = Math.max(...highs);
-  const curLowest = Math.min(...lows);
-
-  if (prevHighest < curHighest || CL === 0) {
-    CL = (curHighest + curLowest) / 2;
-  } else {
-    // CL 미갱신 — 전체 배열에서 마지막 갱신 시점 역추적
-    let found = false;
-    for (let i = chartItems.length - 1; i >= PERIOD; i--) {
-      const prev240High = Math.max(...chartItems.slice(i - PERIOD, i).map((d) => d.high));
-      const cur240High = Math.max(...chartItems.slice(i - PERIOD + 1, i + 1).map((d) => d.high));
-      if (prev240High < cur240High) {
-        const highest = cur240High;
-        const lowest = Math.min(...chartItems.slice(i - PERIOD + 1, i + 1).map((d) => d.low));
-        CL = (highest + lowest) / 2;
-        found = true;
-        break;
-      }
-    }
-    if (!found) CL = (curHighest + curLowest) / 2;
-  }
-
-  // interval = (최고가 - CL) / 5  ← CL 폭 기준
-  const highest = curHighest;
-  const interval = (highest - CL) / 5;
-
-  // CL폭 = (1 - CL1 / highest) * 100, CL1 = 20% 라인 가격 (BackAttackLine.md 4장)
-  const clWidth = interval > 0 ? Math.round((interval * 2 / highest) * 1000) / 10 : 0;
-
-  const lines: RainbowLineItem[] = [
-    { label: "MAX", price: highest,                 color: "#000000", width: 2 },
-    { label: "10%", price: highest - interval * 1,  color: "#9966CC", width: 1 },
-    { label: "20%", price: highest - interval * 2,  color: "#FF0000", width: 1 },
-    { label: "30%", price: highest - interval * 3,  color: "#FF8C00", width: 1 },
-    { label: "40%", price: highest - interval * 4,  color: "#FFD700", width: 1 },
-    { label: "CL",  price: highest - interval * 5,  color: "#00AA00", width: 2 },
-    { label: "60%", price: highest - interval * 6,  color: "#0000FF", width: 1 },
-    { label: "70%", price: highest - interval * 7,  color: "#000080", width: 1 },
-    { label: "80%", price: highest - interval * 8,  color: "#8800CC", width: 1 },
-    { label: "90%", price: highest - interval * 9,  color: "#333333", width: 1 },
-    { label: "MIN", price: highest - interval * 10, color: "#000000", width: 2 },
-  ];
-
-  return { lines, clWidth };
-}
+import { RainbowChartAnalyzer } from "../formula/rainbow-chart";
 
 export function registerTradingRoutes(app: Router) {
   const userKiwoomService = getUserKiwoomService();
@@ -148,16 +89,38 @@ export function registerTradingRoutes(app: Router) {
     }
   });
 
-  // 레인보우 라인 조회 (BackAttack Line, 수식: BackAttackLine.md)
+  // 레인보우 라인 조회 (BackAttack Line — RainbowChartAnalyzer 공통 모듈 사용)
   app.get("/api/stocks/:stockCode/rainbow-lines", isAuthenticated, async (req, res) => {
     try {
       const user = getCurrentUser(req);
-      const result = await userKiwoomService.getChart(user!.id, req.params.stockCode, "D", 260);
-      const chartItems: any[] = Array.isArray(result) ? result : (result?.items || []);
+      const rawData = await userKiwoomService.getChart(user!.id, req.params.stockCode, "D", 260);
+      const chartItems: any[] = Array.isArray(rawData) ? rawData : (rawData?.items || []);
       if (chartItems.length < 10) return res.json({ lines: null, clWidth: 0, message: "데이터 부족" });
-      const result2 = calcRainbowLines(chartItems);
-      if (!result2) return res.json({ lines: null, clWidth: 0, message: "데이터 부족 (240봉 미만)" });
-      res.json({ lines: result2.lines, clWidth: result2.clWidth, dataPoints: chartItems.length });
+      if (chartItems.length < 240) return res.json({ lines: null, clWidth: 0, message: "데이터 부족 (240봉 미만)" });
+
+      const result = RainbowChartAnalyzer.analyze(req.params.stockCode, chartItems, 240);
+
+      // 거래 페이지 ReferenceLine 형식으로 변환 (label, price, color, width)
+      const COLORS: Record<string, string> = {
+        MAX: "#0f172a", "90%": "#334155", "80%": "#1e40af", "70%": "#3b82f6",
+        "60%": "#64748b", CL: "#22c55e", "40%": "#64748b", "30%": "#eab308",
+        "20%": "#f97316", "10%": "#ef4444", MIN: "#7c3aed",
+      };
+      const lines = result.lines.map((l) => ({
+        label: l.name,
+        price: l.price,
+        color: COLORS[l.name] ?? "#888888",
+        width: l.name === "CL" || l.name === "MAX" || l.name === "MIN" ? 2 : 1,
+      }));
+
+      res.json({
+        lines,
+        clWidth: result.clWidth,
+        currentPosition: result.currentPosition,
+        CL: result.CL,
+        recommendation: result.recommendation,
+        dataPoints: chartItems.length,
+      });
     } catch (error: any) {
       if (error instanceof AgentTimeoutError) return res.status(503).json({ error: error.message });
       res.status(500).json({ error: error.message });

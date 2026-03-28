@@ -11,7 +11,8 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { RainbowChart, getRecommendationBadge } from "@/components/rainbow-chart";
+import { getRecommendationBadge } from "@/components/rainbow-chart";
+import { StockCandleChart } from "@/components/stocks/StockCandleChart";
 
 // ─── 타입 정의 ─────────────────────────────────────────────────────────────
 
@@ -468,59 +469,40 @@ export default function BackAttackScan() {
                   </CardContent>
                 </Card>
 
-                {/* 레인보우 차트 */}
+                {/* 봉차트 + 레인보우 오버레이 (거래 페이지와 공유 컴포넌트) */}
                 <Card>
                   <CardHeader className="pb-3">
                     <CardTitle className="text-base flex items-center gap-2">
                       <BarChart3 className="w-4 h-4" />
-                      레인보우 차트 분석
+                      차트
                     </CardTitle>
                     <CardDescription className="text-xs">
-                      BackAttack Line — CL(50%) 기준 240일 rolling window
+                      봉차트 · BackAttack Line 레인보우 오버레이
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <RainbowChart
-                      data={selectedStock.rainbowAnalysis.chartData || []}
-                      current={selectedStock.currentPrice}
-                      currentPosition={selectedStock.currentPosition}
-                      clWidth={selectedStock.clWidth}
-                      recommendation={selectedStock.recommendation}
-                      signals={selectedStock.signals}
-                      showMetrics={true}
-                      height={380}
-                    />
-
-                    {/* 11개 라인 가격표 */}
-                    {selectedStock.rainbowAnalysis.lines?.length > 0 && (
-                      <div className="mt-4">
-                        <p className="text-xs font-medium text-muted-foreground mb-2">레인보우 라인 가격</p>
-                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                          {[...selectedStock.rainbowAnalysis.lines]
-                            .sort((a, b) => b.percentage - a.percentage)
-                            .map((line) => (
-                              <div
-                                key={line.name}
-                                className={`flex items-center justify-between px-3 py-1.5 rounded-md text-sm ${
-                                  line.name === 'CL' ? 'border-2 border-green-500 bg-green-50 dark:bg-green-950/30' : 'border'
-                                }`}
-                                data-testid={`line-${line.name}`}
-                              >
-                                <div className="flex items-center gap-2">
-                                  <div
-                                    className="w-3 h-3 rounded-full flex-shrink-0"
-                                    style={{ backgroundColor: line.color }}
-                                  />
-                                  <span className="font-medium">{line.name}</span>
-                                </div>
-                                <span className="font-mono text-xs">
-                                  {formatKRW(Math.round(line.price))}
-                                </span>
-                              </div>
-                            ))}
-                        </div>
+                    {/* CL 분석 요약 (스캔 결과에서 바로 표시) */}
+                    <div className="grid grid-cols-3 gap-2 mb-4">
+                      <div className="rounded-md border p-2 text-center">
+                        <p className="text-xs text-muted-foreground">CL 위치</p>
+                        <p className="text-base font-bold font-mono">{selectedStock.currentPosition.toFixed(1)}%</p>
                       </div>
-                    )}
+                      <div className="rounded-md border p-2 text-center">
+                        <p className="text-xs text-muted-foreground">CL 폭</p>
+                        <p className="text-base font-bold font-mono">{selectedStock.clWidth.toFixed(1)}%</p>
+                      </div>
+                      <div className="rounded-md border p-2 text-center">
+                        <p className="text-xs text-muted-foreground">판단</p>
+                        <div className="mt-0.5">{getRecommendationBadge(selectedStock.recommendation)}</div>
+                      </div>
+                    </div>
+
+                    <StockCandleChart
+                      stockCode={selectedStock.stockCode}
+                      stockName={selectedStock.stockName}
+                      height={360}
+                      defaultShowRainbow={true}
+                    />
                   </CardContent>
                 </Card>
               </div>

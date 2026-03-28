@@ -6,14 +6,6 @@ import { AgentTimeoutError, callViaAgent } from "../services/agent-proxy.service
 import { getUserKiwoomService } from "../services/user-kiwoom.service";
 import { RainbowChartAnalyzer } from "../formula/rainbow-chart";
 
-/**
- * 레인보우 차트 데이터 빌드
- * OHLCV 데이터 + 레인보우 라인 가격을 합쳐 차트 컴포넌트용 배열 생성
- * lines는 percentage 오름차순 정렬(0%=MIN → 100%=MAX)
- */
-function buildRainbowChartData(ohlcvData: any[], _rainbowResult: any, maxBars = 120) {
-  return RainbowChartAnalyzer.computePerBarChartData(ohlcvData, 240, maxBars);
-}
 
 export function registerAutoTradingRoutes(app: Router) {
   const userKiwoomService = getUserKiwoomService();
@@ -114,9 +106,6 @@ export function registerAutoTradingRoutes(app: Router) {
           const currentPrice = priceByCode[stockCode] || rainbowResult.current;
           const changeRate = changeRateByCode[stockCode] || 0;
 
-          // 레인보우 차트 컴포넌트용 데이터 (OHLCV + 11개 라인 가격)
-          const chartData = buildRainbowChartData(rawChartData, rainbowResult, 90);
-
           console.log(
             `[backattack-scan] ${stockName}(${stockCode}) ` +
             `CL위치=${currentPosition.toFixed(1)}% CL폭=${clWidth.toFixed(1)}% ` +
@@ -140,8 +129,13 @@ export function registerAutoTradingRoutes(app: Router) {
               inSellZone: signals.aboveCL && !isInBuyZone,
             },
             rainbowAnalysis: {
-              ...rainbowResult,
-              chartData,
+              current: rainbowResult.current,
+              CL: rainbowResult.CL,
+              clWidth: rainbowResult.clWidth,
+              currentPosition: rainbowResult.currentPosition,
+              recommendation: rainbowResult.recommendation,
+              lines: rainbowResult.lines,
+              signals: rainbowResult.signals,
             },
           });
         } catch (error: any) {
