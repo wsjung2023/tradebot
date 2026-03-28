@@ -121,13 +121,14 @@ def get_kiwoom_token(is_mock=False):
     return _tokens[key]
 
 
-def kiwoom_post(path, api_id, body=None, is_mock=None):
+def kiwoom_post(path, api_id, body=None, is_mock=None, _retry=True):
     """
     키움 REST API POST 요청
     - Content-Type: application/json;charset=UTF-8
     - Authorization: Bearer {token}
     - api-id: {api_id}  ← 필수 헤더
     - is_mock: None이면 KIWOOM_IS_MOCK 전역 설정 사용, True/False 이면 강제 적용
+    - _retry: 401 시 토큰 재발급 후 1회 재시도 (내부용)
     """
     use_mock = KIWOOM_IS_MOCK if is_mock is None else is_mock
     token = get_kiwoom_token(is_mock=use_mock)
@@ -139,8 +140,18 @@ def kiwoom_post(path, api_id, body=None, is_mock=None):
     }
     url = f"{base_url}{path}"
     resp = requests.post(url, headers=headers, json=body or {}, timeout=10)
+    # 401 Unauthorized → 토큰 재발급 후 1회 재시도
+    if resp.status_code == 401 and _retry:
+        logger.warning(f"[kiwoom_post] 401 Unauthorized ({api_id}) → 토큰 재발급 후 재시도")
+        key = "mock" if use_mock else "real"
+        _tokens[key] = None  # 강제 만료
+        refresh_kiwoom_token(is_mock=use_mock)
+        return kiwoom_post(path, api_id, body=body, is_mock=is_mock, _retry=False)
     resp.raise_for_status()
-    data = resp.json()
+    raw_text = resp.text.strip() if resp.text else ""
+    if not raw_text:
+        raise ValueError(f"키움 API 빈 응답 (api-id: {api_id}, status: {resp.status_code}) — 토큰 만료 또는 서버 오류일 수 있음")
+    data = json.loads(raw_text)
     rc = data.get("return_code")
     if rc is not None and rc != 0 and str(rc) != "0":
         raise ValueError(f"키움 API 오류: {data.get('return_msg')} (code: {rc})")
