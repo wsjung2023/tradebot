@@ -63,7 +63,10 @@ export function registerAutoTradingRoutes(app: Router) {
         const code = item.stock_code || item.stck_cd || item.code;
         const name = item.stock_name || item.stck_nm || item.name;
         const price = Number(item.current_price || item.stck_prpr || item.cur_prc || 0);
-        const changeRate = Number(item.change_rate || item.prdy_ctrt || 0);
+        // Kiwoom WebSocket 조건검색 chng_rt는 0.001% 단위 (-10020 = -10.02%)
+        // REST prdy_ctrt는 이미 % 단위 (-10.02). abs > 100이면 1000으로 나눔
+        const rawRate = Number(item.change_rate || item.prdy_ctrt || 0);
+        const changeRate = Math.abs(rawRate) > 100 ? rawRate / 1000 : rawRate;
         if (code) {
           if (name) nameByCode[code] = name;
           if (price) priceByCode[code] = price;

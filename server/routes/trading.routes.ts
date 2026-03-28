@@ -89,7 +89,30 @@ export function registerTradingRoutes(app: Router) {
     }
   });
 
-  // 레인보우 라인 조회 (BackAttack Line — RainbowChartAnalyzer 공통 모듈 사용)
+  // 레인보우 봉별 차트 데이터 (BackAttack Line — per-bar, 동적 선)
+  // 반환: OHLCV + line0(MIN)~line10(MAX) 각 봉마다 레인보우 라인 가격, oldest-first 정렬
+  app.get("/api/stocks/:stockCode/rainbow-chart", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const period = (req.query.period as string) || "D";
+      // 240봉 lookback + 충분한 표시 구간 확보 (약 450봉)
+      const rawData = await userKiwoomService.getChart(user!.id, req.params.stockCode, period, 450);
+      const chartItems: any[] = Array.isArray(rawData) ? rawData : (rawData?.items || []);
+      if (chartItems.length < 240) return res.json([]);
+
+      // Kiwoom API → 최신순(newest-first). 수식은 oldest-first 필요
+      const oldestFirst = [...chartItems].reverse();
+
+      const perBarData = RainbowChartAnalyzer.computePerBarChartData(oldestFirst, 240);
+      // perBarData는 oldest-first (차트에 바로 사용 가능)
+      res.json(perBarData);
+    } catch (error: any) {
+      if (error instanceof AgentTimeoutError) return res.status(503).json({ error: error.message });
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // 레인보우 라인 조회 (현재 스냅샷 — BackAttack Line summary)
   app.get("/api/stocks/:stockCode/rainbow-lines", isAuthenticated, async (req, res) => {
     try {
       const user = getCurrentUser(req);
@@ -98,9 +121,10 @@ export function registerTradingRoutes(app: Router) {
       if (chartItems.length < 10) return res.json({ lines: null, clWidth: 0, message: "데이터 부족" });
       if (chartItems.length < 240) return res.json({ lines: null, clWidth: 0, message: "데이터 부족 (240봉 미만)" });
 
-      const result = RainbowChartAnalyzer.analyze(req.params.stockCode, chartItems, 240);
+      // Kiwoom API → 최신순(newest-first). 수식은 oldest-first 필요
+      const oldestFirst = [...chartItems].reverse();
+      const result = RainbowChartAnalyzer.analyze(req.params.stockCode, oldestFirst, 240);
 
-      // 거래 페이지 ReferenceLine 형식으로 변환 (label, price, color, width)
       const COLORS: Record<string, string> = {
         MAX: "#0f172a", "90%": "#334155", "80%": "#1e40af", "70%": "#3b82f6",
         "60%": "#64748b", CL: "#22c55e", "40%": "#64748b", "30%": "#eab308",

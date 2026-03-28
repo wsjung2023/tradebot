@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, ReferenceLine, ReferenceDot,
+  ResponsiveContainer, ReferenceDot,
 } from "recharts";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -22,8 +22,6 @@ type ChartPoint = {
   candleRange?: [number, number];
   formulaValue?: number | null;
 };
-
-type RainbowLine = { label: string; price: number; color: string; width: number };
 
 type SignalDot = {
   id: number;
@@ -106,6 +104,21 @@ function ChartStatusMessage({ title, description }: { title: string; description
   );
 }
 
+// 레인보우 라인별 색상·두께 설정 (line0=MIN ~ line10=MAX)
+const RAINBOW_LINE_CONFIG = [
+  { key: "line0",  label: "MIN", color: "#7c3aed", width: 1.5 },
+  { key: "line1",  label: "10%", color: "#ef4444", width: 1   },
+  { key: "line2",  label: "20%", color: "#f97316", width: 1   },
+  { key: "line3",  label: "30%", color: "#eab308", width: 1   },
+  { key: "line4",  label: "40%", color: "#64748b", width: 1   },
+  { key: "line5",  label: "CL",  color: "#22c55e", width: 2   },
+  { key: "line6",  label: "60%", color: "#64748b", width: 1   },
+  { key: "line7",  label: "70%", color: "#3b82f6", width: 1   },
+  { key: "line8",  label: "80%", color: "#1e40af", width: 1   },
+  { key: "line9",  label: "90%", color: "#334155", width: 1   },
+  { key: "line10", label: "MAX", color: "#0f172a", width: 1.5 },
+] as const;
+
 // ─── 메인 컴포넌트 ───────────────────────────────────────────────────────────
 
 export function StockCandleChart({
@@ -133,34 +146,27 @@ export function StockCandleChart({
     onPeriodChange?.(p);
   };
 
-  // 봉차트 데이터
+  // 레인보우 ON → /rainbow-chart (per-bar OHLCV+라인, oldest-first)
+  // 레인보우 OFF → /chart (OHLCV, newest-first → reverse)
   const { data: rawChartData = [], isPending: chartLoading, error: chartError } = useQuery<ChartPoint[]>({
-    queryKey: ["stock-chart", stockCode, period],
+    queryKey: ["stock-chart", stockCode, period, showRainbow],
     enabled: !!stockCode,
     queryFn: async () => {
-      const res = await apiRequest("GET", `/api/stocks/${stockCode}/chart?period=${period}`);
-      const data = await res.json();
-      return Array.isArray(data) ? data : [];
+      if (showRainbow) {
+        const res = await apiRequest("GET", `/api/stocks/${stockCode}/rainbow-chart?period=${period}`);
+        const data = await res.json();
+        return Array.isArray(data) ? data : [];
+      } else {
+        const res = await apiRequest("GET", `/api/stocks/${stockCode}/chart?period=${period}`);
+        const data = await res.json();
+        // Kiwoom는 최신순(newest-first) → oldest-first로 역순
+        return Array.isArray(data) ? [...data].reverse() : [];
+      }
     },
   });
 
-  // 레인보우 라인 데이터
-  const { data: rainbowData, isFetching: rainbowLoading } = useQuery<{
-    lines: RainbowLine[] | null;
-    clWidth: number;
-    currentPosition?: number;
-    CL?: number;
-    recommendation?: string;
-  } | null>({
-    queryKey: ["stock-rainbow", stockCode],
-    enabled: !!stockCode && showRainbow,
-    queryFn: async () => {
-      const res = await apiRequest("GET", `/api/stocks/${stockCode}/rainbow-lines`);
-      return res.json();
-    },
-  });
-
-  const rainbowLines = rainbowData?.lines ?? [];
+  // 레인보우 ON 여부 (per-bar 데이터에 라인이 포함됨)
+  const hasRainbowData = showRainbow && rawChartData.length > 0 && "line5" in (rawChartData[0] ?? {});
 
   // 차트 데이터 + 캔들 범위 + 수식 오버레이 병합
   const chartData = useMemo<ChartPoint[]>(() => {
@@ -175,6 +181,9 @@ export function StockCandleChart({
       formulaValue: overlayLine ? (overlayMap[bar.date] ?? null) : undefined,
     }));
   }, [rawChartData, overlayLine]);
+
+  // 레인보우 로딩 상태 (rainbow-chart 재요청 중)
+  const rainbowLoading = chartLoading && showRainbow;
 
   const formatCurrency = (v: number) =>
     isNaN(v) ? "-" : `₩${Math.round(v).toLocaleString("ko-KR")}`;
@@ -224,12 +233,9 @@ export function StockCandleChart({
 
           {formulaSelector}
 
-          {showRainbow && rainbowData && rainbowLines.length > 0 && (
+          {showRainbow && hasRainbowData && (
             <Badge variant="outline" className="text-xs">
-              CL폭 {rainbowData.clWidth?.toFixed(1)}%
-              {rainbowData.currentPosition != null && (
-                <span className="ml-1 text-muted-foreground">| 위치 {rainbowData.currentPosition.toFixed(0)}%</span>
-              )}
+              레인보우 240일
             </Badge>
           )}
 
@@ -291,15 +297,24 @@ export function StockCandleChart({
               />
             )}
 
-            {showRainbow &&
-              rainbowLines.map((line) => (
-                <ReferenceLine
-                  key={line.label}
-                  y={line.price}
-                  stroke={line.color}
-                  strokeWidth={line.width}
-                  strokeDasharray={line.label === "CL" ? "0" : "4 2"}
-                  label={{ value: line.label, fill: line.color, fontSize: 10, position: "insideTopRight" }}
+            {hasRainbowData &&
+              RAINBOW_LINE_CONFIG.map((cfg) => (
+                <Line
+                  key={cfg.key}
+                  type="stepAfter"
+                  dataKey={cfg.key}
+                  stroke={cfg.color}
+                  strokeWidth={cfg.width}
+                  dot={false}
+                  isAnimationActive={false}
+                  name={cfg.label}
+                  connectNulls
+                  strokeDasharray={cfg.label === "CL" || cfg.label === "MAX" || cfg.label === "MIN" ? "0" : "4 2"}
+                  label={
+                    cfg.label === "CL" || cfg.label === "MAX" || cfg.label === "MIN"
+                      ? { value: cfg.label, fill: cfg.color, fontSize: 9, position: "insideTopRight" }
+                      : undefined
+                  }
                 />
               ))}
 
