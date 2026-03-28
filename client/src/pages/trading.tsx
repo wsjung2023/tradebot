@@ -60,38 +60,57 @@ type RainbowData = {
   clWidth: number;
 } | null;
 
-type CandleShapeProps = {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  payload?: {
-    open: number;
-    close: number;
-    high: number;
-    low: number;
-    [key: string]: unknown;
-  };
+type CandlePayload = {
+  open: number;
+  close: number;
+  high: number;
+  low: number;
+  [key: string]: unknown;
 };
 
-function CandleStickShape({ x, y, width, height, payload }: CandleShapeProps) {
-  if (!payload || height <= 0 || width <= 0) return null;
-  const { open, close, high, low } = payload;
+type CandleShapeProps = {
+  x?: number | string;
+  y?: number | string;
+  width?: number | string;
+  height?: number | string;
+  payload?: CandlePayload;
+  [key: string]: unknown;
+};
+
+function isCandlePayload(p: unknown): p is CandlePayload {
+  return (
+    typeof p === "object" && p !== null &&
+    typeof (p as CandlePayload).open === "number" &&
+    typeof (p as CandlePayload).close === "number" &&
+    typeof (p as CandlePayload).high === "number" &&
+    typeof (p as CandlePayload).low === "number"
+  );
+}
+
+function CandleStickShape(props: unknown) {
+  if (typeof props !== "object" || props === null) return <g />;
+  const p = props as Record<string, unknown>;
+  const nx = Number(p.x ?? 0);
+  const ny = Number(p.y ?? 0);
+  const nw = Number(p.width ?? 0);
+  const nh = Number(p.height ?? 0);
+  if (!isCandlePayload(p.payload) || nh <= 0 || nw <= 0) return <g />;
+  const { open, close, high, low } = p.payload;
   const isUp = close >= open;
   const color = isUp ? "#ef4444" : "#3b82f6";
-  const centerX = x + width / 2;
+  const centerX = nx + nw / 2;
   const range = high - low;
   if (range === 0) {
-    return <line x1={centerX} y1={y} x2={centerX} y2={y + height} stroke={color} strokeWidth={1} />;
+    return <g><line x1={centerX} y1={ny} x2={centerX} y2={ny + nh} stroke={color} strokeWidth={1} /></g>;
   }
   const bodyTopRaw = Math.max(open, close);
   const bodyBottomRaw = Math.min(open, close);
-  const bodyTop = y + height * (high - bodyTopRaw) / range;
-  const bodyH = Math.max(1, height * (bodyTopRaw - bodyBottomRaw) / range);
+  const bodyTop = ny + nh * (high - bodyTopRaw) / range;
+  const bodyH = Math.max(1, nh * (bodyTopRaw - bodyBottomRaw) / range);
   return (
     <g>
-      <line x1={centerX} y1={y} x2={centerX} y2={y + height} stroke={color} strokeWidth={1} />
-      <rect x={x + 1} y={bodyTop} width={Math.max(1, width - 2)} height={bodyH} fill={color} stroke={color} strokeWidth={0.5} />
+      <line x1={centerX} y1={ny} x2={centerX} y2={ny + nh} stroke={color} strokeWidth={1} />
+      <rect x={nx + 1} y={bodyTop} width={Math.max(1, nw - 2)} height={bodyH} fill={color} stroke={color} strokeWidth={0.5} />
     </g>
   );
 }
