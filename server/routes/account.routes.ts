@@ -206,16 +206,21 @@ export function registerAccountRoutes(app: Router) {
       );
 
       // DB 보유종목 동기화
+      // cleanStr: 빈 문자열·"0"·공백만 있는 경우를 null로 처리 → 폴백 작동하게
+      const cleanStr = (v: any): string => {
+        const s = String(v ?? "").trim();
+        return s && s !== "0" ? s : "";
+      };
       for (const item of output2) {
         const stockCode = item.acnt_pdno || item.pdno || item.stk_cd || item.stockCode;
         if (!stockCode) continue;
         const updates = {
           stockName: item.prdt_name || item.stk_nm || item.stockName || "",
           quantity: parseInt(item.hldg_qty || item.rmnd_qty || String(item.quantity ?? "0"), 10),
-          averagePrice: item.pchs_avg_pric || item.avg_pric || item.averagePrice || "0",
-          currentPrice: item.prpr || item.cur_prc || item.currentPrice || "0",
-          profitLoss: item.evlu_pfls_amt || item.evlu_pfls || "0",
-          profitLossRate: item.evlu_pfls_rt || item.pfls_rt || "0",
+          averagePrice: cleanStr(item.pchs_avg_pric) || cleanStr(item.avg_pric) || cleanStr(item.averagePrice) || "0",
+          currentPrice: cleanStr(item.prpr) || cleanStr(item.cur_prc) || cleanStr(item.currentPrice) || "0",
+          profitLoss: cleanStr(item.evlu_pfls_amt) || cleanStr(item.evlu_pfls) || "0",
+          profitLossRate: cleanStr(item.evlu_pfls_rt) || cleanStr(item.pfls_rt) || "0",
         };
         const existing = await storage.getHoldingByStock(account.id, stockCode);
         if (existing) await storage.updateHolding(existing.id, updates);
@@ -319,20 +324,9 @@ export function registerAccountRoutes(app: Router) {
       const account = await getAuthorizedAccount(user!.id, accountId);
       if (!account) return res.status(404).json({ error: "Account not found" });
 
-      // TODO: asset_snapshots 테이블에서 조회 (백그라운드 job으로 매일 저장)
-      // 임시: 모의 데이터로 30일 차트 생성
-      const today = new Date();
-      const snapshots = [];
-      for (let i = 29; i >= 0; i--) {
-        const date = new Date(today);
-        date.setDate(date.getDate() - i);
-        snapshots.push({
-          date: date.toISOString().split('T')[0],
-          totalAssets: 10000000 + Math.random() * 500000,
-          profit: (Math.random() - 0.5) * 100000,
-        });
-      }
-      res.json(snapshots);
+      // 실제 자산 스냅샷이 쌓이면 여기서 조회
+      // 현재는 스냅샷 저장 기능 미구현 → 빈 배열 반환 (가짜 데이터 표시 금지)
+      res.json([]);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }

@@ -512,17 +512,17 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* 자산 추이 */}
-        <Card className="hover-elevate">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              자산 추이
-              <TrendingUp className="w-4 h-4 text-[hsl(var(--neon-green))]" />
-            </CardTitle>
-            <CardDescription>최근 30일 총자산 변화</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {assetHistory.length > 0 ? (
+        {/* 자산 추이 — 실제 스냅샷 데이터가 있을 때만 표시 */}
+        {assetHistory.length > 0 && (
+          <Card className="hover-elevate">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                자산 추이
+                <TrendingUp className="w-4 h-4 text-[hsl(var(--neon-green))]" />
+              </CardTitle>
+              <CardDescription>최근 30일 총자산 변화</CardDescription>
+            </CardHeader>
+            <CardContent>
               <ResponsiveContainer width="100%" height={300}>
                 <LineChart data={assetHistory}>
                   <CartesianGrid strokeDasharray="3 3" />
@@ -534,11 +534,9 @@ export default function Dashboard() {
                   <Line type="monotone" dataKey="profit" stroke="#82ca9d" name="수익" strokeWidth={2} />
                 </LineChart>
               </ResponsiveContainer>
-            ) : (
-              <p className="text-sm text-muted-foreground text-center py-8">거래 데이터가 누적되면 차트가 표시됩니다</p>
-            )}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        )}
 
         {/* 최근 거래 */}
         <Card className="hover-elevate">

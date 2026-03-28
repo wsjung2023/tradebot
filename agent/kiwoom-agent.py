@@ -1348,8 +1348,8 @@ def main():
                 time.sleep(POLL_INTERVAL)
                 consecutive_errors = 0
         except KeyboardInterrupt:
-            logger.info("에이전트 종료")
-            break
+            logger.info("에이전트 종료 (Ctrl+C)")
+            sys.exit(0)
         except Exception as e:
             consecutive_errors += 1
             wait = min(POLL_INTERVAL * consecutive_errors, 30)
@@ -1358,4 +1358,21 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    _restart_count = 0
+    while True:
+        try:
+            main()
+            # main()이 sys.exit(0) 없이 리턴되면 비정상 종료
+            _restart_count += 1
+            logger.warning(f"에이전트 비정상 종료. 10초 후 자동 재시작 (#{_restart_count})...")
+            time.sleep(10)
+        except SystemExit:
+            logger.info("에이전트 정상 종료")
+            break
+        except KeyboardInterrupt:
+            logger.info("에이전트 종료 (Ctrl+C)")
+            break
+        except Exception as e:
+            _restart_count += 1
+            logger.error(f"에이전트 오류로 재시작 (#{_restart_count}): {e}")
+            time.sleep(10)
