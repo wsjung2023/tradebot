@@ -13,6 +13,7 @@ import { registerAutoTradingRoutes } from "./autotrading.routes";
 import { registerAdminRoutes } from "./admin.routes";
 import { registerSettingsRoutes } from "./settings.routes";
 import { registerKiwoomAgentRoutes } from "./kiwoom-agent.routes";
+import { balanceRefreshService } from "../services/balance-refresh.service";
 
 export async function registerRoutes(app: Express, httpServer: Server, sessionMiddleware: any): Promise<void> {
   const marketHub = new MarketDataHub();
@@ -27,6 +28,8 @@ export async function registerRoutes(app: Express, httpServer: Server, sessionMi
   registerAdminRoutes(app as any);
   registerSettingsRoutes(app as any);
   registerKiwoomAgentRoutes(app as any);
+
+  balanceRefreshService.start();
 
   app.use("/api/rainbow", rainbowRouter);
 

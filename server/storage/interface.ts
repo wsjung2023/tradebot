@@ -39,6 +39,7 @@ export interface IStorage {
 
   // 키움 계좌
   getKiwoomAccounts(userId: string): Promise<KiwoomAccount[]>;
+  getAllRealKiwoomAccounts(): Promise<KiwoomAccount[]>;
   getKiwoomAccount(id: number): Promise<KiwoomAccount | undefined>;
   createKiwoomAccount(account: InsertKiwoomAccount): Promise<KiwoomAccount>;
   updateKiwoomAccount(id: number, updates: Partial<KiwoomAccount>): Promise<KiwoomAccount | undefined>;

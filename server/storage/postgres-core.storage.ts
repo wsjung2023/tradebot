@@ -60,6 +60,12 @@ export class PostgreSQLCoreStorage {
     return db.select().from(schema.kiwoomAccounts).where(eq(schema.kiwoomAccounts.userId, userId));
   }
 
+  async getAllRealKiwoomAccounts(): Promise<KiwoomAccount[]> {
+    return db.select().from(schema.kiwoomAccounts).where(
+      and(eq(schema.kiwoomAccounts.accountType, 'real'), eq(schema.kiwoomAccounts.isActive, true))
+    );
+  }
+
   async getKiwoomAccount(id: number): Promise<KiwoomAccount | undefined> {
     const result = await db.select().from(schema.kiwoomAccounts).where(eq(schema.kiwoomAccounts.id, id)).limit(1);
     return result[0];
