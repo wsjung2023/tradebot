@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import {
-  ComposedChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine, ReferenceDot,
 } from "recharts";
 import { TrendingUp, DollarSign, AlertCircle, Loader2 } from "lucide-react";
@@ -56,11 +56,32 @@ type FormulaOverlay = {
 
 type RainbowLine = { price: number; label: string; color: string; width: number };
 type RainbowData = {
-  lines: Record<string, RainbowLine> | null;
+  lines: RainbowLine[] | null;
   clWidth: number;
-  highest: number;
-  CL: number;
 } | null;
+
+function CandleStickShape(props: any) {
+  const { x, y, width, height, payload } = props;
+  if (!payload || height <= 0 || width <= 0) return null;
+  const { open, close, high, low } = payload;
+  const isUp = close >= open;
+  const color = isUp ? "#ef4444" : "#3b82f6";
+  const centerX = x + width / 2;
+  const range = high - low;
+  if (range === 0) {
+    return <line x1={centerX} y1={y} x2={centerX} y2={y + height} stroke={color} strokeWidth={1} />;
+  }
+  const bodyTopRaw = Math.max(open, close);
+  const bodyBottomRaw = Math.min(open, close);
+  const bodyTop = y + height * (high - bodyTopRaw) / range;
+  const bodyH = Math.max(1, height * (bodyTopRaw - bodyBottomRaw) / range);
+  return (
+    <g>
+      <line x1={centerX} y1={y} x2={centerX} y2={y + height} stroke={color} strokeWidth={1} />
+      <rect x={x + 1} y={bodyTop} width={Math.max(1, width - 2)} height={bodyH} fill={color} stroke={color} strokeWidth={0.5} />
+    </g>
+  );
+}
 
 function ChartStatusMessage({ title, description }: { title: string; description?: string }) {
   return (
@@ -83,6 +104,7 @@ export default function Trading() {
   const [quantity, setQuantity] = useState("");
   const [price, setPrice] = useState("");
   const [showRainbow, setShowRainbow] = useState(false);
+  const [chartType, setChartType] = useState<"line" | "candle">("candle");
   const [chartPeriod, setChartPeriod] = useState<"D" | "W" | "M">("D");
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
   const [activeFormulaId, setActiveFormulaId] = useState<number | null>(null);
@@ -235,7 +257,7 @@ export default function Trading() {
     .filter((signal) => signal.chartDate && signal.chartPrice > 0)
     .slice(-200), [chartSignals, stockPrice?.currentPrice]);
 
-  const rainbowLines = rainbowData?.lines ? Object.values(rainbowData.lines) : [];
+  const rainbowLines: RainbowLine[] = rainbowData?.lines ?? [];
   const formulaValueMap = useMemo(() => {
     const map = new Map<string, number | null>();
     for (const point of formulaOverlay?.signalLine?.values ?? []) {
@@ -244,7 +266,11 @@ export default function Trading() {
     return map;
   }, [formulaOverlay]);
   const mergedChartData = useMemo(
-    () => chartData.map((candle) => ({ ...candle, formulaValue: formulaValueMap.get(candle.date) ?? null })),
+    () => chartData.map((candle) => ({
+      ...candle,
+      formulaValue: formulaValueMap.get(candle.date) ?? null,
+      candleRange: [candle.low, candle.high],
+    })),
     [chartData, formulaValueMap],
   );
 
@@ -374,6 +400,26 @@ export default function Trading() {
                 </CardDescription>
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
+                <div className="flex gap-1">
+                  <Button
+                    size="sm"
+                    variant={chartType === "candle" ? "default" : "outline"}
+                    onClick={() => setChartType("candle")}
+                    className="text-xs"
+                    data-testid="button-chart-candle"
+                  >
+                    봉차트
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={chartType === "line" ? "default" : "outline"}
+                    onClick={() => setChartType("line")}
+                    className="text-xs"
+                    data-testid="button-chart-line"
+                  >
+                    선차트
+                  </Button>
+                </div>
                 <Select value={chartPeriod} onValueChange={(value: "D" | "W" | "M") => setChartPeriod(value)}>
                   <SelectTrigger className="w-24" data-testid="select-chart-period">
                     <SelectValue />
@@ -425,14 +471,25 @@ export default function Trading() {
                   <XAxis dataKey="date" tick={{ fontSize: 10 }} />
                   <YAxis domain={["auto", "auto"]} tick={{ fontSize: 10 }} />
                   <Tooltip formatter={(value: any) => formatCurrency(Number(value))} />
-                  <Line
-                    type="monotone"
-                    dataKey="close"
-                    stroke="#8884d8"
-                    strokeWidth={2}
-                    dot={false}
-                    name="종가"
-                  />
+                  {chartType === "line" && (
+                    <Line
+                      type="monotone"
+                      dataKey="close"
+                      stroke="#8884d8"
+                      strokeWidth={2}
+                      dot={false}
+                      name="종가"
+                    />
+                  )}
+                  {chartType === "candle" && (
+                    <Bar
+                      dataKey="candleRange"
+                      shape={CandleStickShape}
+                      maxBarSize={14}
+                      isAnimationActive={false}
+                      name="가격"
+                    />
+                  )}
                   {formulaOverlay && (
                     <Line
                       type="monotone"
@@ -526,7 +583,7 @@ export default function Trading() {
         </Card>
       </div>
 
-      <Card>
+      <Card className="hidden">
         <CardHeader>
           <CardTitle>주문</CardTitle>
           <CardDescription>매수/매도 주문</CardDescription>
