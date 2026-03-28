@@ -6,6 +6,38 @@ import { insertKiwoomAccountSchema } from "@shared/schema";
 import { z } from "zod";
 import { callViaAgent, AgentTimeoutError } from "../services/agent-proxy.service";
 import { cleanStr, parseHoldingItem } from "../utils/balance-parser";
+import { KiwoomAccount } from "../services/kiwoom_OLD/kiwoom.account";
+import { KIWOOM_REAL_BASE, KIWOOM_MOCK_BASE } from "../services/kiwoom_OLD/kiwoom.base";
+
+/**
+ * 서버에서 Kiwoom REST API를 직접 호출 (에이전트 없이).
+ * 계좌번호의 8자리 앞부분으로 KIWOOM_KEY_{n} 환경변수를 찾는다.
+ * IP 미등록(8050) 또는 계좌타입 불일치(8030) 시 throw.
+ */
+async function tryDirectKiwoomBalance(accountNumber: string, accountType: string): Promise<any> {
+  const digits = accountNumber.replace(/\D/g, "").slice(0, 8);
+  const appKey =
+    process.env[`KIWOOM_KEY_${digits}`] ||
+    (accountType === "real" ? process.env.KIWOOM_APP_KEY_REAL : process.env.KIWOOM_APP_KEY_MOCK) ||
+    process.env.KIWOOM_APP_KEY || "";
+  const appSecret =
+    process.env[`KIWOOM_SECRET_${digits}`] ||
+    (accountType === "real" ? process.env.KIWOOM_APP_SECRET_REAL : process.env.KIWOOM_APP_SECRET_MOCK) ||
+    process.env.KIWOOM_APP_SECRET || "";
+
+  if (!appKey || !appSecret) throw new Error("앱키/시크릿 환경변수 없음");
+
+  const baseURL = accountType === "real" ? KIWOOM_REAL_BASE : KIWOOM_MOCK_BASE;
+  const client = new KiwoomAccount({ appKey, appSecret, baseURL, accountType: accountType as "real" | "mock" });
+  const resp = await client.getAccountBalance(accountNumber, accountType as "real" | "mock");
+
+  // kiwoom_OLD 응답을 에이전트와 동일한 포맷으로 변환
+  return {
+    output1: resp.output1 || {},
+    output2: resp.output2 || [],
+    raw: (resp as any).raw || (resp as any).output1 || {},
+  };
+}
 
 export function registerAccountRoutes(app: Router) {
   const normalizeAccountNumber = (accountNumber: string) => {
@@ -133,6 +165,7 @@ export function registerAccountRoutes(app: Router) {
       // dedupeKey: 같은 계좌로 동시에 여러 요청이 오면 하나의 에이전트 job만 등록
       const dedupeKey = `balance.get:${accountId}`;
       let result: any;
+      let usedDirectApi = false;
       try {
         result = await callViaAgent(user!.id, "balance.get", balancePayload, 15000, dedupeKey);
       } catch (firstErr: any) {
@@ -144,6 +177,21 @@ export function registerAccountRoutes(app: Router) {
             await callViaAgent(user!.id, "token.refresh", { accountType: balancePayload.accountType }, 8000);
           } catch (_) { /* 갱신 실패 무시 */ }
           result = await callViaAgent(user!.id, "balance.get", balancePayload, 15000, dedupeKey);
+        } else if (firstErr instanceof AgentTimeoutError) {
+          // 에이전트 응답 없음 → 서버에서 Kiwoom API 직접 호출 시도
+          console.warn("[fetch-balance] 에이전트 타임아웃 → 서버 직접 API 호출 시도");
+          try {
+            result = await tryDirectKiwoomBalance(
+              balancePayload.accountNumber,
+              balancePayload.accountType,
+            );
+            usedDirectApi = true;
+            console.log("[fetch-balance] 서버 직접 API 호출 성공");
+          } catch (directErr: any) {
+            console.error("[fetch-balance] 서버 직접 API도 실패:", directErr.message);
+            // 두 경로 모두 실패 — 원래 에이전트 에러 그대로 throw
+            throw firstErr;
+          }
         } else {
           throw firstErr;
         }
