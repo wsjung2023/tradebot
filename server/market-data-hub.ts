@@ -1,6 +1,7 @@
 import { WebSocket } from "ws";
 import { AgentTimeoutError } from "./services/agent-proxy.service";
 import { getUserKiwoomService } from "./services/user-kiwoom.service";
+import { isKoreanMarketOpen } from "./utils/market-hours";
 
 export interface MarketDataMessage {
   type: "subscribe" | "unsubscribe" | "price" | "orderbook" | "trade" | "ping" | "pong";
@@ -160,6 +161,7 @@ export class MarketDataHub {
   private async doUpdateCycle() {
     if (this.isUpdating) return;
     if (this.clients.size === 0) return;
+    if (!isKoreanMarketOpen()) return;
 
     this.isUpdating = true;
     try {

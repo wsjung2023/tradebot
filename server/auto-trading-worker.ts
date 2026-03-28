@@ -9,6 +9,7 @@ import { TradeExecutorService } from './services/trade-executor.service';
 import { AiModel, AutoTradingSettings, ConditionFormula } from '@shared/schema';
 import { decrypt } from './utils/crypto';
 import { getFeatureFlags } from './config/feature-flags';
+import { isKoreanMarketOpen } from './utils/market-hours';
 
 class AutoTradingWorker {
   private isRunning = false;
@@ -109,9 +110,7 @@ class AutoTradingWorker {
   }
 
   private isMarketHours(): boolean {
-    const now = new Date();
-    const currentMinutes = now.getHours() * 60 + now.getMinutes();
-    return currentMinutes >= 9 * 60 && currentMinutes <= 15 * 60 + 30;
+    return isKoreanMarketOpen();
   }
 
   private async processModel(model: AiModel) {
