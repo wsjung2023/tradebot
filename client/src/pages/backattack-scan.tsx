@@ -44,6 +44,14 @@ interface BackAttackRecommendation {
   priority: 'high' | 'medium';
 }
 
+interface FilteredStock {
+  stockCode: string;
+  stockName: string;
+  currentPosition: number;
+  clWidth: number;
+  filterReason: string;
+}
+
 interface ScanResult {
   message: string;
   conditionName: string;
@@ -52,6 +60,7 @@ interface ScanResult {
   recommendationCount: number;
   errorCount?: number;
   recommendations: BackAttackRecommendation[];
+  filtered?: FilteredStock[];
   errors?: Array<{ stockCode: string; stockName: string; error: string }>;
 }
 
@@ -193,6 +202,44 @@ export default function BackAttackScan() {
             )}
           </CardContent>
         </Card>
+      )}
+
+      {/* 필터 미통과 종목 */}
+      {scanResult && scanResult.filtered && scanResult.filtered.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">조건식 매칭 → 레인보우 필터 미통과 종목</CardTitle>
+            <CardDescription>
+              HTS 조건식은 통과했지만 CL위치(40~60%) + CL폭(10%↑) 기준에서 제외된 종목입니다.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {scanResult.filtered.map((item) => (
+                <div key={item.stockCode} className="flex items-center justify-between py-2 border-b last:border-0" data-testid={`row-filtered-${item.stockCode}`}>
+                  <div>
+                    <span className="font-medium" data-testid={`text-filtered-name-${item.stockCode}`}>{item.stockName}</span>
+                    <span className="text-sm text-muted-foreground ml-2">{item.stockCode}</span>
+                  </div>
+                  <div className="text-right text-sm text-muted-foreground" data-testid={`text-filtered-reason-${item.stockCode}`}>
+                    {item.filterReason}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* 추천 종목 없음 메시지 */}
+      {scanResult && scanResult.recommendations.length === 0 && scanResult.processedCount > 0 && (
+        <Alert>
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>추천 종목 없음</AlertTitle>
+          <AlertDescription>
+            {scanResult.totalMatches}개 종목을 분석했지만, CL위치 40~60% + CL폭 10% 이상 조건을 동시에 만족하는 종목이 없습니다.
+          </AlertDescription>
+        </Alert>
       )}
 
       {/* 추천 종목 리스트 및 상세 */}

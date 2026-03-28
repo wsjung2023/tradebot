@@ -71,6 +71,7 @@ export function registerAutoTradingRoutes(app: Router) {
 
       // 레인보우 분석 + AI 분석 + 필터링
       const recommendations: any[] = [];
+      const filtered: Array<{ stockCode: string; stockName: string; currentPosition: number; clWidth: number; filterReason: string }> = [];
       const errors: Array<{ stockCode: string; stockName: string; error: string }> = [];
       let processedCount = 0;
 
@@ -90,6 +91,8 @@ export function registerAutoTradingRoutes(app: Router) {
           const isInBuyZone = currentPosition >= 40 && currentPosition <= 60;
           const hasGoodCLWidth = clWidth >= 10;
           const isBuyRecommendation = ["strong-buy", "buy"].includes(recommendation);
+
+          console.log(`[backattack-scan] ${stockName}(${stockCode}) CL위치=${currentPosition.toFixed(1)}% CL폭=${clWidth.toFixed(1)}% → ${isInBuyZone && hasGoodCLWidth ? '추천' : '필터제외'}`);
 
           if (isInBuyZone && hasGoodCLWidth) {
             let aiAnalysis = null;
@@ -114,6 +117,11 @@ export function registerAutoTradingRoutes(app: Router) {
               rainbowAnalysis: rainbowResult, aiAnalysis,
               priority: isBuyRecommendation ? "high" : "medium",
             });
+          } else {
+            const reasons: string[] = [];
+            if (!isInBuyZone) reasons.push(`CL위치 ${currentPosition.toFixed(1)}% (40~60% 구간 이탈)`);
+            if (!hasGoodCLWidth) reasons.push(`CL폭 ${clWidth.toFixed(1)}% (10% 미만)`);
+            filtered.push({ stockCode, stockName, currentPosition, clWidth, filterReason: reasons.join(", ") });
           }
         } catch (error: any) {
           errors.push({ stockCode, stockName, error: error.message });
@@ -135,7 +143,9 @@ export function registerAutoTradingRoutes(app: Router) {
         message: "백어택2 스캔 완료",
         totalMatches: stockList.length, processedCount,
         recommendationCount: recommendations.length, errorCount: errors.length,
-        recommendations, errors: errors.length > 0 ? errors : undefined,
+        recommendations,
+        filtered: filtered.length > 0 ? filtered : undefined,
+        errors: errors.length > 0 ? errors : undefined,
       });
     } catch (error: any) {
       if (error instanceof AgentTimeoutError) return res.status(503).json({ error: error.message });
