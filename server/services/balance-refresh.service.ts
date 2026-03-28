@@ -83,6 +83,13 @@ export class BalanceRefreshService {
     accountNumber: string,
     accountType: string,
   ): Promise<void> {
+    // 이미 pending/processing 중인 balance.get 잡이 있으면 중복 생성하지 않음
+    const hasPending = await storage.hasPendingJobForAccount(userId, 'balance.get', accountNumber);
+    if (hasPending) {
+      console.log(`[BalanceRefresh] 계좌 ${accountId}(${accountNumber}): 이미 진행 중인 balance.get 잡이 있음 — 건너뜀`);
+      return;
+    }
+
     const payload = { accountNumber, accountType };
     const dedupeKey = `balance.get:auto:${accountId}`;
 

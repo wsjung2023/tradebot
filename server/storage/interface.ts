@@ -180,6 +180,7 @@ export interface IStorage {
   getKiwoomJobStatus(id: number, userId: string): Promise<KiwoomJob | undefined>;
   getRecentKiwoomJobsByUser(userId: string, limit?: number): Promise<KiwoomJob[]>;
   getKiwoomJobByIdInternal(id: number): Promise<KiwoomJob | undefined>;
+  hasPendingJobForAccount(userId: string, jobType: string, accountNumber: string): Promise<boolean>;
 
   // 헬퍼
   getActiveAiModels(): Promise<AiModel[]>;

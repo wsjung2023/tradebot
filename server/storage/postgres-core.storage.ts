@@ -1,5 +1,5 @@
 // postgres-core.storage.ts — 핵심 엔티티(유저/계좌/보유/주문/AI모델/관심종목/알림/설정/로그) CRUD
-import { eq, and, desc, lt, inArray } from 'drizzle-orm';
+import { eq, and, desc, lt, inArray, or, sql } from 'drizzle-orm';
 import { db } from '../db';
 import * as schema from '@shared/schema';
 import type {
@@ -489,6 +489,34 @@ export class PostgreSQLCoreStorage {
   async getNextPendingJob(agentId: string, supportedJobTypes?: string[]): Promise<KiwoomJob | undefined> {
     // pending 상태의 가장 오래된 작업을 processing으로 변경 후 반환 (agentId는 안전한 식별자만)
     const hasSupportedTypes = Array.isArray(supportedJobTypes) && supportedJobTypes.length > 0;
+    const EXPIRY_SEC = 30;
+    const expiryCutoff = new Date(Date.now() - EXPIRY_SEC * 1000);
+
+    // 30초 이상 된 pending 잡은 expired로 마킹하여 큐에서 제거
+    const expiredPending = await db.select({ id: schema.kiwoomJobs.id })
+      .from(schema.kiwoomJobs)
+      .where(
+        hasSupportedTypes
+          ? and(
+              eq(schema.kiwoomJobs.status, 'pending'),
+              lt(schema.kiwoomJobs.createdAt, expiryCutoff),
+              inArray(schema.kiwoomJobs.jobType, supportedJobTypes!),
+            )
+          : and(
+              eq(schema.kiwoomJobs.status, 'pending'),
+              lt(schema.kiwoomJobs.createdAt, expiryCutoff),
+            ),
+      );
+
+    if (expiredPending.length > 0) {
+      const expiredIds = expiredPending.map((j) => j.id);
+      await db.update(schema.kiwoomJobs)
+        .set({ status: 'error', errorMessage: 'expired: agent was offline', updatedAt: new Date(), processedAt: new Date() })
+        .where(inArray(schema.kiwoomJobs.id, expiredIds));
+      console.log(`[AgentQueue] ${expiredIds.length}개 오래된 pending 잡 만료 처리 (>=${EXPIRY_SEC}초)`);
+    }
+
+    // 30초 이내의 최신 pending 잡만 에이전트에 전달
     const pending = await db.select().from(schema.kiwoomJobs)
       .where(
         hasSupportedTypes
@@ -506,6 +534,24 @@ export class PostgreSQLCoreStorage {
       .where(eq(schema.kiwoomJobs.id, pending[0].id))
       .returning();
     return result[0];
+  }
+
+  async hasPendingJobForAccount(userId: string, jobType: string, accountNumber: string): Promise<boolean> {
+    const result = await db.select({ id: schema.kiwoomJobs.id })
+      .from(schema.kiwoomJobs)
+      .where(
+        and(
+          eq(schema.kiwoomJobs.userId, userId),
+          eq(schema.kiwoomJobs.jobType, jobType),
+          or(
+            eq(schema.kiwoomJobs.status, 'pending'),
+            eq(schema.kiwoomJobs.status, 'processing'),
+          ),
+          sql`${schema.kiwoomJobs.payload}->>'accountNumber' = ${accountNumber}`,
+        ),
+      )
+      .limit(1);
+    return result.length > 0;
   }
 
   async updateKiwoomJobResult(id: number, status: string, result?: unknown, errorMessage?: string): Promise<KiwoomJob | undefined> {
