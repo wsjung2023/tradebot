@@ -60,8 +60,21 @@ type RainbowData = {
   clWidth: number;
 } | null;
 
-function CandleStickShape(props: any) {
-  const { x, y, width, height, payload } = props;
+type CandleShapeProps = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  payload?: {
+    open: number;
+    close: number;
+    high: number;
+    low: number;
+    [key: string]: unknown;
+  };
+};
+
+function CandleStickShape({ x, y, width, height, payload }: CandleShapeProps) {
   if (!payload || height <= 0 || width <= 0) return null;
   const { open, close, high, low } = payload;
   const isUp = close >= open;
