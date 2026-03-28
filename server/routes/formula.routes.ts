@@ -221,13 +221,25 @@ export function registerFormulaRoutes(app: Router) {
       for (const result of results) {
         const stockCode = (result as any).stock_code || (result as any).stck_cd;
         const stockName = (result as any).stock_name || (result as any).stck_nm;
-        const currentPrice = (result as any).current_price || (result as any).stck_prpr;
-        const changeRate = (result as any).change_rate || (result as any).prdy_ctrt;
+        const rawPrice = (result as any).current_price || (result as any).stck_prpr;
+        const rawRate = (result as any).change_rate || (result as any).prdy_ctrt;
         if (!stockCode || !stockName) continue;
+
+        let parsedPrice: string | null = null;
+        if (rawPrice != null) {
+          const n = parseFloat(String(rawPrice));
+          if (!isNaN(n)) parsedPrice = String(Math.min(Math.abs(n), 9999999999.99));
+        }
+        let parsedRate: string | null = null;
+        if (rawRate != null) {
+          const n = parseFloat(String(rawRate));
+          if (!isNaN(n)) parsedRate = String(Math.max(-9999.9999, Math.min(9999.9999, n)));
+        }
+
         await storage.createConditionResult({
           conditionId, stockCode, stockName,
-          matchScore: null, currentPrice: currentPrice || null,
-          changeRate: changeRate || null, volume: null,
+          matchScore: null, currentPrice: parsedPrice, 
+          changeRate: parsedRate, volume: null,
           passedFilters: true, metadata: result as any,
         });
       }
