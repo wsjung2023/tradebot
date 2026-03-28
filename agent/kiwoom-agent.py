@@ -742,6 +742,39 @@ def handle_ping(_payload):
     }
 
 
+def handle_agent_self_update(payload):
+    """서버에서 최신 에이전트 파일을 다운로드하고 자기 재시작"""
+    import sys, shutil
+    current_file = os.path.abspath(__file__)
+    logger.info(f"[agent.selfUpdate] 자기 업데이트 시작: {current_file}")
+    try:
+        for base_url in REPLIT_URLS:
+            try:
+                resp = requests.get(
+                    f"{base_url}/api/kiwoom-agent/download",
+                    headers={"x-agent-key": AGENT_KEY},
+                    timeout=15,
+                )
+                if resp.status_code == 200 and len(resp.text) > 1000:
+                    backup = current_file + ".bak"
+                    shutil.copy2(current_file, backup)
+                    with open(current_file, "w", encoding="utf-8") as f:
+                        f.write(resp.text)
+                    logger.info(f"[agent.selfUpdate] 파일 업데이트 완료 ({len(resp.text):,}bytes) — 3초 후 재시작")
+                    # 별도 스레드에서 3초 후 재시작
+                    def _restart():
+                        time.sleep(3)
+                        os.execv(sys.executable, [sys.executable] + sys.argv)
+                    threading.Thread(target=_restart, daemon=True).start()
+                    return {"success": True, "message": "업데이트 완료, 재시작 중..."}
+            except Exception as e:
+                logger.warning(f"[agent.selfUpdate] {base_url} 다운로드 실패: {e}")
+        return {"success": False, "message": "파일 다운로드 실패"}
+    except Exception as e:
+        logger.error(f"[agent.selfUpdate] 오류: {e}")
+        return {"success": False, "message": str(e)}
+
+
 def handle_token_refresh(payload):
     """토큰 강제 재발급 — _tokens 캐시 초기화 후 재발급"""
     account_type = payload.get("accountType", "real")
@@ -1004,6 +1037,7 @@ JOB_HANDLERS = {
     "token.refresh": handle_token_refresh,
     "condition.list": handle_condition_list,
     "condition.run": handle_condition_run,
+    "agent.selfUpdate": handle_agent_self_update,
 }
 JOB_TYPE_ALIASES = {
     "condition_list": "condition.list",

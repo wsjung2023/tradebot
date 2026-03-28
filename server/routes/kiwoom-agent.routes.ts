@@ -301,6 +301,35 @@ export function registerKiwoomAgentRoutes(app: Express): void {
     }
   });
 
+  // ─── 에이전트 원격 업데이트+재시작 (인증 사용자) ──────────────────────────
+  app.post("/api/kiwoom-agent/self-update", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getAuthUserId(req);
+      if (!userId) return res.status(401).json({ error: "로그인 필요" });
+      const job = await storage.createKiwoomJob({
+        userId,
+        jobType: "agent.selfUpdate",
+        payload: {},
+        status: "pending",
+        result: null,
+        errorMessage: null,
+        agentId: null,
+      });
+      // 최대 20초 대기
+      const start = Date.now();
+      while (Date.now() - start < 20000) {
+        await new Promise((r) => setTimeout(r, 600));
+        const updated = await storage.getKiwoomJob(job.id);
+        if (!updated) break;
+        if (updated.status === "done") return res.json({ success: true, result: updated.result });
+        if (updated.status === "error") return res.json({ success: false, error: updated.errorMessage });
+      }
+      res.json({ success: false, error: "타임아웃 — 에이전트가 응답하지 않습니다" });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // ─── 진단: 서버에서 직접 키움 API 호출 (에이전트 없이) ──────────────────
   app.get("/api/kiwoom-agent/diagnose-condition", isAuthenticated, async (req: Request, res: Response) => {
     const seq = String(req.query.seq || "30");
