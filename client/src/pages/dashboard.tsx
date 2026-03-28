@@ -83,6 +83,7 @@ export default function Dashboard() {
     cached?: boolean;
   }>({
     queryKey: ['/api/kiwoom-agent/system-status'],
+    enabled: false,
     staleTime: Infinity,
     refetchInterval: false,
     refetchOnMount: false,

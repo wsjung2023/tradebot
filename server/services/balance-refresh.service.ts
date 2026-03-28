@@ -3,6 +3,7 @@
 import * as cron from 'node-cron';
 import { storage } from '../storage';
 import { callViaAgent } from './agent-proxy.service';
+import { parseHoldingItem } from '../utils/balance-parser';
 
 /**
  * KST 현재 시각 기준으로 장중(08:30~18:00, 월~금)인지 확인.
@@ -19,10 +20,6 @@ function isKstMarketHours(): boolean {
   return minutes >= 8 * 60 + 30 && minutes < 18 * 60; // 08:30 ~ 18:00
 }
 
-const cleanS = (v: any): string => {
-  const s = String(v ?? '').trim();
-  return s && s !== '0' ? s : '';
-};
 
 export class BalanceRefreshService {
   private task: cron.ScheduledTask | null = null;
@@ -135,16 +132,9 @@ export class BalanceRefreshService {
     );
 
     for (const item of output2) {
-      const stockCode = item.acnt_pdno || item.pdno || item.stk_cd || item.stockCode;
-      if (!stockCode) continue;
-      const updates = {
-        stockName: item.prdt_name || item.stk_nm || item.stockName || '',
-        quantity: parseInt(item.hldg_qty || item.rmnd_qty || String(item.quantity ?? '0'), 10),
-        averagePrice: cleanS(item.pchs_avg_pric) || cleanS(item.avg_pric) || cleanS(item.pur_pric) || cleanS(item.averagePrice) || '0',
-        currentPrice: cleanS(item.prpr) || cleanS(item.cur_prc) || cleanS(item.currentPrice) || '0',
-        profitLoss: cleanS(item.evlu_pfls_amt) || cleanS(item.evlu_pfls) || cleanS(item.evltv_prft) || '0',
-        profitLossRate: cleanS(item.evlu_pfls_rt) || cleanS(item.pfls_rt) || cleanS(item.prft_rt) || '0',
-      };
+      const parsed = parseHoldingItem(item);
+      if (!parsed.stockCode) continue;
+      const { stockCode, ...updates } = parsed;
       const existing = await storage.getHoldingByStock(accountId, stockCode);
       if (existing) await storage.updateHolding(existing.id, updates);
       else await storage.createHolding({ accountId, stockCode, ...updates });
