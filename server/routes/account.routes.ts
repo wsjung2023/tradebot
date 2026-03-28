@@ -5,6 +5,7 @@ import { isAuthenticated, getCurrentUser } from "../auth";
 import { insertKiwoomAccountSchema } from "@shared/schema";
 import { z } from "zod";
 import { callViaAgent, AgentTimeoutError } from "../services/agent-proxy.service";
+import { cleanStr, parseHoldingItem } from "../utils/balance-parser";
 
 export function registerAccountRoutes(app: Router) {
   const normalizeAccountNumber = (accountNumber: string) => {
@@ -207,23 +208,11 @@ export function registerAccountRoutes(app: Router) {
         result?.todayProfit,
       );
 
-      // DB 보유종목 동기화
-      // cleanStr: 빈 문자열·"0"·공백만 있는 경우를 null로 처리 → 폴백 작동하게
-      const cleanStr = (v: any): string => {
-        const s = String(v ?? "").trim();
-        return s && s !== "0" ? s : "";
-      };
+      // DB 보유종목 동기화 (parseHoldingItem: server/utils/balance-parser.ts)
       for (const item of output2) {
-        const stockCode = item.acnt_pdno || item.pdno || item.stk_cd || item.stockCode;
-        if (!stockCode) continue;
-        const updates = {
-          stockName: item.prdt_name || item.stk_nm || item.stockName || "",
-          quantity: parseInt(item.hldg_qty || item.rmnd_qty || String(item.quantity ?? "0"), 10),
-          averagePrice: cleanStr(item.pchs_avg_pric) || cleanStr(item.avg_pric) || cleanStr(item.pur_pric) || cleanStr(item.averagePrice) || "0",
-          currentPrice: cleanStr(item.prpr) || cleanStr(item.cur_prc) || cleanStr(item.currentPrice) || "0",
-          profitLoss: cleanStr(item.evlu_pfls_amt) || cleanStr(item.evlu_pfls) || cleanStr(item.evltv_prft) || "0",
-          profitLossRate: cleanStr(item.evlu_pfls_rt) || cleanStr(item.pfls_rt) || cleanStr(item.prft_rt) || "0",
-        };
+        const parsed = parseHoldingItem(item);
+        if (!parsed.stockCode) continue;
+        const { stockCode, ...updates } = parsed;
         console.log(`[fetch-balance] 종목 파싱: code=${stockCode} name=${updates.stockName} qty=${updates.quantity} avgPrc=${updates.averagePrice} curPrc=${updates.currentPrice} pl=${updates.profitLoss} plRate=${updates.profitLossRate} rawFields={pchs_avg_pric:${item.pchs_avg_pric},pur_pric:${item.pur_pric},prft_rt:${item.prft_rt},evltv_prft:${item.evltv_prft}}`);
         const existing = await storage.getHoldingByStock(account.id, stockCode);
         if (existing) await storage.updateHolding(existing.id, updates);
@@ -293,22 +282,11 @@ export function registerAccountRoutes(app: Router) {
       if (!account) return res.status(404).json({ error: "Account not found" });
 
       const { output1, output2 } = req.body;
-      const cleanSyncStr = (v: any): string => {
-        const s = String(v ?? "").trim();
-        return s && s !== "0" ? s : "";
-      };
       if (Array.isArray(output2)) {
         for (const item of output2) {
-          const stockCode = item.acnt_pdno || item.pdno || item.stk_cd || item.stockCode;
-          if (!stockCode) continue;
-          const updates = {
-            stockName: item.prdt_name || item.stk_nm || item.stockName || "",
-            quantity: parseInt(item.hldg_qty || item.rmnd_qty || String(item.quantity ?? "0"), 10),
-            averagePrice: cleanSyncStr(item.pchs_avg_pric) || cleanSyncStr(item.avg_pric) || cleanSyncStr(item.pur_pric) || cleanSyncStr(item.averagePrice) || "0",
-            currentPrice: cleanSyncStr(item.prpr) || cleanSyncStr(item.cur_prc) || cleanSyncStr(item.currentPrice) || "0",
-            profitLoss: cleanSyncStr(item.evlu_pfls_amt) || cleanSyncStr(item.evlu_pfls) || cleanSyncStr(item.evltv_prft) || "0",
-            profitLossRate: cleanSyncStr(item.evlu_pfls_rt) || cleanSyncStr(item.pfls_rt) || cleanSyncStr(item.prft_rt) || "0",
-          };
+          const parsed = parseHoldingItem(item);
+          if (!parsed.stockCode) continue;
+          const { stockCode, ...updates } = parsed;
           console.log(`[sync-balance] 종목 파싱: code=${stockCode} name=${updates.stockName} avgPrc=${updates.averagePrice} plRate=${updates.profitLossRate} rawFields={pchs_avg_pric:${item.pchs_avg_pric},pur_pric:${item.pur_pric},prft_rt:${item.prft_rt}}`);
           const existing = await storage.getHoldingByStock(account.id, stockCode);
           if (existing) {
