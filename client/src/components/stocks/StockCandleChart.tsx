@@ -101,15 +101,15 @@ function ChartStatusMessage({ title, description }: { title: string; description
 
 const RAINBOW_LINES = [
   { key: "line0",  label: "MIN", color: "#0f172a", width: 1.5, dash: ""    },
-  { key: "line1",  label: "",    color: "#ec4899", width: 0.8, dash: "3 2" },
-  { key: "line2",  label: "",    color: "#ef4444", width: 0.8, dash: "3 2" },
-  { key: "line3",  label: "",    color: "#f97316", width: 0.8, dash: "3 2" },
-  { key: "line4",  label: "",    color: "#eab308", width: 0.8, dash: "3 2" },
+  { key: "line1",  label: "",    color: "#581c87", width: 0.8, dash: "3 2" },
+  { key: "line2",  label: "",    color: "#7c3aed", width: 0.8, dash: "3 2" },
+  { key: "line3",  label: "",    color: "#1e3a8a", width: 0.8, dash: "3 2" },
+  { key: "line4",  label: "",    color: "#3b82f6", width: 0.8, dash: "3 2" },
   { key: "line5",  label: "CL",  color: "#22c55e", width: 2,   dash: ""    },
-  { key: "line6",  label: "",    color: "#3b82f6", width: 0.8, dash: "3 2" },
-  { key: "line7",  label: "",    color: "#1e3a8a", width: 0.8, dash: "3 2" },
-  { key: "line8",  label: "",    color: "#7c3aed", width: 0.8, dash: "3 2" },
-  { key: "line9",  label: "",    color: "#581c87", width: 0.8, dash: "3 2" },
+  { key: "line6",  label: "",    color: "#eab308", width: 0.8, dash: "3 2" },
+  { key: "line7",  label: "",    color: "#f97316", width: 0.8, dash: "3 2" },
+  { key: "line8",  label: "",    color: "#ef4444", width: 0.8, dash: "3 2" },
+  { key: "line9",  label: "",    color: "#ec4899", width: 0.8, dash: "3 2" },
   { key: "line10", label: "MAX", color: "#0f172a", width: 1.5, dash: ""    },
 ] as const;
 
