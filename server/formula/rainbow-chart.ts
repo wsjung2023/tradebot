@@ -286,6 +286,85 @@ export class RainbowChartAnalyzer {
   }
 
   /**
+   * HTS 방식 per-bar 레인보우 차트 데이터 생성
+   * 
+   * HTS "valuewhen" 동작 구현:
+   *   valuewhen(1, highest(h(1),period) < highest(h,period), ...)
+   *   → 새 고점이 갱신될 때만 CL/라인 스냅샷 업데이트, 아니면 이전 값 유지
+   * 
+   * 결과: 매 봉마다 line0(MIN)~line10(MAX) 값이 다를 수 있는 계단식 데이터
+   */
+  static computePerBarChartData(
+    ohlcvData: OHLCVData[],
+    period: number = 240,
+    maxBars?: number,
+  ): Array<Record<string, number | string>> {
+    if (ohlcvData.length < period) return [];
+
+    // Step 1: 첫 period개로 초기 CL 설정
+    const initialWindow = ohlcvData.slice(0, period);
+    const initialHigh = Math.max(...initialWindow.map(d => d.high));
+    const initialLow = Math.min(...initialWindow.map(d => d.low));
+
+    let snap = {
+      CL: (initialHigh + initialLow) / 2,
+      highest: initialHigh,
+      lowest: initialLow,
+    };
+
+    const rows: Array<Record<string, number | string>> = [];
+
+    // period-1 번째 봉부터 차트 데이터 생성 (첫 번째로 period 윈도우가 완성된 봉)
+    for (let i = period - 1; i < ohlcvData.length; i++) {
+      const bar = ohlcvData[i];
+
+      // Step 2: i >= period면 rolling CL 업데이트 체크
+      if (i >= period) {
+        const prevWindow = ohlcvData.slice(i - period, i);
+        const prevHigh = Math.max(...prevWindow.map(d => d.high));
+        const curWindow = ohlcvData.slice(i - period + 1, i + 1);
+        const curHigh = Math.max(...curWindow.map(d => d.high));
+        const curLow = Math.min(...curWindow.map(d => d.low));
+
+        if (prevHigh < curHigh) {
+          snap = { CL: (curHigh + curLow) / 2, highest: curHigh, lowest: curLow };
+        }
+      }
+
+      // Step 3: 현재 스냅샷으로 11개 라인 가격 계산
+      const { highest: H, CL } = snap;
+      const dist = Math.max(0, (H - CL) / 5);
+
+      // line0(0%/MIN) ~ line10(100%/MAX), 포지션 기준 오름차순
+      rows.push({
+        date:   bar.date,
+        close:  bar.close,
+        open:   bar.open,
+        high:   bar.high,
+        low:    bar.low,
+        volume: bar.volume,
+        line0:  H - dist * 10, // MIN  (0%)
+        line1:  H - dist * 9,  //      (10%)
+        line2:  H - dist * 8,  //      (20%)
+        line3:  H - dist * 7,  //      (30%)
+        line4:  H - dist * 6,  //      (40%)
+        line5:  H - dist * 5,  // CL   (50%)
+        line6:  H - dist * 4,  //      (60%)
+        line7:  H - dist * 3,  //      (70%)
+        line8:  H - dist * 2,  //      (80%)
+        line9:  H - dist * 1,  //      (90%)
+        line10: H,              // MAX  (100%)
+      });
+    }
+
+    // maxBars가 지정되면 최근 N봉만 반환
+    if (maxBars && rows.length > maxBars) {
+      return rows.slice(-maxBars);
+    }
+    return rows;
+  }
+
+  /**
    * 신호 강도 계산 (0-100)
    */
   static getSignalStrength(result: RainbowChartResult): number {

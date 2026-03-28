@@ -11,25 +11,8 @@ import { RainbowChartAnalyzer } from "../formula/rainbow-chart";
  * OHLCV 데이터 + 레인보우 라인 가격을 합쳐 차트 컴포넌트용 배열 생성
  * lines는 percentage 오름차순 정렬(0%=MIN → 100%=MAX)
  */
-function buildRainbowChartData(ohlcvData: any[], rainbowResult: any, maxBars = 90) {
-  const sortedLines = [...(rainbowResult.lines || [])].sort(
-    (a: any, b: any) => a.percentage - b.percentage
-  );
-  return ohlcvData.slice(-maxBars).map((bar: any) => ({
-    date: bar.date || bar.dt || bar.stck_bsop_date || "",
-    close: Number(bar.close || bar.cls_prc || bar.stck_clpr || 0),
-    line0:  sortedLines[0]?.price,   // MIN (0%)
-    line1:  sortedLines[1]?.price,   // 10%
-    line2:  sortedLines[2]?.price,   // 20%
-    line3:  sortedLines[3]?.price,   // 30%
-    line4:  sortedLines[4]?.price,   // 40%
-    line5:  sortedLines[5]?.price,   // CL (50%)
-    line6:  sortedLines[6]?.price,   // 60%
-    line7:  sortedLines[7]?.price,   // 70%
-    line8:  sortedLines[8]?.price,   // 80%
-    line9:  sortedLines[9]?.price,   // 90%
-    line10: sortedLines[10]?.price,  // MAX (100%)
-  }));
+function buildRainbowChartData(ohlcvData: any[], _rainbowResult: any, maxBars = 120) {
+  return RainbowChartAnalyzer.computePerBarChartData(ohlcvData, 240, maxBars);
 }
 
 export function registerAutoTradingRoutes(app: Router) {
@@ -112,7 +95,7 @@ export function registerAutoTradingRoutes(app: Router) {
         if (!stockCode) continue;
 
         try {
-          const rawChartData = await userKiwoomService.getChart(user.id, stockCode, "D", 260);
+          const rawChartData = await userKiwoomService.getChart(user.id, stockCode, "D", 400);
           if (!rawChartData || rawChartData.length < 240) {
             throw new Error(`차트 데이터 부족: ${rawChartData?.length || 0}개 (240개 필요)`);
           }

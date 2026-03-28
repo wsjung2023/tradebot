@@ -148,18 +148,17 @@ export function RainbowChart({
               contentStyle={{ fontSize: 12 }}
             />
 
-            {/* 11개 레인보우 라인 (line0=MIN, line10=MAX) */}
+            {/* 11개 레인보우 라인 (line0=MIN, line10=MAX) — stepAfter로 HTS 계단식 표현 */}
             {Array.from({ length: 11 }, (_, i) => (
               <Line
                 key={`line${i}`}
-                type="monotone"
+                type="stepAfter"
                 dataKey={`line${i}`}
                 stroke={RAINBOW_COLORS[i]}
                 strokeWidth={i === 5 ? 2.5 : 1}
                 dot={false}
                 name={LINE_LABELS[i]}
                 legendType="none"
-                strokeDasharray={i === 5 ? undefined : undefined}
                 opacity={i === 5 ? 1 : 0.7}
               />
             ))}
