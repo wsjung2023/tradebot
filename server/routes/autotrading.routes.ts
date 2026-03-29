@@ -5,10 +5,127 @@ import { isAuthenticated, getCurrentUser } from "../auth";
 import { AgentTimeoutError, callViaAgent } from "../services/agent-proxy.service";
 import { getUserKiwoomService } from "../services/user-kiwoom.service";
 import { RainbowChartAnalyzer } from "../formula/rainbow-chart";
+import { normalizeChartDataAsc } from "../utils/chart-normalization";
+import { z } from "zod";
 
 
 export function registerAutoTradingRoutes(app: Router) {
   const userKiwoomService = getUserKiwoomService();
+  const notificationQuerySchema = z.object({
+    limit: z.coerce.number().int().min(1).max(200).optional(),
+    unreadOnly: z
+      .union([
+        z.literal("true"),
+        z.literal("false"),
+        z.literal("1"),
+        z.literal("0"),
+        z.boolean(),
+        z.number().int().min(0).max(1),
+      ])
+      .optional()
+      .transform((value) => value === true || value === "true" || value === "1" || value === 1),
+    severity: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .pipe(z.enum(["info", "warn", "crit"]))
+      .optional(),
+    type: z
+      .string()
+      .trim()
+      .min(1)
+      .max(100)
+      .regex(/^[a-z0-9_:-]+$/i, "invalid_type")
+      .optional(),
+  });
+
+  app.get("/api/auto-trading/engine-status", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const run = await storage.getAutoTradingRun(user!.id);
+      if (!run) {
+        return res.status(200).json({
+          initialized: false,
+          run: null,
+          message: "auto_trading_runs 레코드가 아직 생성되지 않았습니다.",
+        });
+      }
+      res.json({
+        initialized: true,
+        run,
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/auto-trading/notifications", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const parsed = notificationQuerySchema.safeParse(req.query);
+      if (!parsed.success) {
+        return res.status(400).json({
+          error: "invalid_notification_query",
+          details: parsed.error.flatten(),
+        });
+      }
+      const limit = parsed.data.limit ?? 50;
+      const unreadOnly = parsed.data.unreadOnly ?? false;
+      const severity = parsed.data.severity;
+      const type = parsed.data.type;
+      const notifications = await storage.getEngineNotifications(user!.id, limit, unreadOnly, severity, type);
+      res.json({ notifications });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/auto-trading/notifications/:id/read", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const notificationId = parseInt(String(req.params.id), 10);
+      if (!Number.isFinite(notificationId) || notificationId <= 0) {
+        return res.status(400).json({ error: "invalid_notification_id" });
+      }
+      const updated = await storage.markEngineNotificationRead(user!.id, notificationId);
+      if (!updated) {
+        return res.status(404).json({ error: "notification_not_found" });
+      }
+      res.json({ notification: updated });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/auto-trading/notifications/summary", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const summary = await storage.getEngineNotificationSummary(user!.id);
+      res.json({ summary });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/auto-trading/notifications/unread-count", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const unreadCount = await storage.getUnreadEngineNotificationCount(user!.id);
+      res.json({ unreadCount });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/auto-trading/notifications/read-all", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const updatedCount = await storage.markAllEngineNotificationsRead(user!.id);
+      res.json({ updatedCount });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
 
   /**
    * POST /api/auto-trading/backattack-scan
@@ -91,11 +208,12 @@ export function registerAutoTradingRoutes(app: Router) {
 
         try {
           const rawChartData = await userKiwoomService.getChart(user.id, stockCode, "D", 400);
-          if (!rawChartData || rawChartData.length < 240) {
-            throw new Error(`차트 데이터 부족: ${rawChartData?.length || 0}개 (240개 필요)`);
+          const normalized = normalizeChartDataAsc(rawChartData);
+          if (!normalized || normalized.length < 240) {
+            throw new Error(`차트 데이터 부족: ${normalized?.length || 0}개 (240개 필요)`);
           }
 
-          const rainbowResult = RainbowChartAnalyzer.analyze(stockCode, rawChartData, 240);
+          const rainbowResult = RainbowChartAnalyzer.analyze(stockCode, normalized, 240);
           const { currentPosition, signals, recommendation, clWidth, CL, lines } = rainbowResult;
 
           // 2차 필터 기준 (레이블용, 필터링은 하지 않음)

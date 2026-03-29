@@ -22,6 +22,8 @@ import type {
   NewsArticleRecord, InsertNewsArticleRecord,
   AnalysisMaterialSnapshot, InsertAnalysisMaterialSnapshot,
   KiwoomJob, InsertKiwoomJob,
+  AutoTradingRun,
+  EngineNotification, InsertEngineNotification,
 } from '@shared/schema';
 
 export class PostgreSQLCoreStorage {
@@ -552,6 +554,139 @@ export class PostgreSQLCoreStorage {
       )
       .limit(1);
     return result.length > 0;
+  }
+
+  async upsertAutoTradingRun(userId: string, updates: Partial<AutoTradingRun> & { state: string }): Promise<AutoTradingRun> {
+    const existing = await db
+      .select()
+      .from(schema.autoTradingRuns)
+      .where(eq(schema.autoTradingRuns.userId, userId))
+      .limit(1);
+
+    const payload = {
+      ...updates,
+      updatedAt: new Date(),
+      lastHeartbeatAt: new Date(),
+    };
+
+    if (existing[0]) {
+      const updated = await db
+        .update(schema.autoTradingRuns)
+        .set(payload)
+        .where(eq(schema.autoTradingRuns.userId, userId))
+        .returning();
+      return updated[0];
+    }
+
+    const created = await db
+      .insert(schema.autoTradingRuns)
+      .values([{ userId, ...payload }])
+      .returning();
+    return created[0];
+  }
+
+  async getAutoTradingRun(userId: string): Promise<AutoTradingRun | undefined> {
+    const result = await db
+      .select()
+      .from(schema.autoTradingRuns)
+      .where(eq(schema.autoTradingRuns.userId, userId))
+      .limit(1);
+    return result[0];
+  }
+
+  async createEngineNotification(notification: InsertEngineNotification): Promise<EngineNotification> {
+    const result = await db
+      .insert(schema.engineNotifications)
+      .values([notification])
+      .returning();
+    return result[0];
+  }
+
+  async getEngineNotifications(
+    userId: string,
+    limit: number = 50,
+    unreadOnly: boolean = false,
+    severity?: string,
+    type?: string,
+  ): Promise<EngineNotification[]> {
+    const filters = [eq(schema.engineNotifications.userId, userId)];
+    if (unreadOnly) filters.push(sql`${schema.engineNotifications.readAt} IS NULL`);
+    if (severity) filters.push(eq(schema.engineNotifications.severity, severity));
+    if (type) filters.push(eq(schema.engineNotifications.type, type));
+
+    const whereClause = filters.length === 1 ? filters[0] : and(filters[0], ...filters.slice(1));
+    return db
+      .select()
+      .from(schema.engineNotifications)
+      .where(whereClause)
+      .orderBy(desc(schema.engineNotifications.createdAt))
+      .limit(limit);
+  }
+
+  async markEngineNotificationRead(userId: string, notificationId: number): Promise<EngineNotification | undefined> {
+    const result = await db
+      .update(schema.engineNotifications)
+      .set({ readAt: new Date() })
+      .where(
+        and(
+          eq(schema.engineNotifications.id, notificationId),
+          eq(schema.engineNotifications.userId, userId),
+        ),
+      )
+      .returning();
+    return result[0];
+  }
+
+  async getUnreadEngineNotificationCount(userId: string): Promise<number> {
+    const result = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(schema.engineNotifications)
+      .where(
+        and(
+          eq(schema.engineNotifications.userId, userId),
+          sql`${schema.engineNotifications.readAt} IS NULL`,
+        ),
+      );
+    return Number(result[0]?.count ?? 0);
+  }
+
+  async markAllEngineNotificationsRead(userId: string): Promise<number> {
+    const updated = await db
+      .update(schema.engineNotifications)
+      .set({ readAt: new Date() })
+      .where(
+        and(
+          eq(schema.engineNotifications.userId, userId),
+          sql`${schema.engineNotifications.readAt} IS NULL`,
+        ),
+      )
+      .returning({ id: schema.engineNotifications.id });
+    return updated.length;
+  }
+
+  async getEngineNotificationSummary(userId: string): Promise<{
+    total: number;
+    unreadTotal: number;
+    unreadCrit: number;
+    unreadWarn: number;
+  }> {
+    const result = await db.execute(sql`
+      SELECT
+        COUNT(*)::int AS total,
+        COUNT(*) FILTER (WHERE read_at IS NULL)::int AS unread_total,
+        COUNT(*) FILTER (WHERE read_at IS NULL AND severity = 'crit')::int AS unread_crit,
+        COUNT(*) FILTER (WHERE read_at IS NULL AND severity = 'warn')::int AS unread_warn
+      FROM engine_notifications
+      WHERE user_id = ${userId}
+    `);
+
+    const row = (result as any).rows?.[0] ?? {};
+    return {
+      total: Number(row.total ?? 0),
+      unreadTotal: Number(row.unread_total ?? 0),
+      unreadCrit: Number(row.unread_crit ?? 0),
+      unreadWarn: Number(row.unread_warn ?? 0),
+    };
   }
 
   async updateKiwoomJobResult(id: number, status: string, result?: unknown, errorMessage?: string): Promise<KiwoomJob | undefined> {

@@ -11,6 +11,16 @@
         "db:push": "drizzle-kit push",
         "test:playwright": "npm run build && node scripts/playwright-smoke.mjs",
         "verify:replit": "node scripts/replit-readiness.mjs",
+        "test:chart-normalization": "tsx scripts/test-chart-normalization.ts",
+        "check:runtime-schema": "node scripts/check-runtime-schema.mjs",
+        "db:runtime-schema": "node scripts/apply-runtime-schema.mjs",
+        "db:runtime-bootstrap": "npm run db:runtime-schema && STRICT_RUNTIME_SCHEMA=1 npm run check:runtime-schema",
+        "check:legacy-contracts": "node scripts/check-legacy-contracts.mjs",
+        "check:runtime-contracts": "node scripts/check-runtime-contracts.mjs",
+        "check:agent-contracts": "node scripts/check-agent-contracts.mjs",
+        "check:security-config": "node scripts/check-security-config.mjs",
+        "check:secret-hygiene": "node scripts/check-secret-hygiene.mjs",
+        "ops:generate-secrets": "node scripts/generate-secrets.mjs",
         "ops:create-user": "tsx scripts/create-ops-user.ts"
     },
     "dependencies": {

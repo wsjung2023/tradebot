@@ -491,14 +491,57 @@ export const kiwoomJobs = pgTable("kiwoom_jobs", {
   processedAt: timestamp("processed_at"), // 처리 완료 시각
 });
 
+// 자동매매 실행 상태(사용자별) - 최소 상태 머신/하트비트
+export const autoTradingRuns = pgTable("auto_trading_runs", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }).unique(),
+  state: text("state").notNull().default("stopped"), // stopped | running | paused | error
+  reason: text("reason"),
+  lastCycleAt: timestamp("last_cycle_at"),
+  lastHeartbeatAt: timestamp("last_heartbeat_at").notNull().defaultNow(),
+  lastError: text("last_error"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// 엔진/에이전트 이벤트 알림(사용자별)
+export const engineNotifications = pgTable("engine_notifications", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  severity: text("severity").notNull().default("info"), // info | warn | crit
+  type: text("type").notNull(), // agent_offline | token_failed | engine_error ...
+  message: text("message").notNull(),
+  payload: jsonb("payload"),
+  readAt: timestamp("read_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 export const insertKiwoomJobSchema = createInsertSchema(kiwoomJobs, {
   userId: z.string().min(1),
   jobType: z.string().min(1),
   payload: z.any(),
 }).omit({ id: true, createdAt: true, updatedAt: true });
 
+export const insertAutoTradingRunSchema = createInsertSchema(autoTradingRuns).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  lastHeartbeatAt: true,
+});
+
+export const insertEngineNotificationSchema = createInsertSchema(engineNotifications).omit({
+  id: true,
+  createdAt: true,
+  readAt: true,
+});
+
 export type KiwoomJob = typeof kiwoomJobs.$inferSelect;
 export type InsertKiwoomJob = z.infer<typeof insertKiwoomJobSchema>;
+export type AutoTradingRun = typeof autoTradingRuns.$inferSelect;
+export type InsertAutoTradingRun = z.infer<typeof insertAutoTradingRunSchema>;
+export type EngineNotification = typeof engineNotifications.$inferSelect;
+export type InsertEngineNotification = z.infer<typeof insertEngineNotificationSchema>;
 
 // ==================== Insert Schemas ====================
 

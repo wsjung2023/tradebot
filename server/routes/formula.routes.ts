@@ -13,6 +13,7 @@ import { FormulaEvaluator } from "../services/formula/evaluator";
 import { AgentTimeoutError } from "../services/agent-proxy.service";
 import { getUserKiwoomService } from "../services/user-kiwoom.service";
 import { z } from "zod";
+import { normalizeChartDataAsc } from "../utils/chart-normalization";
 
 export function registerFormulaRoutes(app: Router) {
   const userKiwoomService = getUserKiwoomService();
@@ -353,15 +354,7 @@ export function registerFormulaRoutes(app: Router) {
       if (!stockCode) return res.status(400).json({ error: "Stock code is required" });
 
       const chartData = await userKiwoomService.getChart(user!.id, stockCode, period, 250);
-      const rows = Array.isArray(chartData) ? chartData : (chartData.output2 || chartData.output1 || chartData.output || []);
-      const ohlcvData = rows.map((c: any) => ({
-        date: c.date || c.stck_bsop_date || c.dt || "",
-        open: parseFloat(c.open || c.stck_oprc || 0) || 0,
-        high: parseFloat(c.high || c.stck_hgpr || 0) || 0,
-        low: parseFloat(c.low || c.stck_lwpr || 0) || 0,
-        close: parseFloat(c.close || c.stck_clpr || 0) || 0,
-        volume: parseInt(c.volume || c.acml_vol || 0) || 0,
-      }));
+      const ohlcvData = normalizeChartDataAsc(chartData);
 
       const evaluator = new FormulaEvaluator();
       const results = evaluator.evaluate(formula.formulaAst as any, ohlcvData);
