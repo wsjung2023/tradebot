@@ -4,6 +4,7 @@ import { KiwoomService } from './kiwoom';
 import { AIService } from './ai.service';
 import { AiModel, AutoTradingSettings } from '@shared/schema';
 import { RainbowChartAnalyzer } from '../formula/rainbow-chart';
+import { normalizeChartDataAsc } from '../utils/chart-normalization';
 
 export type RainbowEval = {
   currentLine: number;
@@ -73,7 +74,7 @@ export class TradeExecutorService {
     const hasHighLiquidity = volume > 100000;
 
     const chartData = await kiwoomService.getStockChart(stock.code, 'D');
-    const ohlcv = chartData.output || [];
+    const ohlcv = normalizeChartDataAsc(chartData.output || chartData);
     const rainbowChart = RainbowChartAnalyzer.analyze(stock.code, ohlcv);
 
     const analysis = await aiService.analyzeStock({
@@ -116,7 +117,7 @@ export class TradeExecutorService {
     kiwoomService: KiwoomService
   ): Promise<RainbowEval> {
     const chartData = await kiwoomService.getStockChart(stock.code, 'D', 250);
-    const ohlcv = chartData.output || [];
+    const ohlcv = normalizeChartDataAsc(chartData.output || chartData);
     const result = RainbowChartAnalyzer.analyze(stock.code, ohlcv, 240);
     const signalStrength = RainbowChartAnalyzer.getSignalStrength(result);
 

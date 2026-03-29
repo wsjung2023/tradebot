@@ -131,23 +131,11 @@ export function registerAccountRoutes(app: Router) {
     }
   });
 
-  // API 자격증명 제공 (클라이언트 폴백용) — 환경변수에서 직접 반환
+  // 보안 하드닝: 브라우저로 키움 시크릿 전달 금지 (완전 비활성)
   app.get("/api/kiwoom/credentials", isAuthenticated, async (_req, res) => {
-    try {
-      const appKey = process.env.KIWOOM_APP_KEY;
-      const appSecret = process.env.KIWOOM_APP_SECRET;
-      if (!appKey || !appSecret) {
-        return res.status(400).json({ error: "서버에 KIWOOM API 키가 설정되지 않았습니다. 집 PC 에이전트를 사용하세요." });
-      }
-      res.json({
-        appKey,
-        appSecret,
-        baseUrl: "https://api.kiwoom.com",
-        mockBaseUrl: "https://mockapi.kiwoom.com",
-      });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
-    }
+    return res.status(410).json({
+      error: "이 엔드포인트는 보안상 완전 비활성화되었습니다. 키움 호출은 서버/에이전트 경유만 지원합니다.",
+    });
   });
 
   // ── 잔고 조회 — 집 PC 에이전트를 통해 키움 REST 호출 ──────────────────────

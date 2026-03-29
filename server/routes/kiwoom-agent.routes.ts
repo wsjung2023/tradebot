@@ -4,6 +4,7 @@
 import type { Express, Request, Response } from "express";
 import { readFileSync, existsSync } from "fs";
 import { join } from "path";
+import { timingSafeEqual } from "crypto";
 import { storage } from "../storage";
 import { insertKiwoomJobSchema } from "@shared/schema";
 import type { KiwoomJob } from "@shared/schema";
@@ -21,11 +22,28 @@ function touchAgentSeen() {
 }
 
 function requireAgentKey(req: Request, res: Response): boolean {
-  const key = (req.query.agent_key as string) || (req.headers["x-agent-key"] as string);
-  if (!AGENT_KEY || key !== AGENT_KEY) {
+  const queryKey = (req.query.agent_key as string) || "";
+  const headerKey = (req.headers["x-agent-key"] as string) || "";
+  const key = headerKey || queryKey;
+
+  if (!AGENT_KEY || !key) {
     res.status(401).json({ error: "유효하지 않은 에이전트 키" });
     return false;
   }
+
+  // 길이 동일 확인 후 timing-safe 비교 (키 비교 채널 누수 최소화)
+  const expected = Buffer.from(AGENT_KEY);
+  const provided = Buffer.from(key);
+  const keyMatches = expected.length === provided.length && timingSafeEqual(expected, provided);
+  if (!keyMatches) {
+    res.status(401).json({ error: "유효하지 않은 에이전트 키" });
+    return false;
+  }
+
+  if (process.env.NODE_ENV === "production" && queryKey && !headerKey) {
+    console.warn("[kiwoom-agent] agent_key query 파라미터 사용 감지 (권장: x-agent-key 헤더)");
+  }
+
   return true;
 }
 
@@ -357,7 +375,7 @@ export function registerKiwoomAgentRoutes(app: Express): void {
       const start = Date.now();
       while (Date.now() - start < 20000) {
         await new Promise((r) => setTimeout(r, 600));
-        const updated = await storage.getKiwoomJob(job.id);
+        const updated = await storage.getKiwoomJobByIdInternal(job.id);
         if (!updated) break;
         if (updated.status === "done") return res.json({ success: true, result: updated.result });
         if (updated.status === "error") return res.json({ success: false, error: updated.errorMessage });
@@ -400,8 +418,14 @@ export function registerKiwoomAgentRoutes(app: Express): void {
       }
       // 이미 진행 중인 요청이 있으면 현재 캐시(만료됐어도) 반환
       if (_sysStatusPending) {
-        const fallback = _sysStatusCache || { status: "unknown", message: "상태 확인 중...", checkedAt: now / 1000 };
-        return res.json({ ...fallback, cached: true, pending: true });
+        if (_sysStatusCache) {
+          return res.json({ ..._sysStatusCache, cached: true, pending: true, source: "stale-cache" });
+        }
+        return res.status(202).json({
+          pending: true,
+          source: "pending-no-cache",
+          message: "system.status 작업 진행 중",
+        });
       }
       const userId = getAuthUserId(req);
       if (!userId) return res.status(401).json({ error: "로그인 필요" });
@@ -419,7 +443,7 @@ export function registerKiwoomAgentRoutes(app: Express): void {
         const start = Date.now();
         while (Date.now() - start < 15000) {
           await new Promise((r) => setTimeout(r, 600));
-          const updated = await storage.getKiwoomJob(job.id);
+          const updated = await storage.getKiwoomJobByIdInternal(job.id);
           if (!updated) break;
           if (updated.status === "done" && updated.result) {
             const r = updated.result as any;
@@ -448,8 +472,6 @@ export function registerKiwoomAgentRoutes(app: Express): void {
     const log = (msg: string) => { logs.push(msg); console.log("[DIAG]", msg); };
 
     try {
-      const fetch = (await import("node-fetch")).default;
-
       // 1. 토큰 발급
       const appKey = process.env.KIWOOM_APP_KEY_REAL || process.env.KIWOOM_KEY_59190647 || process.env.KIWOOM_APP_KEY || "";
       const appSecret = process.env.KIWOOM_APP_SECRET_REAL || process.env.KIWOOM_SECRET_59190647 || process.env.KIWOOM_APP_SECRET || "";

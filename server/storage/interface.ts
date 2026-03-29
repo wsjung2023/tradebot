@@ -27,6 +27,8 @@ import {
   type NewsArticleRecord, type InsertNewsArticleRecord,
   type AnalysisMaterialSnapshot, type InsertAnalysisMaterialSnapshot,
   type KiwoomJob, type InsertKiwoomJob,
+  type AutoTradingRun, type InsertAutoTradingRun,
+  type EngineNotification, type InsertEngineNotification,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -181,6 +183,27 @@ export interface IStorage {
   getRecentKiwoomJobsByUser(userId: string, limit?: number): Promise<KiwoomJob[]>;
   getKiwoomJobByIdInternal(id: number): Promise<KiwoomJob | undefined>;
   hasPendingJobForAccount(userId: string, jobType: string, accountNumber: string): Promise<boolean>;
+
+  // 자동매매 상태 머신 / 알림
+  upsertAutoTradingRun(userId: string, updates: Partial<AutoTradingRun> & { state: string }): Promise<AutoTradingRun>;
+  getAutoTradingRun(userId: string): Promise<AutoTradingRun | undefined>;
+  createEngineNotification(notification: InsertEngineNotification): Promise<EngineNotification>;
+  getEngineNotifications(
+    userId: string,
+    limit?: number,
+    unreadOnly?: boolean,
+    severity?: string,
+    type?: string,
+  ): Promise<EngineNotification[]>;
+  markEngineNotificationRead(userId: string, notificationId: number): Promise<EngineNotification | undefined>;
+  getUnreadEngineNotificationCount(userId: string): Promise<number>;
+  markAllEngineNotificationsRead(userId: string): Promise<number>;
+  getEngineNotificationSummary(userId: string): Promise<{
+    total: number;
+    unreadTotal: number;
+    unreadCrit: number;
+    unreadWarn: number;
+  }>;
 
   // 헬퍼
   getActiveAiModels(): Promise<AiModel[]>;

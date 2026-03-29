@@ -3,35 +3,15 @@ import { RainbowChartAnalyzer, OHLCVData } from '../formula/rainbow-chart';
 import { isAuthenticated, getCurrentUser } from '../auth';
 import { AgentTimeoutError } from '../services/agent-proxy.service';
 import { getUserKiwoomService } from '../services/user-kiwoom.service';
+import { normalizeChartDataAsc } from '../utils/chart-normalization';
 
 export const rainbowRouter = Router();
 const userKiwoomService = getUserKiwoomService();
 
 function toOhlcvData(rawChartData: any): OHLCVData[] {
-  if (Array.isArray(rawChartData)) {
-    return rawChartData.map((item: any) => ({
-      date: item.date || item.stck_bsop_date || '',
-      open: parseFloat(item.open || item.stck_oprc || 0),
-      high: parseFloat(item.high || item.stck_hgpr || 0),
-      low: parseFloat(item.low || item.stck_lwpr || 0),
-      close: parseFloat(item.close || item.stck_clpr || 0),
-      volume: parseInt(item.volume || item.acml_vol || 0, 10),
-    }));
-  }
-
-  if (rawChartData.output1 || rawChartData.output) {
-    const outputData = rawChartData.output1 || rawChartData.output;
-    return outputData.map((item: any) => ({
-      date: item.stck_bsop_date || '',
-      open: parseFloat(item.stck_oprc || 0),
-      high: parseFloat(item.stck_hgpr || 0),
-      low: parseFloat(item.stck_lwpr || 0),
-      close: parseFloat(item.stck_clpr || 0),
-      volume: parseInt(item.acml_vol || 0, 10),
-    }));
-  }
-
-  throw new Error('Invalid chart data format');
+  const normalized = normalizeChartDataAsc(rawChartData);
+  if (normalized.length === 0) throw new Error('Invalid chart data format');
+  return normalized;
 }
 
 /**

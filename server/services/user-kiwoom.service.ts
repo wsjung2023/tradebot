@@ -1,5 +1,6 @@
 import { storage } from "../storage";
 import { decrypt } from "../utils/crypto";
+import { normalizePriceHistoryAsc } from "../utils/chart-normalization";
 import { callViaAgent, AgentTimeoutError } from "./agent-proxy.service";
 import { createKiwoomService, getKiwoomService, type KiwoomService } from "./kiwoom";
 
@@ -267,11 +268,7 @@ export class UserKiwoomService {
   }
 
   normalizeChartForPriceHistory(chartData: any[]) {
-    return chartData.slice(0, 30).map((row: any) => ({
-      date: row.dt || row.date || "",
-      price: Number(row.cls_prc || row.close || 0),
-      volume: Number(row.trde_qty || row.volume || 0),
-    }));
+    return normalizePriceHistoryAsc(chartData, 30);
   }
 
   normalizeConditionResult(result: any) {

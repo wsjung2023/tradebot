@@ -5,6 +5,7 @@ import rateLimit from "express-rate-limit";
 import helmet from "helmet";
 import path from "path";
 import fs from "fs";
+import crypto from "crypto";
 import { createServer } from "http";
 import { pool } from "./db";
 import { registerRoutes } from "./routes";
@@ -33,8 +34,16 @@ declare module 'http' {
 
 app.set('trust proxy', 1);
 
-const sessionSecret = process.env.SESSION_SECRET || 'kiwoom-ai-trading-secret-key-change-in-production';
 const isProduction = process.env.NODE_ENV === 'production';
+const sessionSecret = process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex");
+
+if (!process.env.SESSION_SECRET) {
+  console.warn("[SECURITY] SESSION_SECRET 미설정: 프로세스 재시작마다 변경되는 임시 시크릿을 사용합니다. 운영에서는 반드시 고정 값을 설정하세요.");
+}
+
+if (isProduction && sessionSecret.length < 32) {
+  throw new Error("SESSION_SECRET must be at least 32 characters in production.");
+}
 
 app.use(helmet({
   contentSecurityPolicy: isProduction ? {
@@ -54,6 +63,12 @@ app.use(helmet({
 }));
 
 const AGENT_KEY_ENV = process.env.AGENT_KEY || "";
+if (AGENT_KEY_ENV && AGENT_KEY_ENV.length < 32) {
+  console.warn("[SECURITY] AGENT_KEY는 32자 이상을 권장합니다.");
+}
+if (isProduction && !AGENT_KEY_ENV) {
+  throw new Error("AGENT_KEY must be configured in production.");
+}
 
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,

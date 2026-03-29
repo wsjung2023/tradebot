@@ -1,11 +1,13 @@
 // auto-trading-worker.ts — 자동매매 cron 스케줄러. 매 1분마다 AI 모델 순회 및 조건 검색 실행
 import * as cron from 'node-cron';
+import { createHash } from 'crypto';
 import { storage } from './storage';
 import { KiwoomService } from './services/kiwoom';
 import { getUserKiwoomService } from './services/user-kiwoom.service';
 import { AIService } from './services/ai.service';
 import { LearningService } from './services/learning.service';
 import { TradeExecutorService } from './services/trade-executor.service';
+import { AgentTimeoutError } from './services/agent-proxy.service';
 import { AiModel, AutoTradingSettings, ConditionFormula } from '@shared/schema';
 import { decrypt } from './utils/crypto';
 import { getFeatureFlags } from './config/feature-flags';
@@ -20,6 +22,27 @@ class AutoTradingWorker {
   private learningService = new LearningService();
   private executor = new TradeExecutorService();
   private userKiwoomService = getUserKiwoomService();
+  private readonly agentTimeoutWindowMs = 10 * 60 * 1000;
+  private readonly agentTimeoutThreshold = 3;
+  private readonly agentTimeoutCooldownMs = 5 * 60 * 1000;
+  private agentTimeoutCounters = new Map<string, { count: number; firstAt: number }>();
+
+  private clearAgentTimeoutCounter(userId: string) {
+    this.agentTimeoutCounters.delete(userId);
+  }
+
+  private recordAgentTimeout(userId: string) {
+    const now = Date.now();
+    const prev = this.agentTimeoutCounters.get(userId);
+    if (!prev || now - prev.firstAt > this.agentTimeoutWindowMs) {
+      const next = { count: 1, firstAt: now };
+      this.agentTimeoutCounters.set(userId, next);
+      return next;
+    }
+    const next = { count: prev.count + 1, firstAt: prev.firstAt };
+    this.agentTimeoutCounters.set(userId, next);
+    return next;
+  }
 
   async start() {
     this.startTradingJob('* * * * *');
@@ -68,6 +91,57 @@ class AutoTradingWorker {
   async runTradingNow(): Promise<void> { await this.executeTradingCycle(); }
   async runLearningNow(): Promise<void> { await this.executeLearningCycleWrapper(); }
 
+  private async setRunState(
+    userId: string,
+    state: 'stopped' | 'running' | 'paused' | 'error',
+    modelId?: number,
+    reason?: string,
+    lastError?: string,
+    metadata?: Record<string, unknown>,
+  ) {
+    try {
+      const current = await storage.getAutoTradingRun(userId);
+      const existingMeta = (current?.metadata as Record<string, any> | null) ?? {};
+      const modelStates = { ...(existingMeta.modelStates || {}) };
+      if (modelId !== undefined) {
+        modelStates[String(modelId)] = {
+          state,
+          reason: reason ?? null,
+          lastError: lastError ?? null,
+          updatedAt: new Date().toISOString(),
+          ...(metadata || {}),
+        };
+      }
+      await storage.upsertAutoTradingRun(userId, {
+        state,
+        reason,
+        lastError,
+        lastCycleAt: new Date(),
+        metadata: {
+          ...existingMeta,
+          ...metadata,
+          modelStates,
+        },
+      });
+    } catch (e) {
+      console.warn(`[AutoTrading] run state update failed user=${userId}:`, e);
+    }
+  }
+
+  private async notifyEngineEvent(
+    userId: string,
+    severity: 'info' | 'warn' | 'crit',
+    type: string,
+    message: string,
+    payload?: Record<string, unknown>
+  ) {
+    try {
+      await storage.createEngineNotification({ userId, severity, type, message, payload: payload ?? {} });
+    } catch (e) {
+      console.warn(`[AutoTrading] notification write failed user=${userId}:`, e);
+    }
+  }
+
   private async executeTradingCycle() {
     const cycleId = `trading-${Date.now()}`;
 
@@ -115,11 +189,53 @@ class AutoTradingWorker {
 
   private async processModel(model: AiModel) {
     console.log(`\n🎯 Processing model: ${model.modelName} (ID: ${model.id})`);
+    const startedAt = Date.now();
+    const cycleId = `model-${model.id}-${startedAt}`;
     try {
       const userSettings = await storage.getUserSettings(model.userId);
+      if (!userSettings?.autoTradingEnabled) {
+        await this.setRunState(model.userId, 'stopped', model.id, 'auto_trading_disabled', undefined, {
+          cycleId,
+          durationMs: Date.now() - startedAt,
+        });
+        console.log(`ℹ️  Auto trading disabled for user ${model.userId} - skipping`);
+        return;
+      }
       if (!userSettings?.kiwoomAppKey || !userSettings?.kiwoomAppSecret) {
+        await this.setRunState(model.userId, 'paused', model.id, 'missing_kiwoom_credentials', undefined, {
+          cycleId,
+          durationMs: Date.now() - startedAt,
+        });
+        await this.notifyEngineEvent(
+          model.userId,
+          'warn',
+          'token_failed',
+          '키움 API 키/시크릿이 없어 자동매매를 일시중지했습니다.',
+          { modelId: model.id },
+        );
         console.log(`⚠️  No Kiwoom API keys for user ${model.userId} - skipping`); return;
       }
+
+      const existingRun = await storage.getAutoTradingRun(model.userId);
+      const cooldownUntil = (existingRun?.metadata as any)?.agentCooldownUntil
+        ? new Date((existingRun?.metadata as any).agentCooldownUntil as string).getTime()
+        : null;
+      if (cooldownUntil && Number.isFinite(cooldownUntil) && cooldownUntil > Date.now()) {
+        const cooldownRemainingSec = Math.max(0, Math.round((cooldownUntil - Date.now()) / 1000));
+        await this.setRunState(model.userId, 'paused', model.id, 'agent_timeout_cooldown', existingRun?.lastError ?? undefined, {
+          cycleId,
+          durationMs: Date.now() - startedAt,
+          agentCooldownUntil: new Date(cooldownUntil).toISOString(),
+          cooldownRemainingSec,
+        });
+        console.log(`⏸️  Agent timeout cooldown active for user ${model.userId} (${cooldownRemainingSec}s remaining)`);
+        return;
+      }
+
+      await this.setRunState(model.userId, 'running', model.id, 'cycle_started', undefined, {
+        cycleId,
+        agentCooldownUntil: null,
+      });
 
       const kiwoomService = new KiwoomService({
         appKey: decrypt(userSettings.kiwoomAppKey),
@@ -142,7 +258,61 @@ class AutoTradingWorker {
       for (const condition of activeConditions) {
         await this.processCondition(model, settings, condition, kiwoomService, aiService);
       }
+      this.clearAgentTimeoutCounter(model.userId);
+      await this.setRunState(model.userId, 'running', model.id, 'cycle_completed', undefined, {
+        cycleId,
+        durationMs: Date.now() - startedAt,
+        agentCooldownUntil: null,
+        timeoutCountInWindow: 0,
+      });
     } catch (error) {
+      const errorMessage = (error as Error)?.message || String(error);
+      const errorHash = createHash('sha1').update(errorMessage).digest('hex').slice(0, 12);
+      if (error instanceof AgentTimeoutError) {
+        const timeoutTracker = this.recordAgentTimeout(model.userId);
+        const timeoutEscalated = timeoutTracker.count >= this.agentTimeoutThreshold;
+        const agentCooldownUntil = timeoutEscalated
+          ? new Date(Date.now() + this.agentTimeoutCooldownMs).toISOString()
+          : null;
+        await this.setRunState(model.userId, 'paused', model.id, 'agent_timeout', errorMessage, {
+          cycleId,
+          durationMs: Date.now() - startedAt,
+          errorHash,
+          timeoutCountInWindow: timeoutTracker.count,
+          timeoutWindowSec: Math.round(this.agentTimeoutWindowMs / 1000),
+          timeoutEscalated,
+          agentCooldownUntil,
+        });
+        await this.notifyEngineEvent(
+          model.userId,
+          timeoutEscalated ? 'crit' : 'warn',
+          timeoutEscalated ? 'agent_offline_repeated' : 'agent_offline',
+          timeoutEscalated
+            ? `에이전트 응답 지연이 ${timeoutTracker.count}회 누적되어 자동매매를 일시중지했습니다(쿨다운 ${Math.round(this.agentTimeoutCooldownMs / 1000)}초): ${error.message}`
+            : `에이전트 응답 지연으로 자동매매를 일시중지했습니다: ${error.message}`,
+          {
+            modelId: model.id,
+            timeoutCountInWindow: timeoutTracker.count,
+            timeoutWindowSec: Math.round(this.agentTimeoutWindowMs / 1000),
+            timeoutCooldownSec: timeoutEscalated ? Math.round(this.agentTimeoutCooldownMs / 1000) : 0,
+          },
+        );
+      } else {
+        this.clearAgentTimeoutCounter(model.userId);
+        await this.setRunState(model.userId, 'error', model.id, 'cycle_error', errorMessage, {
+          cycleId,
+          durationMs: Date.now() - startedAt,
+          errorHash,
+          agentCooldownUntil: null,
+        });
+        await this.notifyEngineEvent(
+          model.userId,
+          'crit',
+          'engine_error',
+          `자동매매 사이클 오류: ${errorMessage}`,
+          { modelId: model.id },
+        );
+      }
       console.error(`❌ Error processing model ${model.id}:`, error);
     }
   }
