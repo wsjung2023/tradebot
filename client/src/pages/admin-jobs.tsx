@@ -9,11 +9,11 @@ import { Play, Square, RotateCcw, Clock, Activity, AlertCircle } from "lucide-re
 interface JobInfo {
   id: string;
   name: string;
-  running: boolean;
+  status: "running" | "stopped";
   lastRun: string | null;
   nextRun: string | null;
   intervalMinutes: number;
-  error: string | null;
+  lastError: string | null;
 }
 
 export default function AdminJobs() {
@@ -92,10 +92,10 @@ export default function AdminJobs() {
                     {job.name}
                   </CardTitle>
                   <Badge
-                    variant={job.running ? "default" : "secondary"}
+                    variant={job.status === "running" ? "default" : "secondary"}
                     data-testid={`status-job-${job.id}`}
                   >
-                    {job.running ? "실행 중" : "중지됨"}
+                    {job.status === "running" ? "실행 중" : "중지됨"}
                   </Badge>
                 </div>
               </CardHeader>
@@ -111,15 +111,15 @@ export default function AdminJobs() {
                   </div>
                 </div>
 
-                {job.error && (
+                {job.lastError && (
                   <div className="flex items-start gap-2 text-sm text-destructive bg-destructive/10 rounded-md p-2">
                     <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
-                    <span>{job.error}</span>
+                    <span>{job.lastError}</span>
                   </div>
                 )}
 
                 <div className="flex gap-2 flex-wrap">
-                  {!job.running ? (
+                  {job.status !== "running" ? (
                     <Button
                       size="sm"
                       onClick={() => startMutation.mutate(job.id)}
