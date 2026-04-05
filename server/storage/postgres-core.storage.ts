@@ -112,6 +112,10 @@ export class PostgreSQLCoreStorage {
     await db.delete(schema.holdings).where(eq(schema.holdings.id, id));
   }
 
+  async deleteHoldingsByAccount(accountId: number): Promise<void> {
+    await db.delete(schema.holdings).where(eq(schema.holdings.accountId, accountId));
+  }
+
   async getHoldingByStock(accountId: number, stockCode: string): Promise<Holding | undefined> {
     const result = await db.select().from(schema.holdings).where(
       and(eq(schema.holdings.accountId, accountId), eq(schema.holdings.stockCode, stockCode))

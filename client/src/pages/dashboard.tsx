@@ -25,19 +25,6 @@ interface DashboardSettings {
   tradingMode?: "mock" | "real";
 }
 
-interface CachedBalanceSummary {
-  totalAssets: number;
-  depositAmount: number;
-  todayProfit: number;
-  todayProfitRate: number;
-  fetchedAt?: string;
-}
-
-interface DashboardCachedBalance {
-  assetHistory?: Array<{ date: string; value: number }>;
-  cachedBalance?: CachedBalanceSummary | null;
-}
-
 interface DashboardHolding {
   id: number;
   stockCode: string;
@@ -60,10 +47,6 @@ export default function Dashboard() {
 
   const { data: accounts = [], isLoading: accountsLoading } = useQuery<DashboardAccount[]>({ queryKey: ['/api/accounts'] });
   const { data: settings } = useQuery<DashboardSettings>({ queryKey: ['/api/settings'] });
-  const { data: cachedBalance } = useQuery<DashboardCachedBalance>({
-    queryKey: ['/api/accounts', selectedAccountId, 'balance'],
-    enabled: !!selectedAccountId,
-  });
   const { data: holdings = [], isLoading: holdingsLoading } = useQuery<DashboardHolding[]>({
     queryKey: ['/api/accounts', selectedAccountId, 'holdings'],
     enabled: !!selectedAccountId,
@@ -227,9 +210,6 @@ export default function Dashboard() {
   const isSuccess = kiwoom.status === "success" && kiwoomIsForCurrentAccount;
   const hasError = (kiwoom.status === "error" || kiwoom.status === "agent_timeout") && kiwoomIsForCurrentAccount;
   const balance = isSuccess ? kiwoom.data : null;
-
-  // 마지막 성공한 잔고 조회 캐시 (새로고침 전 기존 데이터 표시용)
-  const cached = cachedBalance?.cachedBalance ?? null;
 
   const assetHistory = assetSnapshots?.map((s: any) => ({
     date: s.date,
@@ -408,11 +388,11 @@ export default function Dashboard() {
               <div className="text-lg md:text-2xl font-bold font-mono text-glow-cyan truncate" data-testid="text-total-assets">
                 {isLoading ? <span className="text-muted-foreground text-base">조회 중...</span>
                   : isSuccess ? fmt(balance?.totalAssets)
-                  : cached ? fmt(cached.totalAssets)
+                  : hasError ? <span className="text-muted-foreground text-sm">조회 실패</span>
                   : <span className="text-muted-foreground text-sm">-</span>}
               </div>
               {!selectedAccountId && <p className="text-xs text-muted-foreground">계좌를 연결해주세요</p>}
-              {selectedAccountId && isIdle && !cached && <p className="text-xs text-muted-foreground">새로고침 버튼으로 조회</p>}
+              {selectedAccountId && isIdle && <p className="text-xs text-muted-foreground">새로고침 버튼으로 조회</p>}
             </CardContent>
           </Card>
 
@@ -424,22 +404,22 @@ export default function Dashboard() {
             <CardContent className="pt-0">
               <div
                 className={`text-lg md:text-2xl font-bold font-mono truncate ${
-                  (isSuccess ? (balance?.todayProfit ?? 0) : (cached?.todayProfit ?? 0)) > 0 ? "text-[hsl(var(--neon-green))]"
-                  : (isSuccess ? (balance?.todayProfit ?? 0) : (cached?.todayProfit ?? 0)) < 0 ? "text-[hsl(var(--neon-red))]" : ""
+                  (balance?.todayProfit ?? 0) > 0 ? "text-[hsl(var(--neon-green))]"
+                  : (balance?.todayProfit ?? 0) < 0 ? "text-[hsl(var(--neon-red))]" : ""
                 }`}
                 data-testid="text-today-profit"
               >
                 {isLoading ? <span className="text-muted-foreground text-base">조회 중...</span>
                   : isSuccess ? fmt(balance?.todayProfit)
-                  : cached ? fmt(cached.todayProfit)
+                  : hasError ? <span className="text-muted-foreground text-sm">조회 실패</span>
                   : <span className="text-muted-foreground text-sm">-</span>}
               </div>
               <p className={`text-xs ${
-                (isSuccess ? (balance?.todayProfitRate ?? 0) : (cached?.todayProfitRate ?? 0)) > 0 ? "text-[hsl(var(--neon-green))]"
-                : (isSuccess ? (balance?.todayProfitRate ?? 0) : (cached?.todayProfitRate ?? 0)) < 0 ? "text-[hsl(var(--neon-red))]"
+                (balance?.todayProfitRate ?? 0) > 0 ? "text-[hsl(var(--neon-green))]"
+                : (balance?.todayProfitRate ?? 0) < 0 ? "text-[hsl(var(--neon-red))]"
                 : "text-muted-foreground"
               }`}>
-                {isSuccess ? fmtPct(balance?.todayProfitRate) : cached ? fmtPct(cached.todayProfitRate) : ""}
+                {isSuccess ? fmtPct(balance?.todayProfitRate) : ""}
               </p>
             </CardContent>
           </Card>
@@ -453,7 +433,7 @@ export default function Dashboard() {
               <div className="text-lg md:text-2xl font-bold font-mono" data-testid="text-total-return">
                 {isLoading ? <span className="text-muted-foreground text-base">조회 중...</span>
                   : isSuccess ? fmt(balance?.depositAmount)
-                  : cached ? fmt(cached.depositAmount)
+                  : hasError ? <span className="text-muted-foreground text-sm">조회 실패</span>
                   : <span className="text-muted-foreground text-sm">-</span>}
               </div>
               <p className="text-xs text-muted-foreground">출금가능금액</p>
@@ -474,8 +454,8 @@ export default function Dashboard() {
           </Card>
         </div>
 
-        {/* 포트폴리오 & 보유종목 — DB 저장 데이터 표시 (새로고침 전에도 유지) */}
-        {holdings && holdings.length > 0 && (
+        {/* 포트폴리오 & 보유종목 — API 조회 성공 시에만 표시 */}
+        {isSuccess && holdings && holdings.length > 0 && (
           <div className="grid gap-3 md:gap-4 grid-cols-1 md:grid-cols-2">
             <Card className="hover-elevate">
               <CardHeader className="pb-2">

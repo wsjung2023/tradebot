@@ -53,6 +53,7 @@ export interface IStorage {
   createHolding(holding: InsertHolding): Promise<Holding>;
   updateHolding(id: number, updates: Partial<Holding>): Promise<Holding | undefined>;
   deleteHolding(id: number): Promise<void>;
+  deleteHoldingsByAccount(accountId: number): Promise<void>;
   getHoldingByStock(accountId: number, stockCode: string): Promise<Holding | undefined>;
 
   // 주문

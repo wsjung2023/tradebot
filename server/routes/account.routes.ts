@@ -245,14 +245,14 @@ export function registerAccountRoutes(app: Router) {
       );
 
       // DB 보유종목 동기화 (parseHoldingItem: server/utils/balance-parser.ts)
+      // 먼저 기존 보유종목 전체 삭제 후 새로 받은 종목만 저장 (stale 데이터 방지)
+      await storage.deleteHoldingsByAccount(account.id);
       for (const item of output2) {
         const parsed = parseHoldingItem(item);
         if (!parsed.stockCode) continue;
         const { stockCode, ...updates } = parsed;
         console.log(`[fetch-balance] 종목 파싱: code=${stockCode} name=${updates.stockName} qty=${updates.quantity} avgPrc=${updates.averagePrice} curPrc=${updates.currentPrice} pl=${updates.profitLoss} plRate=${updates.profitLossRate} rawFields={pchs_avg_pric:${item.pchs_avg_pric},pur_pric:${item.pur_pric},prft_rt:${item.prft_rt},evltv_prft:${item.evltv_prft}}`);
-        const existing = await storage.getHoldingByStock(account.id, stockCode);
-        if (existing) await storage.updateHolding(existing.id, updates);
-        else await storage.createHolding({ accountId: account.id, stockCode, ...updates });
+        await storage.createHolding({ accountId: account.id, stockCode, ...updates });
       }
 
       // 총 자산 = 주식 평가금액 + 예수금
