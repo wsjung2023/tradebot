@@ -61,6 +61,10 @@ KIWOOM_APP_SECRET = _APP_SECRET_COMMON
 KIWOOM_IS_MOCK = os.getenv("KIWOOM_IS_MOCK", "false").lower() == "true"
 POLL_INTERVAL = int(os.getenv("POLL_INTERVAL", "2"))
 
+# 계좌번호별 앱키 저장소 (서버에서 수신)
+# { "59190647": {"appKey": "...", "appSecret": "..."}, ... }
+ACCOUNT_KEYS = {}
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -100,18 +104,41 @@ def get_kiwoom_base_url():
     return KIWOOM_MOCK_BASE if KIWOOM_IS_MOCK else KIWOOM_REAL_BASE
 
 
-# ===== 키움 토큰 관리 (모의/실계좌 분리) =====
+# ===== 키움 토큰 관리 (모의/실계좌/계좌별 분리) =====
 _tokens = {"real": None, "mock": None}
 _token_expires = {"real": 0, "mock": 0}
+# 계좌번호별 토큰: { "59190647": token_str, ... }
+_account_tokens = {}
+_account_token_expires = {}
 
 
-def refresh_kiwoom_token(is_mock=False):
+def _get_account_appkey(account_number):
+    """계좌번호에 맞는 앱키/시크릿 반환. 없으면 기본 실계좌 키 폴백."""
+    if account_number and account_number in ACCOUNT_KEYS:
+        ak = ACCOUNT_KEYS[account_number]
+        return ak["appKey"], ak["appSecret"]
+    return KIWOOM_APP_KEY_REAL, KIWOOM_APP_SECRET_REAL
+
+
+def refresh_kiwoom_token(is_mock=False, account_number=None):
     """키움 REST API 액세스 토큰 발급 — POST /oauth2/token"""
-    key = "mock" if is_mock else "real"
     base_url = KIWOOM_MOCK_BASE if is_mock else KIWOOM_REAL_BASE
-    app_key = KIWOOM_APP_KEY_MOCK if is_mock else KIWOOM_APP_KEY_REAL
-    app_secret = KIWOOM_APP_SECRET_MOCK if is_mock else KIWOOM_APP_SECRET_REAL
-    mode = "모의" if is_mock else "실계좌"
+
+    if is_mock:
+        key = "mock"
+        app_key = KIWOOM_APP_KEY_MOCK
+        app_secret = KIWOOM_APP_SECRET_MOCK
+        mode = "모의"
+    elif account_number and account_number in ACCOUNT_KEYS:
+        key = f"acnt:{account_number}"
+        app_key, app_secret = _get_account_appkey(account_number)
+        mode = f"실계좌({account_number})"
+    else:
+        key = "real"
+        app_key = KIWOOM_APP_KEY_REAL
+        app_secret = KIWOOM_APP_SECRET_REAL
+        mode = "실계좌(기본)"
+
     if not app_key or not app_secret:
         logger.warning(f"[토큰갱신] {mode} 앱키 없음 — 스킵")
         return False
@@ -128,7 +155,7 @@ def refresh_kiwoom_token(is_mock=False):
             json=payload,
             headers={"Content-Type": "application/json;charset=UTF-8"},
             timeout=10,
-            allow_redirects=True,  # 302 리다이렉트 허용
+            allow_redirects=True,
         )
         logger.debug(f"[토큰갱신] {mode} 응답: status={resp.status_code} len={len(resp.text)}")
         resp.raise_for_status()
@@ -138,9 +165,15 @@ def refresh_kiwoom_token(is_mock=False):
         data = json.loads(raw_text)
         if data.get("return_code") and data["return_code"] != 0:
             raise ValueError(f"토큰 발급 실패: {data.get('return_msg')} (code: {data['return_code']})")
-        _tokens[key] = data.get("access_token") or data.get("token")
+        token_val = data.get("access_token") or data.get("token")
         expires_in = int(data.get("expires_in", 86400))
-        _token_expires[key] = time.time() + expires_in - 60
+        exp_time = time.time() + expires_in - 60
+        if key.startswith("acnt:"):
+            _account_tokens[account_number] = token_val
+            _account_token_expires[account_number] = exp_time
+        else:
+            _tokens[key] = token_val
+            _token_expires[key] = exp_time
         logger.info(f"키움 토큰 갱신 완료 ({mode})")
         return True
     except Exception as e:
@@ -150,28 +183,39 @@ def refresh_kiwoom_token(is_mock=False):
         return False
 
 
-def get_kiwoom_token(is_mock=False):
-    key = "mock" if is_mock else "real"
-    if not _tokens[key] or time.time() >= _token_expires[key]:
-        refresh_kiwoom_token(is_mock=is_mock)
-    token = _tokens[key]
+def get_kiwoom_token(is_mock=False, account_number=None):
+    if is_mock:
+        key = "mock"
+        if not _tokens[key] or time.time() >= _token_expires[key]:
+            refresh_kiwoom_token(is_mock=True)
+        token = _tokens[key]
+    elif account_number and account_number in ACCOUNT_KEYS:
+        if account_number not in _account_tokens or time.time() >= _account_token_expires.get(account_number, 0):
+            refresh_kiwoom_token(is_mock=False, account_number=account_number)
+        token = _account_tokens.get(account_number)
+    else:
+        key = "real"
+        if not _tokens[key] or time.time() >= _token_expires[key]:
+            refresh_kiwoom_token(is_mock=False)
+        token = _tokens[key]
     if not token:
-        mode = "모의" if is_mock else "실계좌"
+        mode = "모의" if is_mock else f"실계좌({account_number or '기본'})"
         raise ValueError(f"키움 {mode} 토큰 없음 — 발급 실패. 앱키/시크릿 확인 필요")
     return token
 
 
-def kiwoom_post(path, api_id, body=None, is_mock=None, _retry=True):
+def kiwoom_post(path, api_id, body=None, is_mock=None, _retry=True, account_number=None):
     """
     키움 REST API POST 요청
     - Content-Type: application/json;charset=UTF-8
     - Authorization: Bearer {token}
     - api-id: {api_id}  ← 필수 헤더
     - is_mock: None이면 KIWOOM_IS_MOCK 전역 설정 사용, True/False 이면 강제 적용
+    - account_number: 계좌번호 지정 시 해당 계좌 전용 토큰 사용
     - _retry: 401 시 토큰 재발급 후 1회 재시도 (내부용)
     """
     use_mock = KIWOOM_IS_MOCK if is_mock is None else is_mock
-    token = get_kiwoom_token(is_mock=use_mock)
+    token = get_kiwoom_token(is_mock=use_mock, account_number=account_number)
     base_url = KIWOOM_MOCK_BASE if use_mock else KIWOOM_REAL_BASE
     headers = {
         "Authorization": f"Bearer {token}",
@@ -181,13 +225,15 @@ def kiwoom_post(path, api_id, body=None, is_mock=None, _retry=True):
     url = f"{base_url}{path}"
     resp = requests.post(url, headers=headers, json=body or {}, timeout=10)
     logger.debug(f"[kiwoom_post] {api_id} → status={resp.status_code} len={len(resp.text)} body_preview={resp.text[:200]!r}")
-    # 401 Unauthorized → 토큰 재발급 후 1회 재시도
     if resp.status_code == 401 and _retry:
         logger.warning(f"[kiwoom_post] 401 Unauthorized ({api_id}) → 토큰 재발급 후 재시도")
-        key = "mock" if use_mock else "real"
-        _tokens[key] = None  # 강제 만료
-        refresh_kiwoom_token(is_mock=use_mock)
-        return kiwoom_post(path, api_id, body=body, is_mock=is_mock, _retry=False)
+        if account_number and account_number in _account_tokens:
+            _account_tokens[account_number] = None
+        else:
+            key = "mock" if use_mock else "real"
+            _tokens[key] = None
+        refresh_kiwoom_token(is_mock=use_mock, account_number=account_number)
+        return kiwoom_post(path, api_id, body=body, is_mock=is_mock, _retry=False, account_number=account_number)
     resp.raise_for_status()
     raw_text = resp.text.strip() if resp.text else ""
     if not raw_text:
@@ -690,12 +736,14 @@ def handle_stock_search(payload):
 def handle_balance_get(payload):
     """계좌 잔고 조회 — kt00018 (계좌평가잔고내역)"""
     account_type = payload.get("accountType", "real")
+    account_number = payload.get("accountNumber", "")
     is_mock = account_type == "mock"
+    acnt = account_number if not is_mock else None
     dmst_stex_tp = "%" if is_mock else "KRX"
     data = kiwoom_post("/api/dostk/acnt", "kt00018", {
         "qry_tp": "2",
         "dmst_stex_tp": dmst_stex_tp,
-    }, is_mock=is_mock)
+    }, is_mock=is_mock, account_number=acnt)
     # 키움 API는 tot_evlt_amt 등을 raw 최상위에 직접 반환
     holdings = data.get("acnt_evlt_remn_indv_tot", []) or []
     return {
@@ -710,6 +758,10 @@ def handle_balance_get(payload):
 
 def handle_order_buy(payload):
     """매수 주문 — kt10000"""
+    account_number = payload.get("accountNumber", "")
+    account_type = payload.get("accountType", "real")
+    is_mock = account_type == "mock"
+    acnt = account_number if not is_mock else None
     ord_tp = "2" if payload.get("orderType") == "limit" else "1"
     body = {
         "stk_cd": payload.get("stockCode"),
@@ -718,11 +770,15 @@ def handle_order_buy(payload):
         "ord_qty": str(payload.get("quantity", 0)),
         "ord_prc": str(payload.get("price", 0)),
     }
-    return kiwoom_post("/api/dostk/ordr", "kt10000", body)
+    return kiwoom_post("/api/dostk/ordr", "kt10000", body, is_mock=is_mock, account_number=acnt)
 
 
 def handle_order_sell(payload):
     """매도 주문 — kt10000"""
+    account_number = payload.get("accountNumber", "")
+    account_type = payload.get("accountType", "real")
+    is_mock = account_type == "mock"
+    acnt = account_number if not is_mock else None
     ord_tp = "2" if payload.get("orderType") == "limit" else "1"
     body = {
         "stk_cd": payload.get("stockCode"),
@@ -731,7 +787,7 @@ def handle_order_sell(payload):
         "ord_qty": str(payload.get("quantity", 0)),
         "ord_prc": str(payload.get("price", 0)),
     }
-    return kiwoom_post("/api/dostk/ordr", "kt10000", body)
+    return kiwoom_post("/api/dostk/ordr", "kt10000", body, is_mock=is_mock, account_number=acnt)
 
 
 def handle_ping(_payload):
@@ -740,8 +796,9 @@ def handle_ping(_payload):
         "pong": True,
         "agentTime": time.time(),
         "mode": "mock" if KIWOOM_IS_MOCK else "real",
-        "version": "2.5",
-        "features": ["accountType-routing", "raw-output1", "token-test", "split-appkey", "server-appkey", "financials-get"],
+        "version": "3.0",
+        "features": ["accountType-routing", "raw-output1", "token-test", "split-appkey", "server-appkey", "financials-get", "per-account-keys"],
+        "accountKeys": list(ACCOUNT_KEYS.keys()),
     }
 
 
@@ -781,23 +838,33 @@ def handle_agent_self_update(payload):
 def handle_token_refresh(payload):
     """토큰 강제 재발급 — _tokens 캐시 초기화 후 재발급"""
     account_type = payload.get("accountType", "real")
+    account_number = payload.get("accountNumber", "")
     is_mock = account_type == "mock"
-    key = "mock" if is_mock else "real"
-    _tokens[key] = None
-    _token_expires[key] = 0
-    ok = refresh_kiwoom_token(is_mock=is_mock)
-    new_token = _tokens[key]
-    logger.info(f"[token.refresh] 강제 갱신 완료 ({'모의' if is_mock else '실계좌'}): success={ok} hasToken={bool(new_token)}")
-    return {"success": ok, "hasToken": bool(new_token), "accountType": account_type}
+    acnt = account_number if not is_mock else None
+    if acnt and acnt in _account_tokens:
+        _account_tokens[acnt] = None
+        _account_token_expires[acnt] = 0
+    else:
+        key = "mock" if is_mock else "real"
+        _tokens[key] = None
+        _token_expires[key] = 0
+    ok = refresh_kiwoom_token(is_mock=is_mock, account_number=acnt)
+    mode = "모의" if is_mock else f"실계좌({acnt or '기본'})"
+    logger.info(f"[token.refresh] 강제 갱신 완료 ({mode}): success={ok}")
+    return {"success": ok, "accountType": account_type, "accountNumber": account_number}
 
 
 def handle_token_test(payload):
     """실계좌/모의 토큰 발급 테스트 — 키움 /oauth2/token 직접 호출"""
     account_type = payload.get("accountType", "real")
+    account_number = payload.get("accountNumber", "")
     is_mock = account_type == "mock"
     base_url = KIWOOM_MOCK_BASE if is_mock else KIWOOM_REAL_BASE
-    app_key = KIWOOM_APP_KEY_MOCK if is_mock else KIWOOM_APP_KEY_REAL
-    app_secret = KIWOOM_APP_SECRET_MOCK if is_mock else KIWOOM_APP_SECRET_REAL
+    if not is_mock and account_number and account_number in ACCOUNT_KEYS:
+        app_key, app_secret = _get_account_appkey(account_number)
+    else:
+        app_key = KIWOOM_APP_KEY_MOCK if is_mock else KIWOOM_APP_KEY_REAL
+        app_secret = KIWOOM_APP_SECRET_MOCK if is_mock else KIWOOM_APP_SECRET_REAL
     url = f"{base_url}/oauth2/token"
     req_body = {
         "grant_type": "client_credentials",
@@ -1268,10 +1335,11 @@ def process_job(job):
 
 
 def fetch_appkeys_from_server():
-    """서버 Replit Secrets에서 실계좌/모의계좌 앱키를 자동으로 받아옴"""
+    """서버 Replit Secrets에서 실계좌/모의계좌/계좌별 앱키를 자동으로 받아옴"""
     global KIWOOM_APP_KEY_REAL, KIWOOM_APP_SECRET_REAL
     global KIWOOM_APP_KEY_MOCK, KIWOOM_APP_SECRET_MOCK
     global KIWOOM_APP_KEY, KIWOOM_APP_SECRET
+    global ACCOUNT_KEYS
 
     for base_url in REPLIT_URLS:
         try:
@@ -1285,6 +1353,7 @@ def fetch_appkeys_from_server():
                 data = resp.json()
                 real = data.get("real", {})
                 mock = data.get("mock", {})
+                account_keys = data.get("accountKeys", {})
                 if real.get("appKey"):
                     KIWOOM_APP_KEY_REAL = real["appKey"]
                     KIWOOM_APP_SECRET_REAL = real["appSecret"]
@@ -1293,7 +1362,10 @@ def fetch_appkeys_from_server():
                     KIWOOM_APP_SECRET_MOCK = mock["appSecret"]
                     KIWOOM_APP_KEY = mock["appKey"]
                     KIWOOM_APP_SECRET = mock["appSecret"]
-                logger.info(f"서버에서 앱키 수신 완료 (실계좌: {'있음' if real.get('appKey') else '없음'}, 모의: {'있음' if mock.get('appKey') else '없음'})")
+                if account_keys:
+                    ACCOUNT_KEYS.update(account_keys)
+                    logger.info(f"계좌별 앱키 수신: {list(account_keys.keys())}")
+                logger.info(f"서버에서 앱키 수신 완료 (실계좌: {'있음' if real.get('appKey') else '없음'}, 모의: {'있음' if mock.get('appKey') else '없음'}, 계좌별: {len(account_keys)}개)")
                 return True
         except Exception as e:
             logger.debug(f"앱키 수신 실패 ({base_url}): {e}")
@@ -1363,6 +1435,10 @@ def main():
     if KIWOOM_APP_KEY_REAL or KIWOOM_APP_KEY_MOCK:
         refresh_kiwoom_token(is_mock=False)
         refresh_kiwoom_token(is_mock=True)
+
+    for acnt_num in ACCOUNT_KEYS:
+        logger.info(f"계좌별 토큰 발급: {acnt_num}")
+        refresh_kiwoom_token(is_mock=False, account_number=acnt_num)
 
     logger.info("폴링 시작 — Ctrl+C로 종료")
     consecutive_errors = 0
