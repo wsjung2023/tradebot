@@ -167,7 +167,7 @@ export function SettingsKiwoom({ appKey, appSecret, showSecret, isPending, hasKi
           <div className="flex items-center justify-between p-3 bg-muted rounded-md text-sm">
             <span className="text-muted-foreground">마지막 폴링</span>
             <span
-              className={connInfo?.agentLastSeenSecondsAgo !== null && connInfo!.agentLastSeenSecondsAgo! > 60
+              className={connInfo && connInfo.agentLastSeenSecondsAgo !== null && connInfo.agentLastSeenSecondsAgo > 60
                 ? "text-destructive font-medium"
                 : "text-foreground"}
               data-testid="text-agent-last-seen"
