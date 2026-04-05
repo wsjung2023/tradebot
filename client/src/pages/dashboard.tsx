@@ -89,7 +89,7 @@ export default function Dashboard() {
     }
   }, [accounts, accountsLoading, selectedAccountId]);
 
-  // 계좌 선택되면 자동으로 잔고 조회 (계좌 전환 시에도 재조회)
+  // 계좌 선택되면 자동으로 잔고 조회 (계좌 전환 및 유형 변경 시에도 재조회)
   useEffect(() => {
     if (!selectedAccount) return;
     kiwoom.fetch(
@@ -97,7 +97,7 @@ export default function Dashboard() {
       selectedAccount.accountNumber,
       selectedAccount.accountType as "mock" | "real"
     );
-  }, [selectedAccount?.id]);
+  }, [selectedAccount?.id, selectedAccount?.accountType]);
 
   // ACCOUNT_TYPE_MISMATCH / IP_NOT_REGISTERED 에러 토스트 표시
   // fetchedAccountId === selectedAccountId 일 때만 표시 (계좌 전환 시 스테일 오류 방지)

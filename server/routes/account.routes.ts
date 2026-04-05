@@ -338,17 +338,13 @@ export function registerAccountRoutes(app: Router) {
 
       const { output1, output2 } = req.body;
       if (Array.isArray(output2)) {
+        await storage.deleteHoldingsByAccount(account.id);
         for (const item of output2) {
           const parsed = parseHoldingItem(item);
           if (!parsed.stockCode) continue;
           const { stockCode, ...updates } = parsed;
           console.log(`[sync-balance] 종목 파싱: code=${stockCode} name=${updates.stockName} avgPrc=${updates.averagePrice} plRate=${updates.profitLossRate} rawFields={pchs_avg_pric:${item.pchs_avg_pric},pur_pric:${item.pur_pric},prft_rt:${item.prft_rt}}`);
-          const existing = await storage.getHoldingByStock(account.id, stockCode);
-          if (existing) {
-            await storage.updateHolding(existing.id, updates);
-          } else {
-            await storage.createHolding({ accountId: account.id, stockCode, ...updates });
-          }
+          await storage.createHolding({ accountId: account.id, stockCode, ...updates });
         }
       }
       res.json({ ok: true });
