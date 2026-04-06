@@ -159,7 +159,10 @@ export function registerAccountRoutes(app: Router) {
       } catch (firstErr: any) {
         const msg = String(firstErr?.message ?? "");
         // 빈 응답(JSONDecodeError) 또는 토큰 오류 → 토큰 강제 갱신 후 재시도
-        if (msg.includes("Expecting value") || msg.includes("빈 응답") || msg.includes("token") || msg.includes("401")) {
+        // "Token이 유효하지 않습니다" (대문자) / "8005" / "인증에 실패" 모두 포함
+        const msgLower = msg.toLowerCase();
+        const isTokenError = msgLower.includes("token") || msg.includes("8005") || msg.includes("인증에 실패") || msg.includes("401");
+        if (msg.includes("Expecting value") || msg.includes("빈 응답") || isTokenError) {
           console.warn("[fetch-balance] 첫 시도 실패 → 토큰 갱신 후 재시도:", msg);
           try {
             await callViaAgent(user!.id, "token.refresh", { accountType: balancePayload.accountType }, 8000);
