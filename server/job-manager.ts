@@ -106,7 +106,12 @@ class JobManager {
         if (!settings) {
           await autoTradingWorker.createDefaultSettingsForModel(model.id);
         }
-        await storage.updateUserSettings(model.userId, { autoTradingEnabled: true });
+        const userSettings = await storage.getUserSettings(model.userId);
+        if (userSettings) {
+          await storage.updateUserSettings(model.userId, { autoTradingEnabled: true });
+        } else {
+          await storage.createUserSettings({ userId: model.userId, autoTradingEnabled: true });
+        }
       }
       autoTradingWorker.startTradingJob(schedule);
       return { success: true, message: `자동매매 워커를 시작했습니다. (${this.minutesToLabel(state.intervalMinutes)})` };
