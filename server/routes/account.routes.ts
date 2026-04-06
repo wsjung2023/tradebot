@@ -263,32 +263,6 @@ export function registerAccountRoutes(app: Router) {
         result?.todayProfit,
       );
 
-      // ── 계좌 유형 교차 오염 방지 ──────────────────────────────────────────
-      // 모의계좌(mock)에 실계좌 전용 필드(tot_evlt_amt / prsm_dpst_aset_amt / stk_cd)가
-      // 포함된 응답이 오면 에이전트가 잘못된 키로 실계좌를 조회한 것이므로 저장 차단.
-      // 실계좌(real)에 모의계좌 전용 필드(tot_evlu_amt / dnca_tot_amt)만 있어도 동일하게 차단.
-      const hasRealFields = !!(raw.tot_evlt_amt || raw.prsm_dpst_aset_amt
-        || output1.tot_evlt_amt
-        || (Array.isArray(output2) && output2[0]?.stk_cd));
-      const hasMockFields = !!(raw.tot_evlu_amt || raw.dnca_tot_amt
-        || output1.tot_evlu_amt
-        || (Array.isArray(output2) && output2[0]?.acnt_pdno));
-
-      if (account.accountType === "mock" && hasRealFields && !hasMockFields) {
-        console.error(`[fetch-balance] 🚨 계좌 유형 불일치: accountId=${accountId} type=mock 이지만 실계좌 응답 필드 감지 — DB 저장 차단`);
-        return res.status(500).json({
-          error: "모의계좌 조회인데 실계좌 데이터가 반환되었습니다. 에이전트에서 사용하는 API 키가 이 계좌와 일치하지 않습니다. KIWOOM_APP_KEY_MOCK 설정을 확인하세요.",
-          errorCode: "ACCOUNT_TYPE_MISMATCH",
-        });
-      }
-      if (account.accountType === "real" && hasMockFields && !hasRealFields) {
-        console.error(`[fetch-balance] 🚨 계좌 유형 불일치: accountId=${accountId} type=real 이지만 모의계좌 응답 필드 감지 — DB 저장 차단`);
-        return res.status(500).json({
-          error: "실계좌 조회인데 모의계좌 데이터가 반환되었습니다. 에이전트 설정을 확인하세요.",
-          errorCode: "ACCOUNT_TYPE_MISMATCH",
-        });
-      }
-
       // DB 보유종목 동기화 (parseHoldingItem: server/utils/balance-parser.ts)
       // 먼저 기존 보유종목 전체 삭제 후 새로 받은 종목만 저장 (stale 데이터 방지)
       await storage.deleteHoldingsByAccount(account.id);
