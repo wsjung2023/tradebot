@@ -123,14 +123,38 @@ export class TradeExecutorService {
 
     const range = result.highest - result.lowest;
     const currentPercent = range > 0 ? ((stock.price - result.lowest) / range) * 100 : 50;
-    const currentLine = Math.round((currentPercent / 100) * 9);
+    // currentLine: 10~100 (10% 단위, 레인보우 라인 1~10번)
+    const currentLine = Math.min(100, Math.max(10, Math.round(currentPercent / 10) * 10));
+
+    // rainbowLineSettings에서 현재 라인의 buyWeight/sellWeight 조회
+    const rainbowSettings = (settings.rainbowLineSettings as { line: number; buyWeight: number; sellWeight: number }[] | null | undefined);
+    let buyWeight = 0;
+    let sellWeight = 0;
+
+    if (rainbowSettings && Array.isArray(rainbowSettings) && rainbowSettings.length > 0) {
+      // 현재 라인과 가장 가까운 설정값 찾기
+      const matched = rainbowSettings.reduce((prev, curr) =>
+        Math.abs(curr.line - currentLine) < Math.abs(prev.line - currentLine) ? curr : prev
+      );
+      buyWeight = matched.buyWeight ?? 0;
+      sellWeight = matched.sellWeight ?? 0;
+    } else {
+      // rainbowLineSettings 미설정 시 기존 recommendation 기반 폴백
+      if (result.recommendation === 'strong-buy') buyWeight = 100;
+      else if (result.recommendation === 'buy') buyWeight = 70;
+      else if (result.recommendation === 'sell') sellWeight = 70;
+      else if (result.recommendation === 'strong-sell') sellWeight = 100;
+    }
 
     let action: 'buy' | 'sell' | 'hold' = 'hold';
     let weight = 0;
-    if (result.recommendation === 'strong-buy') { action = 'buy'; weight = 100; }
-    else if (result.recommendation === 'buy') { action = 'buy'; weight = 70; }
-    else if (result.recommendation === 'sell') { action = 'sell'; weight = 70; }
-    else if (result.recommendation === 'strong-sell') { action = 'sell'; weight = 100; }
+    if (buyWeight > 0 && buyWeight >= sellWeight) {
+      action = 'buy';
+      weight = buyWeight;
+    } else if (sellWeight > 0 && sellWeight > buyWeight) {
+      action = 'sell';
+      weight = sellWeight;
+    }
 
     return { currentLine, action, weight, confidence: signalStrength };
   }
