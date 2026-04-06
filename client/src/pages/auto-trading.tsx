@@ -5,6 +5,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { AutoTradingModelDialog } from "@/components/auto-trading/AutoTradingModelDialog";
 import { AutoTradingModelList } from "@/components/auto-trading/AutoTradingModelList";
+import { AutoTradingSettings } from "@/components/auto-trading/AutoTradingSettings";
 import { AutoTradingRecommendations } from "@/components/auto-trading/AutoTradingRecommendations";
 import { AutoTradingLearningRecords } from "@/components/auto-trading/AutoTradingLearningRecords";
 import type { AiModel, AiRecommendation, LearningRecord } from "@shared/schema";
@@ -63,11 +64,28 @@ export default function AutoTrading() {
     onError: (e: any) => toast({ variant: "destructive", title: "삭제 실패", description: e.message }),
   });
 
+  const updateModelConfigMutation = useMutation({
+    mutationFn: async ({ id, config }: { id: number; config: any }) =>
+      (await apiRequest("PATCH", `/api/ai/models/${id}`, { config })).json(),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/ai/models"] }),
+  });
+
   const resetForm = () => { setModelName(""); setModelType("momentum"); setDescription(""); setMaxPositions("5"); setStopLossPercent("5"); setTakeProfitPercent("10"); setCreateDialogOpen(false); };
 
   const handleCreateModel = () => {
     if (!modelName.trim()) { toast({ variant: "destructive", title: "모델 이름을 입력해주세요" }); return; }
     createModelMutation.mutate({ modelName, modelType, description, config: { maxPositions: parseInt(maxPositions), stopLossPercent: parseFloat(stopLossPercent), takeProfitPercent: parseFloat(takeProfitPercent) } });
+  };
+
+  const selectedModel = models.find((m) => m.id === selectedModelId);
+
+  const handleAccountChange = (accountId: number | null) => {
+    if (!selectedModel) return;
+    const currentConfig = (selectedModel.config as any) || {};
+    updateModelConfigMutation.mutate({
+      id: selectedModel.id,
+      config: { ...currentConfig, accountId },
+    });
   };
 
   return (
@@ -97,6 +115,13 @@ export default function AutoTrading() {
         onToggle={(id, isActive) => toggleModelMutation.mutate({ id, isActive })}
         onDelete={(id) => deleteModelMutation.mutate(id)}
       />
+      {selectedModelId && selectedModel && (
+        <AutoTradingSettings
+          modelId={selectedModelId}
+          modelConfig={selectedModel.config}
+          onAccountChange={handleAccountChange}
+        />
+      )}
       <AutoTradingRecommendations recommendations={recommendations as AiRecommendation[]} />
       <AutoTradingLearningRecords
         records={filteredLearningRecords}

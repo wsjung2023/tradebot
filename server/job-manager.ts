@@ -1,4 +1,5 @@
 import { autoTradingWorker } from './auto-trading-worker';
+import { storage } from './storage';
 
 export interface JobInfo {
   id: string;
@@ -87,13 +88,26 @@ class JobManager {
     return this.getJobs().find(j => j.id === id);
   }
 
-  startJob(id: string): { success: boolean; message: string } {
+  async startJob(id: string): Promise<{ success: boolean; message: string }> {
     const state = this.jobStates.get(id);
     if (!state) return { success: false, message: '잡을 찾을 수 없습니다.' };
 
     const schedule = this.minutesToCron(state.intervalMinutes);
 
     if (id === 'auto-trading') {
+      const allModels = await storage.getAllAiModels();
+      for (const model of allModels) {
+        if (!model.isActive) {
+          await storage.updateAiModel(model.id, { isActive: true });
+        }
+      }
+      for (const model of allModels) {
+        const settings = await storage.getAutoTradingSettings(model.id);
+        if (!settings) {
+          await autoTradingWorker.createDefaultSettingsForModel(model.id);
+        }
+        await storage.updateUserSettings(model.userId, { autoTradingEnabled: true });
+      }
       autoTradingWorker.startTradingJob(schedule);
       return { success: true, message: `자동매매 워커를 시작했습니다. (${this.minutesToLabel(state.intervalMinutes)})` };
     }
@@ -105,8 +119,12 @@ class JobManager {
     return { success: false, message: '알 수 없는 잡 ID입니다.' };
   }
 
-  stopJob(id: string): { success: boolean; message: string } {
+  async stopJob(id: string): Promise<{ success: boolean; message: string }> {
     if (id === 'auto-trading') {
+      const allModels = await storage.getActiveAiModels();
+      for (const model of allModels) {
+        await storage.updateUserSettings(model.userId, { autoTradingEnabled: false });
+      }
       autoTradingWorker.stopTradingJob();
       return { success: true, message: '자동매매 워커를 중지했습니다.' };
     }

@@ -9,7 +9,6 @@ import { LearningService } from './services/learning.service';
 import { TradeExecutorService } from './services/trade-executor.service';
 import { AgentTimeoutError } from './services/agent-proxy.service';
 import { AiModel, AutoTradingSettings, ConditionFormula } from '@shared/schema';
-import { decrypt } from './utils/crypto';
 import { getFeatureFlags } from './config/feature-flags';
 import { isKoreanMarketOpen } from './utils/market-hours';
 
@@ -90,6 +89,10 @@ class AutoTradingWorker {
   isLearningJobRunning(): boolean { return this.learningJob !== null; }
   async runTradingNow(): Promise<void> { await this.executeTradingCycle(); }
   async runLearningNow(): Promise<void> { await this.executeLearningCycleWrapper(); }
+
+  async createDefaultSettingsForModel(modelId: number): Promise<void> {
+    await this.executor.createDefaultSettings(modelId);
+  }
 
   private async setRunState(
     userId: string,
@@ -201,21 +204,6 @@ class AutoTradingWorker {
         console.log(`ℹ️  Auto trading disabled for user ${model.userId} - skipping`);
         return;
       }
-      if (!userSettings?.kiwoomAppKey || !userSettings?.kiwoomAppSecret) {
-        await this.setRunState(model.userId, 'paused', model.id, 'missing_kiwoom_credentials', undefined, {
-          cycleId,
-          durationMs: Date.now() - startedAt,
-        });
-        await this.notifyEngineEvent(
-          model.userId,
-          'warn',
-          'token_failed',
-          '키움 API 키/시크릿이 없어 자동매매를 일시중지했습니다.',
-          { modelId: model.id },
-        );
-        console.log(`⚠️  No Kiwoom API keys for user ${model.userId} - skipping`); return;
-      }
-
       const existingRun = await storage.getAutoTradingRun(model.userId);
       const cooldownUntil = (existingRun?.metadata as any)?.agentCooldownUntil
         ? new Date((existingRun?.metadata as any).agentCooldownUntil as string).getTime()
@@ -237,10 +225,44 @@ class AutoTradingWorker {
         agentCooldownUntil: null,
       });
 
+      const accounts = await storage.getKiwoomAccounts(model.userId);
+      const targetAccountId = (model.config as any)?.accountId;
+      const targetAccount = targetAccountId
+        ? accounts.find((a: any) => a.id === targetAccountId)
+        : accounts.find((a: any) => a.isActive);
+
+      if (!targetAccount) {
+        await this.setRunState(model.userId, 'paused', model.id, 'no_target_account', undefined, {
+          cycleId,
+          durationMs: Date.now() - startedAt,
+        });
+        console.log(`⚠️  No target account for user ${model.userId} - skipping`);
+        return;
+      }
+
+      const acctNum = targetAccount.accountNumber.replace(/\D/g, '').slice(0, 8);
+      let appKey = process.env[`KIWOOM_KEY_${acctNum}`];
+      let appSecret = process.env[`KIWOOM_SECRET_${acctNum}`];
+
+      if (!appKey || !appSecret) {
+        if (targetAccount.accountType !== 'real') {
+          appKey = process.env.KIWOOM_APP_KEY_MOCK || process.env.KIWOOM_APP_KEY;
+          appSecret = process.env.KIWOOM_APP_SECRET_MOCK || process.env.KIWOOM_APP_SECRET;
+        }
+        if (!appKey || !appSecret) {
+          await this.setRunState(model.userId, 'paused', model.id, 'missing_kiwoom_credentials', undefined, {
+            cycleId,
+            durationMs: Date.now() - startedAt,
+          });
+          console.log(`⚠️  No env keys KIWOOM_KEY_${acctNum} / KIWOOM_SECRET_${acctNum} - skipping`);
+          return;
+        }
+      }
+
       const kiwoomService = new KiwoomService({
-        appKey: decrypt(userSettings.kiwoomAppKey),
-        appSecret: decrypt(userSettings.kiwoomAppSecret),
-        accountType: userSettings.tradingMode === 'real' ? 'real' : 'mock',
+        appKey,
+        appSecret,
+        accountType: targetAccount.accountType === 'real' ? 'real' : 'mock',
       });
       const aiService = new AIService(process.env.OPENAI_API_KEY || '');
 
@@ -252,10 +274,9 @@ class AutoTradingWorker {
       }
 
       const conditions = await storage.getConditionFormulas(model.userId);
-      const activeConditions = conditions.filter((c: ConditionFormula) => c.isActive);
-      if (activeConditions.length === 0) { console.log('📭 No active condition formulas - skipping'); return; }
+      if (conditions.length === 0) { console.log('📭 No condition formulas - skipping'); return; }
 
-      for (const condition of activeConditions) {
+      for (const condition of conditions) {
         await this.processCondition(model, settings, condition, kiwoomService, aiService);
       }
       this.clearAgentTimeoutCounter(model.userId);

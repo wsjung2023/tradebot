@@ -181,6 +181,10 @@ export class PostgreSQLCoreStorage {
     return db.select().from(schema.aiModels).where(eq(schema.aiModels.isActive, true));
   }
 
+  async getAllAiModels(): Promise<AiModel[]> {
+    return db.select().from(schema.aiModels);
+  }
+
   // ==================== AI Recommendation Methods ====================
 
   async getAiRecommendations(modelId: number, limit: number = 50): Promise<AiRecommendation[]> {

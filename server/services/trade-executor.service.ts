@@ -151,7 +151,10 @@ export class TradeExecutorService {
       if (quantity === 0) { console.log(`    ⚠️  Calculated quantity is 0 - skipping`); return; }
 
       const accounts = await storage.getKiwoomAccounts(model.userId);
-      const activeAccount = accounts.find((a: any) => a.isActive);
+      const targetAccountId = (model.config as any)?.accountId;
+      const activeAccount = targetAccountId
+        ? accounts.find((a: any) => a.id === targetAccountId)
+        : accounts.find((a: any) => a.isActive);
       if (!activeAccount) { console.log(`    ⚠️  No active account found - skipping`); return; }
 
       const order = await storage.createOrder({
@@ -207,7 +210,10 @@ export class TradeExecutorService {
   ): Promise<void> {
     console.log(`    💵 SELL SIGNAL: ${stock.name} at ${rainbow.currentLine}% line`);
     const accounts = await storage.getKiwoomAccounts(model.userId);
-    const activeAccount = accounts.find((a: any) => a.isActive);
+    const targetAccountId = (model.config as any)?.accountId;
+    const activeAccount = targetAccountId
+      ? accounts.find((a: any) => a.id === targetAccountId)
+      : accounts.find((a: any) => a.isActive);
     if (!activeAccount) return;
 
     const holdings = await storage.getHoldings(activeAccount.id);

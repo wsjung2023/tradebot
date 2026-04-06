@@ -451,6 +451,61 @@ export function registerAiRoutes(app: Router) {
     }
   });
 
+  app.get("/api/ai/models/:modelId/trading-settings", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const modelId = parseInt(req.params.modelId);
+      const model = await storage.getAiModel(modelId);
+      if (!model) return res.status(404).json({ error: "Model not found" });
+      if (model.userId !== user!.id) return res.status(403).json({ error: "Not authorized" });
+      const settings = await storage.getAutoTradingSettings(modelId);
+      res.json(settings || null);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.put("/api/ai/models/:modelId/trading-settings", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const modelId = parseInt(req.params.modelId);
+      const model = await storage.getAiModel(modelId);
+      if (!model) return res.status(404).json({ error: "Model not found" });
+      if (model.userId !== user!.id) return res.status(403).json({ error: "Not authorized" });
+
+      const { modelId: _ignore, id: _ignoreId, createdAt: _ignoreCreated, ...safeBody } = req.body;
+
+      const weights = [
+        parseFloat(safeBody.themeWeight || "0"),
+        parseFloat(safeBody.newsWeight || "0"),
+        parseFloat(safeBody.financialsWeight || "0"),
+        parseFloat(safeBody.liquidityWeight || "0"),
+        parseFloat(safeBody.institutionalWeight || "0"),
+      ];
+      const weightSum = weights.reduce((a, b) => a + b, 0);
+      if (Math.abs(weightSum - 100) > 0.5) {
+        return res.status(400).json({ error: `가중치 합계가 100%여야 합니다. (현재: ${weightSum}%)` });
+      }
+
+      const existing = await storage.getAutoTradingSettings(modelId);
+      if (existing) {
+        const updated = await storage.updateAutoTradingSettings(modelId, {
+          ...safeBody,
+          updatedAt: new Date(),
+        });
+        res.json(updated);
+      } else {
+        const created = await storage.createAutoTradingSettings({
+          ...safeBody,
+          modelId,
+        });
+        res.json(created);
+      }
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // AI 모델 학습 이력 조회
   app.get("/api/ai/models/:id/learning-records", isAuthenticated, async (req, res) => {
     try {

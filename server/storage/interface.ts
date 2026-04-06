@@ -208,6 +208,7 @@ export interface IStorage {
 
   // 헬퍼
   getActiveAiModels(): Promise<AiModel[]>;
+  getAllAiModels(): Promise<AiModel[]>;
 
   // 데이터 정리
   deleteConditionResultsOlderThan(cutoffDate: Date): Promise<number>;

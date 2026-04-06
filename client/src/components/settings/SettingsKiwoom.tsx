@@ -1,5 +1,5 @@
 // SettingsKiwoom.tsx — 키움증권 API KEY 입력 및 저장 설정 카드
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { Key, Save, Server, Wifi, WifiOff, Copy, Check, RefreshCw } from "lucide-react";
+import { Key, Save, Wifi, WifiOff, Copy, Check, RefreshCw } from "lucide-react";
 
 interface Props {
   appKey: string;
@@ -39,30 +39,12 @@ function formatSecondsAgo(sec: number | null): string {
 }
 
 export function SettingsKiwoom({ appKey, appSecret, showSecret, isPending, hasKiwoomKeys, onAppKeyChange, onAppSecretChange, onShowSecretChange, onSave }: Props) {
-  const [serverIP, setServerIP] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
   const { data: connInfo, refetch: refetchConnInfo, isFetching: connFetching } = useQuery<ConnectionInfo>({
     queryKey: ["/api/kiwoom-agent/connection-info"],
     refetchInterval: 10000,
   });
-
-  useEffect(() => {
-    const fetchServerIP = async () => {
-      try {
-        const res = await fetch("/api/server-info");
-        if (res.ok) {
-          const data = await res.json();
-          setServerIP(data.serverIP);
-        }
-      } catch (e) {
-        console.error("[SettingsKiwoom] IP 조회 실패:", e);
-      }
-    };
-    fetchServerIP();
-    const interval = setInterval(fetchServerIP, 5 * 60 * 1000);
-    return () => clearInterval(interval);
-  }, []);
 
   const handleCopyUrl = () => {
     if (connInfo?.serverUrl) {
@@ -187,28 +169,6 @@ export function SettingsKiwoom({ appKey, appSecret, showSecret, isPending, hasKi
           )}
         </div>
 
-        {/* 서버 정보 */}
-        <div className="border-t pt-4 mt-4">
-          <div className="flex items-center gap-2 mb-3">
-            <Server className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm font-semibold">서버 정보</span>
-          </div>
-          <div className="space-y-2">
-            <div className="flex items-center justify-between p-3 bg-muted rounded-md">
-              <span className="text-sm text-muted-foreground">공인 IP</span>
-              {serverIP ? (
-                <Badge variant="secondary" className="font-mono" data-testid="badge-server-ip">
-                  {serverIP}
-                </Badge>
-              ) : (
-                <span className="text-xs text-muted-foreground">조회중...</span>
-              )}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              이 IP를 키움 OpenAPI 포털의 <strong>지정단말기 IP</strong>로 등록해야 실계좌 API 접속이 가능합니다.
-            </p>
-          </div>
-        </div>
       </CardContent>
     </Card>
   );

@@ -12,13 +12,13 @@ export function registerAdminRoutes(app: Express) {
     res.json(jobManager.getJobs());
   });
 
-  app.post('/api/admin/jobs/:id/start', isAuth, (req, res) => {
-    const result = jobManager.startJob(req.params.id);
+  app.post('/api/admin/jobs/:id/start', isAuth, async (req, res) => {
+    const result = await jobManager.startJob(req.params.id);
     res.json(result);
   });
 
-  app.post('/api/admin/jobs/:id/stop', isAuth, (req, res) => {
-    const result = jobManager.stopJob(req.params.id);
+  app.post('/api/admin/jobs/:id/stop', isAuth, async (req, res) => {
+    const result = await jobManager.stopJob(req.params.id);
     res.json(result);
   });
 
