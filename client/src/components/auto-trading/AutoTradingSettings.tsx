@@ -52,6 +52,13 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
   const [volumeSpikeMultiplier, setVolumeSpikeMultiplier] = useState("3");
   const [selectedAccountId, setSelectedAccountId] = useState<string>("");
 
+  const defaultRainbowLines = Array.from({ length: 10 }, (_, i) => ({
+    line: (i + 1) * 10,
+    buyWeight: i < 5 ? 20 - i * 4 : 0,
+    sellWeight: i >= 5 ? (i - 4) * 20 : 0,
+  }));
+  const [rainbowLineSettings, setRainbowLineSettings] = useState<{ line: number; buyWeight: number; sellWeight: number }[]>(defaultRainbowLines);
+
   useEffect(() => {
     if (settings) {
       setDefaultPositionSize(settings.defaultPositionSize?.toString() || "1000000");
@@ -70,6 +77,9 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
       setStalePeriodDays(settings.stalePeriodDays?.toString() || "5");
       setSurgeThreshold(settings.surgeThreshold?.toString() || "10");
       setVolumeSpikeMultiplier(settings.volumeSpikeMultiplier?.toString() || "3");
+      if (settings.rainbowLineSettings && Array.isArray(settings.rainbowLineSettings) && (settings.rainbowLineSettings as any[]).length === 10) {
+        setRainbowLineSettings(settings.rainbowLineSettings as any[]);
+      }
     }
   }, [settings]);
 
@@ -120,6 +130,7 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
       stalePeriodDays: parseInt(stalePeriodDays),
       surgeThreshold,
       volumeSpikeMultiplier,
+      rainbowLineSettings,
     });
   };
 
@@ -315,6 +326,53 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
               </div>
             </div>
           )}
+        </div>
+
+        <div className="border-t pt-4 space-y-3">
+          <Label className="text-sm font-semibold">레인보우 라인별 매수/매도 비중</Label>
+          <p className="text-xs text-muted-foreground">각 라인(고점 대비 하락률)별 매수/매도 비중을 설정합니다.</p>
+          <div className="space-y-2">
+            <div className="grid grid-cols-3 gap-2 text-xs text-muted-foreground font-medium pb-1">
+              <span>라인 (하락%)</span>
+              <span>매수 비중</span>
+              <span>매도 비중</span>
+            </div>
+            {rainbowLineSettings.map((row, idx) => (
+              <div key={row.line} className="grid grid-cols-3 gap-2 items-center">
+                <span className="text-xs font-mono text-muted-foreground">{row.line}%</span>
+                <div className="flex items-center gap-1">
+                  <Slider
+                    min={0}
+                    max={100}
+                    step={5}
+                    value={[row.buyWeight]}
+                    onValueChange={([v]) => {
+                      const updated = [...rainbowLineSettings];
+                      updated[idx] = { ...updated[idx], buyWeight: v };
+                      setRainbowLineSettings(updated);
+                    }}
+                    data-testid={`slider-rainbow-buy-${row.line}`}
+                  />
+                  <span className="text-xs font-mono w-8 text-right">{row.buyWeight}%</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <Slider
+                    min={0}
+                    max={100}
+                    step={5}
+                    value={[row.sellWeight]}
+                    onValueChange={([v]) => {
+                      const updated = [...rainbowLineSettings];
+                      updated[idx] = { ...updated[idx], sellWeight: v };
+                      setRainbowLineSettings(updated);
+                    }}
+                    data-testid={`slider-rainbow-sell-${row.line}`}
+                  />
+                  <span className="text-xs font-mono w-8 text-right">{row.sellWeight}%</span>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
 
         <Button onClick={handleSave} disabled={saveMutation.isPending} className="w-full" data-testid="button-save-trading-settings">
