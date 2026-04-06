@@ -167,7 +167,23 @@ export function registerAccountRoutes(app: Router) {
           try {
             await callViaAgent(user!.id, "token.refresh", { accountType: balancePayload.accountType }, 8000);
           } catch (_) { /* 갱신 실패 무시 */ }
-          result = await callViaAgent(user!.id, "balance.get", balancePayload, 15000, dedupeKey);
+          try {
+            result = await callViaAgent(user!.id, "balance.get", balancePayload, 15000, dedupeKey);
+          } catch (retryErr: any) {
+            // 재시도도 실패 → 서버가 KIWOOM_APP_KEY로 직접 호출 (모의계좌 폴백)
+            console.warn("[fetch-balance] 토큰 갱신 후 재시도 실패 → 서버 직접 API 호출:", retryErr.message);
+            try {
+              result = await tryDirectKiwoomBalance(
+                balancePayload.accountNumber,
+                balancePayload.accountType,
+              );
+              usedDirectApi = true;
+              console.log("[fetch-balance] 서버 직접 API 호출 성공");
+            } catch (directErr: any) {
+              console.error("[fetch-balance] 서버 직접 API도 실패:", directErr.message);
+              throw retryErr;
+            }
+          }
         } else if (firstErr instanceof AgentTimeoutError) {
           // 에이전트 응답 없음 → 서버에서 Kiwoom API 직접 호출 시도
           console.warn("[fetch-balance] 에이전트 타임아웃 → 서버 직접 API 호출 시도");
