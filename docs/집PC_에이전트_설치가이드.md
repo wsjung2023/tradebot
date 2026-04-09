@@ -13,12 +13,7 @@
 >
 > 예시:
 > - 예시 경로: `C:\kiwoom-agent`
-> - 내 경로 예: `D:\Projects\trdebot\agent`
->
-> 에이전트 파일 업데이트 예시 (내 경로로 변경):
-> ```
-> curl -o "D:\Projects\trdebot\agent\kiwoom-agent.py" https://kiwoom-stock-ai-mainstop3.replit.app/api/kiwoom-agent/script
-> ```
+> - 내 경로 예: `D:\Projects\tradebot\agent`
 
 ---
 
@@ -42,8 +37,8 @@
 이 서비스는 클라우드(Replit)에서 동작하는데, 클라우드는 IP가 매번 바뀌어서 키움 API를 직접 호출할 수 없습니다.
 
 그래서 **집 PC**에 에이전트를 설치해두면:
-- 에이전트가 2~4초마다 Replit 서버에 "할 일 있어?" 하고 폴링합니다
-- "잔고 조회해줘", "조건검색 실행해줘" 같은 작업이 있으면 집 PC에서 키움에 직접 연결하고 결과를 서버로 보냅니다
+- 에이전트가 Replit 서버에 연결해서 할 일이 생길 때까지 대기합니다
+- "잔고 조회해줘", "조건검색 실행해줘" 같은 작업이 생기면 집 PC에서 키움에 직접 연결하고 결과를 서버로 보냅니다
 
 **집 PC가 꺼져 있으면 키움 관련 기능은 동작하지 않습니다.**
 
@@ -61,11 +56,12 @@
 1. **키움증권 Open API 포털** 접속: https://openapi.kiwoom.com
 2. 로그인 후 **"앱 관리"** 메뉴 이동
 3. 사용할 앱의 **앱키(APP KEY)** 와 **앱시크릿(APP SECRET)** 확인
-   - 실계좌용 앱과 모의투자용 앱키가 각각 다를 수 있습니다
+
+> 실계좌와 모의계좌 앱키가 다른 경우 각각 따로 보관하세요.
 
 ### AGENT_KEY 확인
 
-- 관리자(개발자)에게 **AGENT_KEY** 값을 받아두세요
+- 서버 설정에 등록된 **AGENT_KEY** 값을 확인해 두세요
 - 이 키가 없으면 에이전트가 서버와 연결되지 않습니다
 
 ---
@@ -87,10 +83,10 @@ Set-ExecutionPolicy Bypass -Scope Process -Force; iex ((New-Object System.Net.We
 
 > 위 명령어가 동작하지 않으면 아래 **방법 2(수동 설치)** 를 따라해 주세요.
 
-### Step 3. 앱키 입력
+### Step 3. 정보 입력
 
-설치 스크립트가 실행되면 앱키를 입력하라고 묻습니다.
-준비해둔 앱키, 앱시크릿, AGENT_KEY를 차례로 입력합니다.
+설치 스크립트가 실행되면 아래 정보를 입력하라고 묻습니다:
+- 앱키, 앱시크릿, AGENT_KEY
 
 ### Step 4. 완료
 
@@ -138,7 +134,7 @@ python --version
 
 | 패키지 이름 | 용도 |
 |---|---|
-| `requests` | Replit 서버와 HTTP 통신 (작업 폴링, 결과 전송) |
+| `requests` | Replit 서버와 HTTP 통신 (작업 대기, 결과 전송) |
 | `python-dotenv` | `.env` 설정 파일 읽기 |
 | `websocket-client` | 키움 WebSocket 연결 (조건검색, 실시간 시세) |
 
@@ -161,12 +157,6 @@ Successfully installed requests-2.x.x python-dotenv-1.x.x websocket-client-1.x.x
 python -m pip install requests python-dotenv websocket-client
 ```
 
-#### 패키지가 이미 설치된 경우 최신 버전으로 업그레이드
-
-```
-pip install --upgrade requests python-dotenv websocket-client
-```
-
 ---
 
 ### Step 4. 에이전트 파일 복사
@@ -175,14 +165,12 @@ pip install --upgrade requests python-dotenv websocket-client
 
 **파일을 가져오는 방법 (택 1):**
 
-- **방법 A**: Replit 서비스에서 직접 다운로드
+- **방법 A**: 서버에서 직접 다운로드
   ```
   curl -o C:\kiwoom-agent\kiwoom-agent.py https://kiwoom-stock-ai-mainstop3.replit.app/api/kiwoom-agent/script
   ```
 
-- **방법 B**: 개발자(관리자)에게 `kiwoom-agent.py` 파일을 직접 받아서 `C:\kiwoom-agent\` 에 넣기
-
-- **방법 C**: 기존 PC에서 `C:\kiwoom-agent\kiwoom-agent.py` 를 USB로 복사해서 가져오기
+- **방법 B**: 기존 PC에서 `C:\kiwoom-agent\kiwoom-agent.py` 를 USB로 복사해서 가져오기
 
 ---
 
@@ -195,36 +183,18 @@ pip install --upgrade requests python-dotenv websocket-client
 2. 아래 내용을 메모장에 붙여넣기:
 
 ```
-# 서버 주소 (배포 서버)
+# 서버 주소
 REPLIT_URL=https://kiwoom-stock-ai-mainstop3.replit.app
 
-# 서버 주소 (개발 서버도 함께 폴링하려면 REPLIT_URLS 사용, 쉼표로 구분)
-# REPLIT_URLS=https://kiwoom-stock-ai-mainstop3.replit.app,https://xxxx.spock.replit.dev
-
-# 에이전트 인증 키 (관리자에게 받기)
+# 에이전트 인증 키
 AGENT_KEY=여기에_AGENT_KEY_값_입력
 
 # 실계좌 앱키 (키움 포털에서 확인)
-KIWOOM_APP_KEY_REAL=실계좌_앱키
-KIWOOM_APP_SECRET_REAL=실계좌_앱시크릿
-
-# 모의계좌 앱키 (없으면 실계좌와 동일하게 입력)
-KIWOOM_APP_KEY_MOCK=모의계좌_앱키
-KIWOOM_APP_SECRET_MOCK=모의계좌_앱시크릿
-
-# 모의계좌 사용 여부: 실계좌=false, 모의계좌=true
-KIWOOM_IS_MOCK=false
-
-# 폴링 간격 (초, 기본 2)
-POLL_INTERVAL=2
+KIWOOM_APP_KEY=앱키
+KIWOOM_APP_SECRET=앱시크릿
 ```
 
-3. 각 항목을 실제 값으로 채웁니다:
-   - `AGENT_KEY`: 관리자(개발자)에게 받은 비밀 키
-   - `KIWOOM_APP_KEY_REAL`: 키움 포털에서 확인한 실계좌 앱키
-   - `KIWOOM_APP_SECRET_REAL`: 키움 포털에서 확인한 실계좌 앱시크릿
-   - `KIWOOM_APP_KEY_MOCK`: 모의계좌 앱키 (없으면 실계좌 값과 동일하게)
-   - `KIWOOM_APP_SECRET_MOCK`: 모의계좌 앱시크릿 (없으면 실계좌 값과 동일하게)
+3. `AGENT_KEY`, `KIWOOM_APP_KEY`, `KIWOOM_APP_SECRET` 를 실제 값으로 채웁니다.
 
 4. **파일 저장**:
    - 메모장에서 **파일** → **다른 이름으로 저장**
@@ -240,6 +210,8 @@ POLL_INTERVAL=2
 ### Step 6. 키움증권 IP 등록
 
 새 PC의 IP 주소를 키움증권에 등록해야 합니다.
+
+> **같은 집 공유기를 쓰는 다른 PC로 교체하는 경우**: 외부 IP가 동일하므로 재등록 불필요합니다.
 
 #### 내 IP 확인 방법
 
@@ -271,11 +243,14 @@ python kiwoom-agent.py
 아래와 같은 로그가 나오면 정상입니다:
 
 ```
-2026-03-27 10:00:00 [INFO] 키움 에이전트 시작
-2026-03-27 10:00:00 [INFO] 지원 jobType: watchlist.get, price.get, balance.get, condition.list, condition.run, ...
-2026-03-27 10:00:02 [INFO] 폴링 중... (작업 없음)
-2026-03-27 10:00:04 [INFO] 폴링 중... (작업 없음)
+2026-04-10 10:00:00 [INFO] 키움 에이전트 시작
+2026-04-10 10:00:00 [INFO] 지원 jobType: watchlist.get, price.get, balance.get, condition.list, condition.run, ...
+2026-04-10 10:00:02 [INFO] 서버 대기 중...
 ```
+
+> **로그가 30초에 한 번씩 나오는 게 정상입니다.**
+> 서버가 할 일이 생길 때까지 연결을 유지하는 방식이라 이전보다 로그가 뜸합니다.
+> 30초마다 한 줄씩 나와도 정상 동작 중인 것입니다.
 
 ---
 
@@ -367,17 +342,12 @@ curl -o kiwoom-agent.py https://kiwoom-stock-ai-mainstop3.replit.app/api/kiwoom-
 
 다운로드 후 에이전트를 재시작합니다.
 
-### 방법 B: 관리자에게 파일 직접 받기
+### 방법 B: 기존 파일에 덮어쓰기
 
-개발자(관리자)에게 최신 `kiwoom-agent.py` 파일을 받아서 `C:\kiwoom-agent\` 안의 기존 파일에 덮어씁니다.
-
-덮어쓴 후 아래 순서로 진행합니다:
+최신 `kiwoom-agent.py` 파일을 `C:\kiwoom-agent\` 안의 기존 파일에 덮어쓴 후:
 
 ```
-# 1. 기존 에이전트 종료 (실행 중인 창에서)
-Ctrl + C
-
-# 2. 새 파일로 재시작
+Ctrl + C   (기존 에이전트 종료)
 cd C:\kiwoom-agent
 python kiwoom-agent.py
 ```
@@ -390,11 +360,6 @@ python kiwoom-agent.py
 pip install --upgrade requests python-dotenv websocket-client
 ```
 
-현재 필요한 패키지는 3가지입니다:
-- `requests` — HTTP 통신
-- `python-dotenv` — .env 파일 읽기
-- `websocket-client` — 키움 WebSocket (조건검색 등)
-
 ---
 
 ## 설치 확인
@@ -403,12 +368,14 @@ pip install --upgrade requests python-dotenv websocket-client
 
 ### 로그 확인
 
-에이전트 창에서 아래와 같은 로그가 반복되면 정상입니다:
+에이전트 창에서 아래와 같은 로그가 나오면 정상입니다:
 
 ```
-[INFO] 폴링 중... (작업 없음)
-[INFO] 폴링 중... (작업 없음)
+[INFO] 서버 대기 중...
+[INFO] 서버 대기 중...
 ```
+
+> 30초에 한 번씩 나오는 게 정상입니다. 이전보다 로그가 뜸해도 문제없습니다.
 
 조건검색을 실행하면:
 
@@ -436,8 +403,8 @@ pip install --upgrade requests python-dotenv websocket-client
 [ERROR] 키움 토큰 발급 실패
 ```
 
-- 앱키/앱시크릿이 잘못 입력되었습니다
-- `.env` 파일의 `KIWOOM_APP_KEY_REAL`, `KIWOOM_APP_SECRET_REAL` 값을 다시 확인하세요
+- 앱키 또는 앱시크릿이 잘못 입력되었습니다
+- `.env` 파일의 `KIWOOM_APP_KEY`, `KIWOOM_APP_SECRET` 값을 다시 확인하세요
 - 키움 포털에서 앱키가 활성화 상태인지 확인하세요
 
 ---
@@ -456,14 +423,13 @@ pip install --upgrade requests python-dotenv websocket-client
 ### 에이전트는 실행되는데 화면에 데이터가 안 나옴
 
 ```
-[INFO] 폴링 중... (작업 없음)
+[INFO] 서버 대기 중...
 ```
 
 이 메시지가 계속 나오는데 화면에 반응이 없다면:
 
 - `AGENT_KEY` 값이 서버와 일치하는지 확인하세요
 - `REPLIT_URL` 주소가 정확한지 확인하세요
-- 관리자에게 현재 AGENT_KEY 값을 다시 확인하세요
 
 ---
 
@@ -474,6 +440,21 @@ pip install --upgrade requests python-dotenv websocket-client
 - 인터넷 연결 확인
 
 파일 확장자를 보려면 파일 탐색기 → **"보기"** → **"파일 확장명"** 체크
+
+---
+
+### timeout 오류가 반복될 때
+
+```
+[ERROR] requests.exceptions.Timeout
+```
+
+에이전트의 HTTP 타임아웃이 서버 대기 시간(30초)보다 짧게 설정된 경우입니다.
+최신 에이전트 파일로 업데이트하면 해결됩니다:
+
+```
+curl -o C:\kiwoom-agent\kiwoom-agent.py https://kiwoom-stock-ai-mainstop3.replit.app/api/kiwoom-agent/script
+```
 
 ---
 
