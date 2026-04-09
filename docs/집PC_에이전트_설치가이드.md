@@ -49,16 +49,6 @@
 
 ## 설치 전 준비사항
 
-### 키움증권 앱키 확인
-
-아래 정보를 미리 준비해 두세요.
-
-1. **키움증권 Open API 포털** 접속: https://openapi.kiwoom.com
-2. 로그인 후 **"앱 관리"** 메뉴 이동
-3. 사용할 앱의 **앱키(APP KEY)** 와 **앱시크릿(APP SECRET)** 확인
-
-> 실계좌와 모의계좌 앱키가 다른 경우 각각 따로 보관하세요.
-
 ### AGENT_KEY 확인
 
 - 서버 설정에 등록된 **AGENT_KEY** 값을 확인해 두세요
@@ -85,8 +75,8 @@ Set-ExecutionPolicy Bypass -Scope Process -Force; iex ((New-Object System.Net.We
 
 ### Step 3. 정보 입력
 
-설치 스크립트가 실행되면 아래 정보를 입력하라고 묻습니다:
-- 앱키, 앱시크릿, AGENT_KEY
+설치 스크립트가 실행되면 **AGENT_KEY** 를 입력하라고 묻습니다.
+키움 앱키는 서버에서 자동으로 받아오므로 따로 입력하지 않아도 됩니다.
 
 ### Step 4. 완료
 
@@ -188,13 +178,13 @@ REPLIT_URL=https://kiwoom-stock-ai-mainstop3.replit.app
 
 # 에이전트 인증 키
 AGENT_KEY=여기에_AGENT_KEY_값_입력
-
-# 실계좌 앱키 (키움 포털에서 확인)
-KIWOOM_APP_KEY=앱키
-KIWOOM_APP_SECRET=앱시크릿
 ```
 
-3. `AGENT_KEY`, `KIWOOM_APP_KEY`, `KIWOOM_APP_SECRET` 를 실제 값으로 채웁니다.
+> **키움 앱키는 입력하지 않아도 됩니다.**
+> 에이전트가 시작될 때 서버에서 자동으로 받아옵니다.
+> (서버에 계좌별 앱키가 이미 등록되어 있습니다)
+
+3. `AGENT_KEY` 를 실제 값으로 채웁니다.
 
 4. **파일 저장**:
    - 메모장에서 **파일** → **다른 이름으로 저장**
@@ -403,8 +393,8 @@ pip install --upgrade requests python-dotenv websocket-client
 [ERROR] 키움 토큰 발급 실패
 ```
 
-- 앱키 또는 앱시크릿이 잘못 입력되었습니다
-- `.env` 파일의 `KIWOOM_APP_KEY`, `KIWOOM_APP_SECRET` 값을 다시 확인하세요
+- 서버에 등록된 앱키 또는 앱시크릿이 잘못되어 있을 수 있습니다
+- 관리자(서버 설정)에서 `KIWOOM_KEY_{계좌번호}`, `KIWOOM_SECRET_{계좌번호}` 값을 확인하세요
 - 키움 포털에서 앱키가 활성화 상태인지 확인하세요
 
 ---
