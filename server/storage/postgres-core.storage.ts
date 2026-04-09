@@ -497,36 +497,10 @@ export class PostgreSQLCoreStorage {
   }
 
   async getNextPendingJob(agentId: string, supportedJobTypes?: string[]): Promise<KiwoomJob | undefined> {
-    // pending 상태의 가장 오래된 작업을 processing으로 변경 후 반환 (agentId는 안전한 식별자만)
+    // pending 상태의 가장 오래된 작업을 processing으로 변경 후 반환
+    // 만료 정리는 cleanupExpiredJobs()에서 별도 5분 주기로 실행 (DB 쿼리 절감)
     const hasSupportedTypes = Array.isArray(supportedJobTypes) && supportedJobTypes.length > 0;
-    const EXPIRY_SEC = 30;
-    const expiryCutoff = new Date(Date.now() - EXPIRY_SEC * 1000);
 
-    // 30초 이상 된 pending 잡은 expired로 마킹하여 큐에서 제거
-    const expiredPending = await db.select({ id: schema.kiwoomJobs.id })
-      .from(schema.kiwoomJobs)
-      .where(
-        hasSupportedTypes
-          ? and(
-              eq(schema.kiwoomJobs.status, 'pending'),
-              lt(schema.kiwoomJobs.createdAt, expiryCutoff),
-              inArray(schema.kiwoomJobs.jobType, supportedJobTypes!),
-            )
-          : and(
-              eq(schema.kiwoomJobs.status, 'pending'),
-              lt(schema.kiwoomJobs.createdAt, expiryCutoff),
-            ),
-      );
-
-    if (expiredPending.length > 0) {
-      const expiredIds = expiredPending.map((j) => j.id);
-      await db.update(schema.kiwoomJobs)
-        .set({ status: 'error', errorMessage: 'expired: agent was offline', updatedAt: new Date(), processedAt: new Date() })
-        .where(inArray(schema.kiwoomJobs.id, expiredIds));
-      console.log(`[AgentQueue] ${expiredIds.length}개 오래된 pending 잡 만료 처리 (>=${EXPIRY_SEC}초)`);
-    }
-
-    // 30초 이내의 최신 pending 잡만 에이전트에 전달
     const pending = await db.select().from(schema.kiwoomJobs)
       .where(
         hasSupportedTypes
@@ -544,6 +518,28 @@ export class PostgreSQLCoreStorage {
       .where(eq(schema.kiwoomJobs.id, pending[0].id))
       .returning();
     return result[0];
+  }
+
+  async cleanupExpiredJobs(): Promise<void> {
+    // 120초(2분) 이상 pending 상태로 남아있는 잡을 만료 처리
+    // Long Polling 최대 30초 + 여유 시간 고려하여 120초로 설정
+    const EXPIRY_SEC = 120;
+    const expiryCutoff = new Date(Date.now() - EXPIRY_SEC * 1000);
+    const expiredPending = await db.select({ id: schema.kiwoomJobs.id })
+      .from(schema.kiwoomJobs)
+      .where(
+        and(
+          eq(schema.kiwoomJobs.status, 'pending'),
+          lt(schema.kiwoomJobs.createdAt, expiryCutoff),
+        ),
+      );
+    if (expiredPending.length > 0) {
+      const expiredIds = expiredPending.map((j) => j.id);
+      await db.update(schema.kiwoomJobs)
+        .set({ status: 'error', errorMessage: 'expired: agent was offline', updatedAt: new Date(), processedAt: new Date() })
+        .where(inArray(schema.kiwoomJobs.id, expiredIds));
+      console.log(`[AgentQueue] ${expiredIds.length}개 만료 잡 정리 (>=${EXPIRY_SEC}초)`);
+    }
   }
 
   async hasPendingJobForAccount(userId: string, jobType: string, accountNumber: string): Promise<boolean> {

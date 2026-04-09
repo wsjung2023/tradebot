@@ -19,9 +19,8 @@ interface JobInfo {
 export default function AdminJobs() {
   const { toast } = useToast();
 
-  const { data: jobs = [], isLoading } = useQuery<JobInfo[]>({
+  const { data: jobs = [], isLoading, refetch } = useQuery<JobInfo[]>({
     queryKey: ["/api/admin/jobs"],
-    refetchInterval: 5000,
   });
 
   const startMutation = useMutation({
@@ -59,11 +58,23 @@ export default function AdminJobs() {
 
   return (
     <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">배치잡 관리</h1>
-        <p className="text-muted-foreground mt-1">
-          자동매매, 학습, 데이터 정리 등 백그라운드 작업을 제어합니다.
-        </p>
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-bold">배치잡 관리</h1>
+          <p className="text-muted-foreground mt-1">
+            자동매매, 학습, 데이터 정리 등 백그라운드 작업을 제어합니다.
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          size="default"
+          onClick={() => refetch()}
+          disabled={isLoading}
+          data-testid="button-refresh-jobs"
+        >
+          <RotateCcw className="w-4 h-4 mr-2" />
+          새로고침
+        </Button>
       </div>
 
       {isLoading ? (

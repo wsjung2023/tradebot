@@ -18,11 +18,11 @@ async function tryDirectKiwoomBalance(accountNumber: string, accountType: string
   const digits = accountNumber.replace(/\D/g, "").slice(0, 8);
   const appKey =
     process.env[`KIWOOM_KEY_${digits}`] ||
-    (accountType === "real" ? process.env.KIWOOM_APP_KEY_REAL : process.env.KIWOOM_APP_KEY_MOCK) ||
+    (accountType === "real" ? process.env.KIWOOM_APP_KEY_REAL : process.env.KIWOOM_APP_KEY) ||
     process.env.KIWOOM_APP_KEY || "";
   const appSecret =
     process.env[`KIWOOM_SECRET_${digits}`] ||
-    (accountType === "real" ? process.env.KIWOOM_APP_SECRET_REAL : process.env.KIWOOM_APP_SECRET_MOCK) ||
+    (accountType === "real" ? process.env.KIWOOM_APP_SECRET_REAL : process.env.KIWOOM_APP_SECRET) ||
     process.env.KIWOOM_APP_SECRET || "";
 
   if (!appKey || !appSecret) throw new Error("앱키/시크릿 환경변수 없음");

@@ -43,7 +43,7 @@ export function SettingsKiwoom({ appKey, appSecret, showSecret, isPending, hasKi
 
   const { data: connInfo, refetch: refetchConnInfo, isFetching: connFetching } = useQuery<ConnectionInfo>({
     queryKey: ["/api/kiwoom-agent/connection-info"],
-    refetchInterval: 10000,
+    refetchInterval: 30000,
   });
 
   const handleCopyUrl = () => {

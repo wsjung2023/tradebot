@@ -246,8 +246,8 @@ class AutoTradingWorker {
 
       if (!appKey || !appSecret) {
         if (targetAccount.accountType !== 'real') {
-          appKey = process.env.KIWOOM_APP_KEY_MOCK || process.env.KIWOOM_APP_KEY;
-          appSecret = process.env.KIWOOM_APP_SECRET_MOCK || process.env.KIWOOM_APP_SECRET;
+          appKey = process.env.KIWOOM_APP_KEY;
+          appSecret = process.env.KIWOOM_APP_SECRET;
         }
         if (!appKey || !appSecret) {
           await this.setRunState(model.userId, 'paused', model.id, 'missing_kiwoom_credentials', undefined, {
