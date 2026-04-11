@@ -21,6 +21,12 @@ function touchAgentSeen() {
   _agentPollCount++;
 }
 
+// ─── 폴링 ON/OFF 스위치 (서버 인스턴스별 독립 메모리) ────────────────────
+// 개발/운영 서버가 각각 독립적으로 켜고 끌 수 있음 (DB 공유 문제 없음)
+// 서버 재시작 시 ON으로 초기화 (재시작 = 새 배포 = 쓸 준비 됐다는 뜻)
+let _pollingEnabled = true;
+let _todayDispatchCount = 0; // 오늘 에이전트에 전달된 잡 수
+
 function requireAgentKey(req: Request, res: Response): boolean {
   const queryKey = (req.query.agent_key as string) || "";
   const headerKey = (req.headers["x-agent-key"] as string) || "";
@@ -180,6 +186,12 @@ export function registerKiwoomAgentRoutes(app: Express): void {
     try {
       if (!requireAgentKey(req, res)) return;
       touchAgentSeen();
+
+      // 폴링 스위치 OFF 상태면 잡 없음 즉시 반환 (DB 쿼리 없음)
+      if (!_pollingEnabled) {
+        return res.json({ job: null, pollingDisabled: true });
+      }
+
       const supportsRaw =
         (req.headers["x-agent-supports"] as string | undefined) ||
         (req.query.supports as string | undefined) ||
@@ -192,6 +204,7 @@ export function registerKiwoomAgentRoutes(app: Express): void {
 
       const job = await storage.getNextPendingJob(AGENT_ID, jobTypes);
       if (job) {
+        _todayDispatchCount++;
         res.json({ job: { id: job.id, jobType: job.jobType, payload: job.payload } });
       } else {
         res.json({ job: null });
@@ -406,6 +419,31 @@ export function registerKiwoomAgentRoutes(app: Express): void {
       isAgentActive: isActive,
       pollCount: _agentPollCount,
     });
+  });
+
+  // ─── 폴링 스위치 현황 조회 ─────────────────────────────────────────────
+  app.get("/api/kiwoom-agent/polling-status", isAuthenticated, (req: Request, res: Response) => {
+    const secondsAgo = _agentLastSeen
+      ? Math.round((Date.now() - _agentLastSeen.getTime()) / 1000)
+      : null;
+    res.json({
+      enabled: _pollingEnabled,
+      isAgentConnected: secondsAgo !== null && secondsAgo < 60,
+      agentLastSeenSecondsAgo: secondsAgo,
+      todayPollCount: _agentPollCount,
+      todayDispatchCount: _todayDispatchCount,
+    });
+  });
+
+  // ─── 폴링 스위치 ON/OFF 변경 ───────────────────────────────────────────
+  app.post("/api/kiwoom-agent/polling-switch", isAuthenticated, (req: Request, res: Response) => {
+    const { enabled } = req.body;
+    if (typeof enabled !== "boolean") {
+      return res.status(400).json({ error: "enabled 값은 true/false 이어야 합니다" });
+    }
+    _pollingEnabled = enabled;
+    console.log(`[AgentQueue] 폴링 스위치 ${enabled ? "ON" : "OFF"} (사용자 요청)`);
+    res.json({ enabled: _pollingEnabled });
   });
 
   // ─── 키움 시스템 점검 상태 확인 (에이전트 경유) ─────────────────────────

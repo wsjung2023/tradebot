@@ -8,6 +8,7 @@ import { SettingsTrading } from "@/components/settings/SettingsTrading";
 import { SettingsAI } from "@/components/settings/SettingsAI";
 import { SettingsNotifications } from "@/components/settings/SettingsNotifications";
 import { SettingsStockAlerts } from "@/components/settings/SettingsStockAlerts";
+import { SettingsAgentMonitor } from "@/components/settings/SettingsAgentMonitor";
 import type { Alert } from "@shared/schema";
 
 export default function Settings() {
@@ -80,6 +81,8 @@ export default function Settings() {
         <h1 className="text-2xl md:text-3xl font-bold">설정</h1>
         <p className="text-muted-foreground mt-1">API 연결, 거래 모드, AI 모델, 알림을 관리하세요</p>
       </div>
+
+      <SettingsAgentMonitor />
 
       <SettingsKiwoom
         appKey={appKey} appSecret={appSecret} showSecret={showSecret}
