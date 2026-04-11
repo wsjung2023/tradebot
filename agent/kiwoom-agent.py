@@ -1,33 +1,19 @@
 """
 kiwoom-agent.py — 집 PC에서 실행하는 키움 REST API 폴링 에이전트
-Replit 서버에 2~5초마다 할 일을 가져와 키움 API를 호출하고 결과를 돌려줍니다.
+Replit 서버에 15초마다 할 일을 가져와 키움 API를 호출하고 결과를 돌려줍니다.
 
 실행 방법:
   1. pip install requests python-dotenv websocket-client
   2. .env 파일 생성 (아래 설정 참고)
-  3. python agent/kiwoom-agent.py
+  3. python kiwoom-agent.py
 
-.env 파일 예시 (agent/ 폴더 또는 프로젝트 루트에 생성):
-  # 단일 URL (배포 서버만 폴링):
-  REPLIT_URL=https://your-replit-app.replit.app
+.env 파일 (필수 항목만):
+  REPLIT_URL=https://kiwoom-stock-ai-mainstop3.replit.app
+  AGENT_KEY=여기에_AGENT_KEY_값_입력
 
-  # 다중 URL (배포 + 개발 서버 동시 폴링, 쉼표 구분):
-  REPLIT_URLS=https://your-app.replit.app,https://xxxx.spock.replit.dev
-
-  AGENT_KEY=여기에_랜덤_비밀키_입력
-
-  # 실계좌와 모의계좌 앱키가 다른 경우 (키움 포털에서 각각 발급):
-  KIWOOM_APP_KEY_REAL=실계좌_앱키
-  KIWOOM_APP_SECRET_REAL=실계좌_앱시크릿
-  KIWOOM_APP_KEY_MOCK=모의계좌_앱키
-  KIWOOM_APP_SECRET_MOCK=모의계좌_앱시크릿
-
-  # 실계좌/모의계좌 앱키가 동일한 경우 (하위 호환):
-  # KIWOOM_APP_KEY=앱키
-  # KIWOOM_APP_SECRET=앱시크릿
-
-  KIWOOM_IS_MOCK=false
-  POLL_INTERVAL=2
+  # 키움 앱키는 서버에서 자동 수신 — 따로 입력 불필요
+  # 폴링 간격 변경 필요 시 (기본 15초):
+  # POLL_INTERVAL=15
 """
 
 import os
@@ -59,7 +45,7 @@ KIWOOM_APP_KEY = _APP_KEY_COMMON
 KIWOOM_APP_SECRET = _APP_SECRET_COMMON
 
 KIWOOM_IS_MOCK = os.getenv("KIWOOM_IS_MOCK", "false").lower() == "true"
-POLL_INTERVAL = int(os.getenv("POLL_INTERVAL", "2"))
+POLL_INTERVAL = int(os.getenv("POLL_INTERVAL", "15"))
 
 # 계좌번호별 앱키 저장소 (서버에서 수신)
 # { "59190647": {"appKey": "...", "appSecret": "..."}, ... }

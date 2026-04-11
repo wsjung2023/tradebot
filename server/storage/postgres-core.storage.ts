@@ -520,10 +520,21 @@ export class PostgreSQLCoreStorage {
     return result[0];
   }
 
+  // 서버 재시작 시 processing 상태로 stuck된 잡을 pending으로 되돌림
+  // (배포 재시작, 크래시 등으로 에이전트가 처리 중이던 잡이 완료되지 못한 경우)
+  async resetStuckProcessingJobs(): Promise<void> {
+    const result = await db.update(schema.kiwoomJobs)
+      .set({ status: 'pending', agentId: null, updatedAt: new Date() })
+      .where(eq(schema.kiwoomJobs.status, 'processing'))
+      .returning({ id: schema.kiwoomJobs.id });
+    if (result.length > 0) {
+      console.log(`[AgentQueue] ${result.length}개 stuck 잡을 pending으로 리셋`);
+    }
+  }
+
   async cleanupExpiredJobs(): Promise<void> {
-    // 120초(2분) 이상 pending 상태로 남아있는 잡을 만료 처리
-    // Long Polling 최대 30초 + 여유 시간 고려하여 120초로 설정
-    const EXPIRY_SEC = 120;
+    // 60초 이상 pending 상태로 남아있는 잡을 만료 처리
+    const EXPIRY_SEC = 60;
     const expiryCutoff = new Date(Date.now() - EXPIRY_SEC * 1000);
     const expiredPending = await db.select({ id: schema.kiwoomJobs.id })
       .from(schema.kiwoomJobs)

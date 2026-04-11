@@ -174,9 +174,8 @@ export function registerKiwoomAgentRoutes(app: Express): void {
   });
 
   // 집 PC 에이전트가 다음 작업 가져가기 — AGENT_KEY 인증 필수
-  // Long Polling: 잡이 없으면 연결을 유지한 채 30초 동안 2초 간격으로 재확인
-  // 잡 발견 즉시 반환. 30초 경과 시 { job: null } 반환 후 에이전트가 재연결.
-  // 효과: 요청 횟수 20회/분 → 2회/분 (90% 감소), DB 쿼리 동일 비율 감소
+  // 에이전트가 15초 간격으로 폴링하므로 서버는 요청마다 즉시 응답 후 종료
+  // Autoscale 과금 구조: 연결 점유 시간 = 비용 → 즉시 응답이 가장 저렴
   app.get("/api/kiwoom-agent/jobs/next", async (req: Request, res: Response) => {
     try {
       if (!requireAgentKey(req, res)) return;
@@ -191,30 +190,12 @@ export function registerKiwoomAgentRoutes(app: Express): void {
         .filter(Boolean);
       const jobTypes = supportedJobTypes.length > 0 ? supportedJobTypes : undefined;
 
-      // Long Polling: 최대 30초 동안 2초 간격으로 잡 확인
-      // 30초는 nginx 타임아웃(75~90초)의 절반 이하로 안전
-      // 1분봉 기반 자동매매에서 30초 지연은 매매 품질에 영향 없음
-      const LONG_POLL_TIMEOUT_MS = 30_000;
-      const POLL_INTERVAL_MS = 2_000;
-      const deadline = Date.now() + LONG_POLL_TIMEOUT_MS;
-
-      // 연결 종료 감지 (에이전트가 중간에 끊으면 타이머 정리)
-      let clientGone = false;
-      req.on("close", () => { clientGone = true; });
-
-      while (Date.now() < deadline && !clientGone) {
-        const job = await storage.getNextPendingJob(AGENT_ID, jobTypes);
-        if (job) {
-          // 에이전트에는 jobId, jobType, payload만 노출
-          res.json({ job: { id: job.id, jobType: job.jobType, payload: job.payload } });
-          return;
-        }
-        // 잡 없음 — 2초 대기 후 재확인
-        await new Promise<void>((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+      const job = await storage.getNextPendingJob(AGENT_ID, jobTypes);
+      if (job) {
+        res.json({ job: { id: job.id, jobType: job.jobType, payload: job.payload } });
+      } else {
+        res.json({ job: null });
       }
-
-      // 타임아웃 — 에이전트가 재연결할 것임
-      if (!clientGone) res.json({ job: null });
     } catch (err) {
       console.error("[kiwoom-agent] 작업 조회 실패:", err);
       if (!res.headersSent) res.status(500).json({ error: "작업 조회 실패" });
@@ -568,9 +549,13 @@ export function registerKiwoomAgentRoutes(app: Express): void {
     }
   });
 
-  // 만료 잡 정리 타이머 — 5분마다 실행 (getNextPendingJob에서 분리하여 DB 쿼리 95% 절감)
-  // Long Polling으로 요청 횟수가 줄어도 만료 정리는 별도 주기로 보장
-  const CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // 5분
+  // 서버 시작 시 stuck(processing) 잡 리셋 — 배포 재시작/크래시 후 복구
+  storage.resetStuckProcessingJobs().catch((err) =>
+    console.error("[AgentQueue] stuck 잡 리셋 실패:", err)
+  );
+
+  // 만료 잡 정리 타이머 — 5분마다 실행
+  const CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
   setInterval(async () => {
     try {
       await storage.cleanupExpiredJobs();

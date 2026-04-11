@@ -180,6 +180,7 @@ export interface IStorage {
   createKiwoomJob(job: InsertKiwoomJob): Promise<KiwoomJob>;
   getNextPendingJob(agentId: string, supportedJobTypes?: string[]): Promise<KiwoomJob | undefined>;
   cleanupExpiredJobs(): Promise<void>;
+  resetStuckProcessingJobs(): Promise<void>;
   updateKiwoomJobResult(id: number, status: string, result?: unknown, errorMessage?: string): Promise<KiwoomJob | undefined>;
   getKiwoomJobStatus(id: number, userId: string): Promise<KiwoomJob | undefined>;
   getRecentKiwoomJobsByUser(userId: string, limit?: number): Promise<KiwoomJob[]>;
