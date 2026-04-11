@@ -22,9 +22,9 @@ function touchAgentSeen() {
 }
 
 // ─── 폴링 ON/OFF 스위치 (서버 인스턴스별 독립 메모리) ────────────────────
-// 개발/운영 서버가 각각 독립적으로 켜고 끌 수 있음 (DB 공유 문제 없음)
-// 서버 재시작 시 ON으로 초기화 (재시작 = 새 배포 = 쓸 준비 됐다는 뜻)
-let _pollingEnabled = true;
+// AGENT_POLLING_DEFAULT=false 환경변수로 시작값 제어 가능
+// 개발 서버: 기본 ON / 운영 서버: AGENT_POLLING_DEFAULT=false 로 기본 OFF
+let _pollingEnabled = process.env.AGENT_POLLING_DEFAULT !== "false";
 let _todayDispatchCount = 0; // 오늘 에이전트에 전달된 잡 수
 
 function requireAgentKey(req: Request, res: Response): boolean {
