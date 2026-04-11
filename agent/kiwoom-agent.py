@@ -17,8 +17,10 @@ Replit 서버에 15초마다 할 일을 가져와 키움 API를 호출하고 결
 """
 
 import os
+import sys
 import time
 import json
+import datetime
 import threading
 import logging
 import requests
@@ -45,7 +47,17 @@ KIWOOM_APP_KEY = _APP_KEY_COMMON
 KIWOOM_APP_SECRET = _APP_SECRET_COMMON
 
 KIWOOM_IS_MOCK = os.getenv("KIWOOM_IS_MOCK", "false").lower() == "true"
-POLL_INTERVAL = int(os.getenv("POLL_INTERVAL", "15"))
+POLL_INTERVAL = int(os.getenv("POLL_INTERVAL", "15"))  # 장중 폴링 간격 (초)
+POLL_INTERVAL_IDLE = POLL_INTERVAL * 4                  # 장외 폴링 간격 (초, 자동 4배)
+
+KST = datetime.timezone(datetime.timedelta(hours=9))
+
+def get_poll_interval() -> int:
+    """한국 장중(평일 09:00~16:00 KST)이면 POLL_INTERVAL, 아니면 POLL_INTERVAL_IDLE 반환"""
+    now_kst = datetime.datetime.now(KST)
+    is_weekday = now_kst.weekday() < 5  # 0=월 ~ 4=금
+    is_market = datetime.time(9, 0) <= now_kst.time() <= datetime.time(16, 0)
+    return POLL_INTERVAL if (is_weekday and is_market) else POLL_INTERVAL_IDLE
 
 # 계좌번호별 앱키 저장소 (서버에서 수신)
 # { "59190647": {"appKey": "...", "appSecret": "..."}, ... }
@@ -1426,24 +1438,25 @@ def main():
         logger.info(f"계좌별 토큰 발급: {acnt_num}")
         refresh_kiwoom_token(is_mock=False, account_number=acnt_num)
 
-    logger.info("폴링 시작 — Ctrl+C로 종료")
+    logger.info(f"폴링 시작 — 장중(KST 09:00-16:00 평일) {POLL_INTERVAL}초 / 장외 {POLL_INTERVAL_IDLE}초 — Ctrl+C로 종료")
     consecutive_errors = 0
 
     while True:
+        interval = get_poll_interval()
         try:
             job = fetch_next_job()
             if job:
                 process_job(job)
                 consecutive_errors = 0
             else:
-                time.sleep(POLL_INTERVAL)
+                time.sleep(interval)
                 consecutive_errors = 0
         except KeyboardInterrupt:
             logger.info("에이전트 종료 (Ctrl+C)")
             sys.exit(0)
         except Exception as e:
             consecutive_errors += 1
-            wait = min(POLL_INTERVAL * consecutive_errors, 30)
+            wait = min(interval * consecutive_errors, 60)
             logger.error(f"폴링 오류 ({consecutive_errors}회): {e} — {wait}초 후 재시도")
             time.sleep(wait)
 
