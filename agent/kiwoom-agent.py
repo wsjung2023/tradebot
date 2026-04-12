@@ -738,10 +738,13 @@ def handle_balance_get(payload):
     is_mock = account_type == "mock"
     acnt = account_number if not is_mock else None
     dmst_stex_tp = "%" if is_mock else "KRX"
-    data = kiwoom_post("/api/dostk/acnt", "kt00018", {
+    body = {
         "qry_tp": "2",
         "dmst_stex_tp": dmst_stex_tp,
-    }, is_mock=is_mock, account_number=acnt)
+    }
+    if acnt:
+        body["acnt_no"] = acnt
+    data = kiwoom_post("/api/dostk/acnt", "kt00018", body, is_mock=is_mock, account_number=acnt)
     # 키움 API는 tot_evlt_amt 등을 raw 최상위에 직접 반환
     holdings = data.get("acnt_evlt_remn_indv_tot", []) or []
     return {
@@ -768,6 +771,8 @@ def handle_order_buy(payload):
         "ord_qty": str(payload.get("quantity", 0)),
         "ord_prc": str(payload.get("price", 0)),
     }
+    if acnt:
+        body["acnt_no"] = acnt
     return kiwoom_post("/api/dostk/ordr", "kt10000", body, is_mock=is_mock, account_number=acnt)
 
 
@@ -785,6 +790,8 @@ def handle_order_sell(payload):
         "ord_qty": str(payload.get("quantity", 0)),
         "ord_prc": str(payload.get("price", 0)),
     }
+    if acnt:
+        body["acnt_no"] = acnt
     return kiwoom_post("/api/dostk/ordr", "kt10000", body, is_mock=is_mock, account_number=acnt)
 
 
