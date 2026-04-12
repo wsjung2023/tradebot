@@ -5,6 +5,7 @@ import { AIService } from './ai.service';
 import { AiModel, AutoTradingSettings } from '@shared/schema';
 import { RainbowChartAnalyzer } from '../formula/rainbow-chart';
 import { normalizeChartDataAsc } from '../utils/chart-normalization';
+import { getNewsService } from './news.service';
 
 export type RainbowEval = {
   currentLine: number;
@@ -288,58 +289,100 @@ export class TradeExecutorService {
     kiwoomService: KiwoomService,
     aiService: AIService
   ): Promise<AiAnalysisResult> {
-    const financials = await kiwoomService.getFinancialStatements(stock.code);
-    const hasGoodFinancials = financials.output && financials.output.length >= 3;
+    // ── 1단계: 데이터 수집 (모두 병렬) ─────────────────────────────────
+    const [priceResult, chartResult, ratiosResult, newsResult] = await Promise.allSettled([
+      kiwoomService.getStockPrice(stock.code),
+      kiwoomService.getStockChart(stock.code, 'D'),
+      kiwoomService.getFinancialRatios(stock.code),
+      getNewsService().getStockNews(stock.code, stock.name, 10),
+    ]);
 
-    const priceData = await kiwoomService.getStockPrice(stock.code);
-    const volume = parseFloat(priceData.output.acml_vol);
-    const hasHighLiquidity = volume > 100000;
+    // ── 2단계: 가격/거래량 추출 ──────────────────────────────────────────
+    const priceOutput = priceResult.status === 'fulfilled' ? priceResult.value.output : null;
+    const volume = parseFloat(priceOutput?.acml_vol ?? '0') || 0;
+    const hasHighLiquidity = volume > 100_000;
 
-    const chartData = await kiwoomService.getStockChart(stock.code, 'D');
-    const ohlcv = normalizeChartDataAsc(chartData.output || chartData);
+    // ── 3단계: 레인보우 차트 계산 ──────────────────────────────────────
+    const chartRaw = chartResult.status === 'fulfilled' ? (chartResult.value.output || chartResult.value) : [];
+    const ohlcv = normalizeChartDataAsc(chartRaw);
     const rainbowChart = RainbowChartAnalyzer.analyze(stock.code, ohlcv);
 
-    const analysis = await aiService.analyzeStock({
-      stockCode: stock.code,
-      stockName: stock.name,
-      currentPrice: stock.price,
-      rainbowChart,
-    });
+    // ── 4단계: PER/PBR/ROE 추출 → AI 재무 분석 인풋 ─────────────────────
+    const ratiosRaw = ratiosResult.status === 'fulfilled' ? ratiosResult.value.output : null;
+    const financialRatios = ratiosRaw ? {
+      per: ratiosRaw.per   || '0',
+      pbr: ratiosRaw.pbr   || '0',
+      eps: ratiosRaw.eps   || '0',
+      bps: ratiosRaw.bps   || '0',
+      roe: ratiosRaw.roe   || '0',
+    } : undefined;
 
+    // ── 5단계: 뉴스 감성 데이터 (네이버 API, 없으면 undefined) ──────────
+    const news = newsResult.status === 'fulfilled' ? newsResult.value : undefined;
+
+    // ── 6단계: 차트 → 가격 이력 변환 ────────────────────────────────────
+    const priceHistory = ohlcv.slice(-20).map(d => ({
+      date: d.date,
+      price: d.close,
+      volume: d.volume,
+    }));
+
+    // ── 7단계: AI 분석 2개 병렬 실행 ──────────────────────────────────
+    //  · analyzeStock : 레인보우 차트 기반 테마/섹터 모멘텀 → themeScore
+    //  · integratedAnalysis : 뉴스 + PER/PBR/ROE + 가격 이력 → newsScore, financialScore
+    const [stockAnalysis, integrated] = await Promise.all([
+      aiService.analyzeStock({
+        stockCode: stock.code,
+        stockName: stock.name,
+        currentPrice: stock.price,
+        rainbowChart,
+      }),
+      aiService.integratedAnalysis({
+        stockCode: stock.code,
+        stockName: stock.name,
+        currentPrice: stock.price,
+        financialRatios,
+        priceHistory,
+        news,
+      }),
+    ]);
+
+    // ── 8단계: 가중치 및 점수 계산 ──────────────────────────────────────
     const weights = {
-      theme: parseFloat(settings.themeWeight.toString()),
-      news: parseFloat(settings.newsWeight.toString()),
-      financials: parseFloat(settings.financialsWeight.toString()),
-      liquidity: parseFloat(settings.liquidityWeight.toString()),
+      theme:       parseFloat(settings.themeWeight.toString()),
+      news:        parseFloat(settings.newsWeight.toString()),
+      financials:  parseFloat(settings.financialsWeight.toString()),
+      liquidity:   parseFloat(settings.liquidityWeight.toString()),
       institutional: parseFloat(settings.institutionalWeight.toString()),
     };
 
-    // ── 기관 점수: 거래량 기반 5단계 그레이딩 (하드코딩 50 제거) ──
+    // 기관: 거래량 기반 5단계 그레이딩 (키움 기관 API 미지원)
     const institutionalScore =
       volume >= 1_000_000 ? 75 :
-      volume >= 500_000  ? 65 :
-      volume >= 100_000  ? 55 :
-      volume >= 50_000   ? 45 : 35;
+      volume >= 500_000   ? 65 :
+      volume >= 100_000   ? 55 :
+      volume >= 50_000    ? 45 : 35;
 
     const scores = {
-      themeScore: analysis.themeScore,   // AI가 독립 산출한 테마/섹터 모멘텀 점수
-      newsScore: analysis.newsScore,     // AI가 독립 산출한 뉴스 감성 점수
-      financialsScore: hasGoodFinancials ? 80 : 30,
-      liquidityScore: hasHighLiquidity ? 80 : 30,
+      themeScore:       stockAnalysis.themeScore,    // 레인보우 차트 기반 테마 모멘텀
+      newsScore:        integrated.newsScore,         // 실제 뉴스 감성 분석 (네이버 API)
+      financialsScore:  integrated.financialScore,   // PER/PBR/ROE 기반 재무 건전성
+      liquidityScore:   hasHighLiquidity ? 80 : 30,
       institutionalScore,
     };
 
-    // ── 가중치 합계로 정규화 (합이 100 초과해도 신뢰도 0~100 보장) ──
+    // 가중치 합계로 정규화 → 신뢰도 항상 0~100 보장
     const totalWeight = weights.theme + weights.news + weights.financials + weights.liquidity + weights.institutional;
     const denominator = totalWeight > 0 ? totalWeight : 100;
     const confidence = Math.min(100, Math.max(0, (
-      scores.themeScore * weights.theme +
-      scores.newsScore * weights.news +
-      scores.financialsScore * weights.financials +
-      scores.liquidityScore * weights.liquidity +
+      scores.themeScore       * weights.theme +
+      scores.newsScore        * weights.news +
+      scores.financialsScore  * weights.financials +
+      scores.liquidityScore   * weights.liquidity +
       scores.institutionalScore * weights.institutional
     ) / denominator));
 
+    const hasGoodFinancials = scores.financialsScore >= 60;
     return { confidence, hasGoodFinancials, hasHighLiquidity, ...scores };
   }
 
