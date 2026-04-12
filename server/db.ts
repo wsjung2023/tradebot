@@ -3,20 +3,17 @@ import { Pool } from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
 import * as schema from "@shared/schema";
 
-// NEON_DATABASE_URL 우선, 없으면 DATABASE_URL 폴백
-const resolvedDatabaseUrl = process.env.NEON_DATABASE_URL || process.env.DATABASE_URL;
+// Replit 내장 DATABASE_URL만 사용 (NEON_DATABASE_URL 우선순위 제거)
+const resolvedDatabaseUrl = process.env.DATABASE_URL;
 
 if (!resolvedDatabaseUrl) {
-  throw new Error("DATABASE_URL 또는 NEON_DATABASE_URL 이 설정되어야 합니다.");
+  throw new Error("DATABASE_URL 이 설정되어야 합니다.");
 }
 
 const poolConfig = {
   connectionString: resolvedDatabaseUrl,
-  // Neon이 서버 측에서 연결을 끊기 전에 풀이 먼저 닫도록 짧게 설정
   idleTimeoutMillis: 10000,
   connectionTimeoutMillis: 5000,
-  ssl: { rejectUnauthorized: false },
-  // TCP keepalive: Neon이 idle 연결을 끊기 전에 살아있음을 알림
   keepAlive: true,
   keepAliveInitialDelayMillis: 5000,
 };
@@ -29,7 +26,6 @@ const readonlyConnectionString = process.env.DATABASE_READONLY_URL || resolvedDa
 export const readonlyPool = new Pool({ ...poolConfig, connectionString: readonlyConnectionString, max: 5 });
 
 // 연결 에러 이벤트 핸들러: 끊어진 연결을 조용히 로그만 남김 (서버 크래시 방지)
-// pg Pool은 에러 이벤트 핸들러가 없으면 unhandledRejection으로 서버가 죽을 수 있음
 pool.on("error", (err) => {
   console.warn("[DB Pool] 유휴 클라이언트 연결 오류 (자동 복구됨):", err.message);
 });
