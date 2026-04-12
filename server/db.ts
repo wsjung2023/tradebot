@@ -3,12 +3,15 @@ import { Pool } from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
 import * as schema from "@shared/schema";
 
-if (!process.env.DATABASE_URL) {
-  throw new Error("DATABASE_URL must be set. Did you forget to provision a database?");
+// NEON_DATABASE_URL 우선, 없으면 DATABASE_URL 폴백
+const resolvedDatabaseUrl = process.env.NEON_DATABASE_URL || process.env.DATABASE_URL;
+
+if (!resolvedDatabaseUrl) {
+  throw new Error("DATABASE_URL 또는 NEON_DATABASE_URL 이 설정되어야 합니다.");
 }
 
 const poolConfig = {
-  connectionString: process.env.DATABASE_URL,
+  connectionString: resolvedDatabaseUrl,
   // Neon이 서버 측에서 연결을 끊기 전에 풀이 먼저 닫도록 짧게 설정
   idleTimeoutMillis: 10000,
   connectionTimeoutMillis: 5000,
@@ -22,7 +25,7 @@ const poolConfig = {
 export const pool = new Pool({ ...poolConfig, max: 3 });
 
 // 읽기 전용 풀: SELECT 전용 (max 5 - 동시 조회 최적화)
-const readonlyConnectionString = process.env.DATABASE_READONLY_URL || process.env.DATABASE_URL;
+const readonlyConnectionString = process.env.DATABASE_READONLY_URL || resolvedDatabaseUrl;
 export const readonlyPool = new Pool({ ...poolConfig, connectionString: readonlyConnectionString, max: 5 });
 
 // 연결 에러 이벤트 핸들러: 끊어진 연결을 조용히 로그만 남김 (서버 크래시 방지)
