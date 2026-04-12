@@ -220,7 +220,7 @@ export default function AutoTrading() {
         onDescriptionChange={setEditDescription} onMaxPositionsChange={setEditMaxPositions}
         onStopLossColorChange={setEditStopLossColor}
         onStopLossChange={setEditStopLossPercent} onTakeProfitChange={setEditTakeProfitPercent}
-        onCreate={handleUpdateModel}
+        onCreate={() => { /* edit mode: onUpdate handles submission */ }}
         onUpdate={handleUpdateModel}
       />
 
