@@ -275,7 +275,7 @@ class AutoTradingWorker {
 
       // ── 손절/익절 체크: 보유 포지션 먼저 점검 ──
       try {
-        await this.executor.checkPositionsForExits(model, kiwoomService);
+        await this.executor.checkPositionsForExits(model, settings, kiwoomService);
       } catch (exitErr) {
         console.error(`⚠️  checkPositionsForExits 오류 (무시):`, exitErr);
       }

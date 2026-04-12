@@ -34,6 +34,25 @@ function getRainbowColor(line: number): 'blue' | 'green' | 'yellow' | 'red' {
 
 export class TradeExecutorService {
 
+  // ── 오늘 KST 기준 자동매매 매수 주문 횟수 조회 ──
+  private async countTodayAutoTrades(accountId: number): Promise<number> {
+    const orders = await storage.getOrders(accountId, 200);
+    // KST 오늘 자정(UTC)
+    const nowUtc = Date.now();
+    const kstMidnightUtc = Math.floor((nowUtc + 9 * 3600000) / 86400000) * 86400000 - 9 * 3600000;
+    return orders.filter(o => {
+      if (!o.isAutoTrading || o.orderType !== 'buy') return false;
+      const ts = o.createdAt ? new Date(o.createdAt).getTime() : 0;
+      return ts >= kstMidnightUtc;
+    }).length;
+  }
+
+  // ── 오늘 날짜 YYYYMMDD (KST) ──
+  private todayKST(): string {
+    const d = new Date(Date.now() + 9 * 3600000);
+    return d.toISOString().slice(0, 10).replace(/-/g, '');
+  }
+
   // ── 신규 진입: 최대 보유 종목 체크 + AI/레인보우 평가 ──
   async evaluateStock(
     model: AiModel,
@@ -44,6 +63,18 @@ export class TradeExecutorService {
   ): Promise<void> {
     console.log(`    📈 Evaluating: ${stock.name} (${stock.code})`);
     try {
+      // ── 시장 이슈 관련 종목 필터 ──
+      if (settings.requireMarketIssue) {
+        const today = this.todayKST();
+        const issues = await storage.getMarketIssuesByStock(stock.code);
+        const hasTodayIssue = issues.some(i => i.issueDate === today);
+        if (!hasTodayIssue) {
+          console.log(`    ⚠️  시장 이슈 관련 종목 아님 (${stock.code}, ${today}) - 스킵`);
+          return;
+        }
+        console.log(`    ✅ 시장 이슈 확인됨: ${stock.code}`);
+      }
+
       const aiAnalysis = await this.comprehensiveAiAnalysis(stock, settings, kiwoomService, aiService);
       if (aiAnalysis.confidence < parseFloat(settings.minAiConfidence.toString())) {
         console.log(`    ⚠️  AI confidence ${aiAnalysis.confidence}% < threshold ${settings.minAiConfidence}% - skipping`);
@@ -69,16 +100,17 @@ export class TradeExecutorService {
     }
   }
 
-  // ── 보유 포지션 손절/익절 체크 (매 사이클 초입에 호출) ──
+  // ── 보유 포지션 손절/익절/동적청산 체크 (매 사이클 초입에 호출) ──
   async checkPositionsForExits(
     model: AiModel,
+    settings: AutoTradingSettings,
     kiwoomService: KiwoomService
   ): Promise<void> {
     const config = (model.config as any) || {};
     const stopLossConfig = config.stopLossConfig as { color: 'green' | 'blue'; percent: number } | null | undefined;
     const takeProfitPercent = config.takeProfitPercent != null ? parseFloat(String(config.takeProfitPercent)) : null;
 
-    if (!stopLossConfig && !takeProfitPercent) return;
+    if (!stopLossConfig && !takeProfitPercent && !settings.enableDynamicExit) return;
 
     const accounts = await storage.getKiwoomAccounts(model.userId);
     const targetAccountId = config.accountId;
@@ -122,6 +154,50 @@ export class TradeExecutorService {
             } else {
               console.log(`    ℹ️  ${holding.stockCode} 손절 조건 미충족 (현재 CL색: ${currentColor}, 설정: ${stopLossConfig.color})`);
             }
+          }
+        }
+
+        // ── 동적 청산 체크 ──
+        if (!shouldSell && settings.enableDynamicExit) {
+          const surgeThreshold = parseFloat(settings.surgeThreshold?.toString() || '0');
+          const stalePeriodDays = parseInt(settings.stalePeriodDays?.toString() || '0');
+          const volMultiplier = parseFloat(settings.volumeSpikeMultiplier?.toString() || '0');
+
+          // 1) 급등 청산: profitRate >= surgeThreshold → 익절 유사 청산
+          if (!shouldSell && surgeThreshold > 0 && profitRate >= surgeThreshold) {
+            shouldSell = true;
+            exitReason = `급등 청산: +${profitRate.toFixed(1)}% (기준: +${surgeThreshold}%)`;
+          }
+
+          // 2) 장기 보유 청산: stalePeriodDays 초과 + 손실 → 청산
+          if (!shouldSell && stalePeriodDays > 0) {
+            try {
+              const perfEntry = await storage.getTradingPerformanceByStock(model.id, holding.stockCode);
+              if (perfEntry?.createdAt) {
+                const entryMs = new Date(perfEntry.createdAt).getTime();
+                const daysSince = (Date.now() - entryMs) / 86400000;
+                if (daysSince >= stalePeriodDays && profitRate < 0) {
+                  shouldSell = true;
+                  exitReason = `장기보유 청산: ${daysSince.toFixed(0)}일 보유, ${profitRate.toFixed(1)}% (기준: ${stalePeriodDays}일)`;
+                }
+              }
+            } catch { /* 무시 */ }
+          }
+
+          // 3) 거래량 급증 청산: 당일 거래량 > 평균 × multiplier
+          if (!shouldSell && volMultiplier > 0) {
+            try {
+              const chartData = await kiwoomService.getStockChart(holding.stockCode, 'D', 30);
+              const ohlcv = normalizeChartDataAsc(chartData.output || chartData);
+              if (ohlcv.length >= 5) {
+                const avgVol = ohlcv.slice(0, -1).reduce((s: number, c: any) => s + (c.volume || 0), 0) / (ohlcv.length - 1);
+                const todayVol = ohlcv[ohlcv.length - 1]?.volume || 0;
+                if (avgVol > 0 && todayVol > avgVol * volMultiplier) {
+                  shouldSell = true;
+                  exitReason = `거래량급증 청산: ${(todayVol / avgVol).toFixed(1)}배 (기준: ${volMultiplier}배)`;
+                }
+              }
+            } catch { /* 무시 */ }
           }
         }
 
@@ -327,6 +403,17 @@ export class TradeExecutorService {
           console.log(`    ⚠️  최대 보유 종목 초과 (${holdings.length}/${maxPositions}) - 매수 건너뜀`);
           return;
         }
+      }
+
+      // ── 일일 최대 거래 횟수 체크 ──
+      const maxDailyTrades = parseInt(settings.maxDailyTrades?.toString() || '0');
+      if (maxDailyTrades > 0) {
+        const todayCount = await this.countTodayAutoTrades(activeAccount.id);
+        if (todayCount >= maxDailyTrades) {
+          console.log(`    ⚠️  일일 최대 거래 횟수 초과 (${todayCount}/${maxDailyTrades}) - 매수 건너뜀`);
+          return;
+        }
+        console.log(`    ℹ️  오늘 자동매매 횟수: ${todayCount}/${maxDailyTrades}`);
       }
 
       const baseSize = parseFloat(settings.defaultPositionSize.toString());
