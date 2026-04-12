@@ -501,9 +501,19 @@ export class TradeExecutorService {
         console.log(`    ℹ️  오늘 자동매매 횟수: ${todayCount}/${maxDailyTrades}`);
       }
 
-      const baseSize = parseFloat(settings.defaultPositionSize.toString());
-      const positionSize = Math.min(baseSize * (rainbow.weight / 100), parseFloat(settings.maxPositionSize.toString()));
-      const quantity = Math.floor(positionSize / stock.price);
+      let quantity: number;
+      if (!aiAnalysis) {
+        const unitSize = config.unitSize
+          ? parseFloat(String(config.unitSize))
+          : parseFloat(settings.defaultPositionSize.toString());
+        const unitCount = this.getUnitCountForLine(rainbow.currentLine, config);
+        quantity = Math.floor((unitSize * unitCount) / stock.price);
+        console.log(`    📐 유닛 매수: unitSize=${unitSize}, unitCount=${unitCount}, qty=${quantity}`);
+      } else {
+        const baseSize = parseFloat(settings.defaultPositionSize.toString());
+        const positionSize = Math.min(baseSize * (rainbow.weight / 100), parseFloat(settings.maxPositionSize.toString()));
+        quantity = Math.floor(positionSize / stock.price);
+      }
       if (quantity === 0) { console.log(`    ⚠️  Calculated quantity is 0 - skipping`); return; }
 
       const order = await storage.createOrder({
@@ -645,9 +655,13 @@ export class TradeExecutorService {
       } else {
         const perfEntry = await storage.getTradingPerformanceByStock(model.id, stock.code);
         const entryLine = perfEntry?.entryRainbowLine ?? candidate.scannedLine ?? 50;
-        const nextLowerLine = entryLine - 10;
-        if (currentLine <= nextLowerLine && currentLine >= 10) {
-          await this.executeAdditionalBuy(model, settings, stock, existingHolding, rainbowEval, kiwoomService);
+        if (entryLine <= 10) {
+          console.log(`    ⏭️  ${stock.code} entryLine=${entryLine} — 최하위 라인, 추가매수 불가`);
+        } else {
+          const nextLowerLine = entryLine - 10;
+          if (currentLine <= nextLowerLine && currentLine >= 10) {
+            await this.executeAdditionalBuy(model, settings, stock, existingHolding, rainbowEval, kiwoomService);
+          }
         }
       }
     } catch (err) {

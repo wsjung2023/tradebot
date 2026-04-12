@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
-import { Save, Settings2, Loader2, ShieldAlert, TrendingUp, LayoutList } from "lucide-react";
+import { Save, Settings2, Loader2, ShieldAlert, TrendingUp, LayoutList, Layers } from "lucide-react";
 import type { AutoTradingSettings as AutoTradingSettingsType, KiwoomAccount } from "@shared/schema";
 
 interface Props {
@@ -26,6 +26,10 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
   const [cfgStopLossColor, setCfgStopLossColor] = useState<'green' | 'blue'>("green");
   const [cfgStopLossPercent, setCfgStopLossPercent] = useState("5");
   const [cfgTakeProfitPercent, setCfgTakeProfitPercent] = useState("10");
+  const [cfgUnitSize, setCfgUnitSize] = useState("500000");
+  const [cfgLineUnits, setCfgLineUnits] = useState<Record<number, number>>({
+    10: 1, 20: 1, 30: 1, 40: 1, 50: 1,
+  });
 
   useEffect(() => {
     if (modelConfig) {
@@ -36,6 +40,10 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
         setCfgStopLossPercent(String(slc.percent ?? 5));
       }
       setCfgTakeProfitPercent(String(modelConfig.takeProfitPercent ?? 10));
+      setCfgUnitSize(String(modelConfig.unitSize ?? 500000));
+      if (modelConfig.lineUnits && typeof modelConfig.lineUnits === 'object') {
+        setCfgLineUnits(modelConfig.lineUnits);
+      }
     }
   }, [modelConfig]);
 
@@ -55,14 +63,18 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
     const mp = parseInt(cfgMaxPositions);
     const slp = parseFloat(cfgStopLossPercent);
     const tp = parseFloat(cfgTakeProfitPercent);
+    const us = parseFloat(cfgUnitSize);
     if (isNaN(mp) || mp < 1) { toast({ variant: "destructive", title: "최대 보유 종목은 1 이상이어야 합니다" }); return; }
     if (isNaN(slp) || slp <= 0) { toast({ variant: "destructive", title: "손절 % 값이 올바르지 않습니다" }); return; }
     if (isNaN(tp) || tp <= 0) { toast({ variant: "destructive", title: "익절 % 값이 올바르지 않습니다" }); return; }
+    if (isNaN(us) || us < 10000) { toast({ variant: "destructive", title: "1유닛 금액은 10,000원 이상이어야 합니다" }); return; }
     configSaveMutation.mutate({
       ...(modelConfig || {}),
       maxPositions: mp,
       stopLossConfig: { color: cfgStopLossColor, percent: slp },
       takeProfitPercent: tp,
+      unitSize: us,
+      lineUnits: cfgLineUnits,
     });
   };
 
@@ -285,6 +297,50 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
               <span className="text-xs text-muted-foreground whitespace-nowrap">% 수익 시 익절</span>
             </div>
             <p className="text-xs text-muted-foreground">+{cfgTakeProfitPercent}% 이상 수익이면 전량 익절 매도</p>
+          </div>
+
+          {/* 유닛 설정 */}
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground flex items-center gap-1">
+              <Layers className="h-3 w-3" />1유닛 금액
+            </Label>
+            <Input
+              type="number"
+              min={10000}
+              step={10000}
+              value={cfgUnitSize}
+              onChange={(e) => setCfgUnitSize(e.target.value)}
+              data-testid="input-cfg-unit-size"
+            />
+            <span className="text-xs text-muted-foreground">{formatKRW(cfgUnitSize)}</span>
+            <p className="text-xs text-muted-foreground">매수 시 1유닛 기준 금액 (유닛 수 x 이 금액 = 매수금액)</p>
+          </div>
+
+          {/* 라인별 유닛 수 */}
+          <div className="space-y-2">
+            <Label className="text-xs text-muted-foreground">라인별 유닛 수 (매수 가능 라인)</Label>
+            <div className="grid grid-cols-5 gap-2">
+              {[10, 20, 30, 40, 50].map((line) => (
+                <div key={line} className="space-y-1">
+                  <Label className="text-xs text-center block text-muted-foreground">{line}%</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={10}
+                    value={cfgLineUnits[line] ?? 1}
+                    onChange={(e) => {
+                      const v = parseInt(e.target.value) || 0;
+                      setCfgLineUnits(prev => ({ ...prev, [line]: v }));
+                    }}
+                    className="text-center"
+                    data-testid={`input-cfg-line-units-${line}`}
+                  />
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              레인보우 라인별 신규/추가매수 유닛 수. 0이면 해당 라인에서 매수하지 않음
+            </p>
           </div>
 
           <Button
