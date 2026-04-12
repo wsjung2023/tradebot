@@ -294,11 +294,25 @@ class AutoTradingWorker {
         console.error(`⚠️  checkPositionsForExits 오류 (무시):`, exitErr);
       }
 
-      const conditions = await storage.getConditionFormulas(model.userId);
-      if (conditions.length === 0) { console.log('📭 No condition formulas - skipping'); return; }
+      const allConditions = await storage.getConditionFormulas(model.userId);
+      const conditions = allConditions.filter((c: any) => c.isActive !== false);
 
-      for (const condition of conditions) {
-        await this.processCondition(model, settings, condition, kiwoomService, aiService);
+      if (conditions.length > 0) {
+        // ── 기본 흐름: 활성 조건검색식 실행 (집 PC 에이전트 필요) ──
+        let anyConditionSucceeded = false;
+        for (const condition of conditions) {
+          const ok = await this.processCondition(model, settings, condition, kiwoomService, aiService);
+          if (ok) anyConditionSucceeded = true;
+        }
+        // 에이전트 오프라인으로 모든 조건식이 실패 → 관심종목 폴백
+        if (!anyConditionSucceeded) {
+          console.log('  ⚠️  모든 조건식 실패(에이전트 오프라인?) → 관심종목 직접 스캔으로 폴백');
+          await this.processWatchlistFallback(model, settings, kiwoomService, aiService);
+        }
+      } else {
+        // ── 폴백: 조건검색식 없으면 관심종목 직접 스캔 ──
+        console.log('📋 활성 조건검색식 없음 → 관심종목 직접 스캔');
+        await this.processWatchlistFallback(model, settings, kiwoomService, aiService);
       }
       this.clearAgentTimeoutCounter(model.userId);
       await this.setRunState(model.userId, 'running', model.id, 'cycle_completed', undefined, {
@@ -359,13 +373,14 @@ class AutoTradingWorker {
     }
   }
 
+  // 성공(종목 실행) 여부를 boolean으로 반환 — 에이전트 오프라인 감지에 활용
   private async processCondition(
     model: AiModel,
     settings: AutoTradingSettings,
     condition: ConditionFormula,
     kiwoomService: KiwoomService,
     aiService: AIService
-  ) {
+  ): Promise<boolean> {
     console.log(`  🔍 Running condition: ${condition.conditionName}`);
     try {
       let conditionSeq = String((condition as any).kiwoomSeq ?? "").trim();
@@ -385,7 +400,8 @@ class AutoTradingWorker {
       }
       const results = await this.userKiwoomService.runCondition(model.userId, conditionSeq);
       if (!results?.length) {
-        console.log(`  ⚠️  No stocks found for ${condition.conditionName}`); return;
+        console.log(`  ⚠️  No stocks found for ${condition.conditionName}`);
+        return false;
       }
       console.log(`  📊 Found ${results.length} stocks matching condition`);
       for (const rawResult of results.slice(0, 10)) {
@@ -396,8 +412,45 @@ class AutoTradingWorker {
           kiwoomService, aiService
         );
       }
+      return true;
     } catch (error) {
       console.error(`  ❌ Error in condition ${condition.conditionName}:`, error);
+      return false;
+    }
+  }
+
+  // 에이전트 없이 관심종목을 직접 키움 REST API로 스캔
+  private async processWatchlistFallback(
+    model: AiModel,
+    settings: AutoTradingSettings,
+    kiwoomService: KiwoomService,
+    aiService: AIService
+  ): Promise<void> {
+    const watchlist = await storage.getWatchlist(model.userId);
+    if (!watchlist.length) {
+      console.log('  📭 관심종목도 없음 → 스캔 불가');
+      return;
+    }
+    console.log(`  📊 관심종목 ${watchlist.length}개 직접 스캔 (키움 REST API)`);
+    for (const item of watchlist.slice(0, 20)) {
+      try {
+        const priceData = await kiwoomService.getStockPrice(item.stockCode);
+        const raw = priceData?.output;
+        // 키움 REST API 현재가 필드명 시도
+        const price = parseFloat(
+          raw?.stck_prpr ?? raw?.last ?? raw?.prpr ?? raw?.cur_prc ?? '0'
+        ) || 0;
+        if (!price) { console.warn(`  ⚠️  ${item.stockCode} 현재가 0 - 건너뜀`); continue; }
+        const volume = parseFloat(raw?.acml_vol ?? raw?.volume ?? '0') || 0;
+
+        await this.executor.evaluateStock(
+          model, settings,
+          { code: item.stockCode, name: item.stockName, price, volume },
+          kiwoomService, aiService
+        );
+      } catch (err: any) {
+        console.warn(`  ⚠️  ${item.stockCode}(${item.stockName}) 스캔 실패:`, err?.message);
+      }
     }
   }
 
