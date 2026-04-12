@@ -7,6 +7,7 @@ import { getUserKiwoomService } from './services/user-kiwoom.service';
 import { AIService } from './services/ai.service';
 import { LearningService } from './services/learning.service';
 import { TradeExecutorService } from './services/trade-executor.service';
+import { getOrderSyncService } from './services/order-sync.service';
 import { AgentTimeoutError } from './services/agent-proxy.service';
 import { AiModel, AutoTradingSettings, ConditionFormula } from '@shared/schema';
 import { getFeatureFlags } from './config/feature-flags';
@@ -271,6 +272,19 @@ class AutoTradingWorker {
         console.log(`⚠️  No trading settings for model ${model.id} - creating defaults`);
         await this.executor.createDefaultSettings(model.id);
         return;
+      }
+
+      // ── 주문 상태 동기화: 오래된 pending 만료 + 오늘 체결 상태 업데이트 ──
+      try {
+        const orderSync = getOrderSyncService();
+        await orderSync.expireOldPendingOrders(targetAccount.id);
+        await orderSync.syncTodayOrders(
+          targetAccount.id,
+          targetAccount.accountNumber,
+          kiwoomService
+        );
+      } catch (syncErr) {
+        console.warn(`⚠️  주문 동기화 오류 (무시):`, syncErr);
       }
 
       // ── 손절/익절 체크: 보유 포지션 먼저 점검 ──
