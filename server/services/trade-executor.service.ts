@@ -6,6 +6,13 @@ import { AiModel, AutoTradingSettings } from '@shared/schema';
 import { RainbowChartAnalyzer } from '../formula/rainbow-chart';
 import { normalizeChartDataAsc } from '../utils/chart-normalization';
 import { getNewsService } from './news.service';
+import { getDartService } from './dart.service';
+
+// 위험 공시 키워드 → 매수 자동 차단
+const DART_DANGER_KEYWORDS = [
+  '유상증자', '전환사채', '신주인수권부사채', '횡령', '배임', '관리종목', '상장폐지',
+  '영업정지', '파산', '회생절차', '불성실공시', '투자경고', '투자위험',
+];
 
 export type RainbowEval = {
   currentLine: number;
@@ -18,6 +25,7 @@ export type AiAnalysisResult = {
   confidence: number;
   hasGoodFinancials: boolean;
   hasHighLiquidity: boolean;
+  dartDangerKeyword: string | null;
   themeScore: number;
   newsScore: number;
   financialsScore: number;
@@ -82,11 +90,16 @@ export class TradeExecutorService {
         return;
       }
       if (settings.requireGoodFinancials && !aiAnalysis.hasGoodFinancials) {
-        console.log(`    ⚠️  Failed financials check - skipping`);
+        console.log(`    ⚠️  Failed financials check (score < 60) - skipping`);
         return;
       }
       if (settings.requireHighLiquidity && !aiAnalysis.hasHighLiquidity) {
-        console.log(`    ⚠️  Failed liquidity check - skipping`);
+        console.log(`    ⚠️  Failed liquidity check (score < 40) - skipping`);
+        return;
+      }
+      // DART 위험 공시 감지 → 무조건 매수 차단 (설정 무관)
+      if (aiAnalysis.dartDangerKeyword) {
+        console.log(`    🚫 DART 위험공시 감지 [${aiAnalysis.dartDangerKeyword}] - 매수 차단`);
         return;
       }
       const rainbowEval = await this.evaluate10LineRainbow(stock, settings, kiwoomService);
@@ -290,11 +303,12 @@ export class TradeExecutorService {
     aiService: AIService
   ): Promise<AiAnalysisResult> {
     // ── 1단계: 데이터 수집 (모두 병렬) ─────────────────────────────────
-    const [priceResult, chartResult, ratiosResult, newsResult] = await Promise.allSettled([
+    const [priceResult, chartResult, ratiosResult, newsResult, dartResult] = await Promise.allSettled([
       kiwoomService.getStockPrice(stock.code),
       kiwoomService.getStockChart(stock.code, 'D'),
       kiwoomService.getFinancialRatios(stock.code),
       getNewsService().getStockNews(stock.code, stock.name, 10),
+      getDartService().getFilingsByStockCode(stock.code, 30),
     ]);
 
     // ── 2단계: 가격/거래량 추출 ──────────────────────────────────────────
@@ -320,6 +334,11 @@ export class TradeExecutorService {
     // ── 5단계: 뉴스 감성 데이터 (네이버 API, 없으면 undefined) ──────────
     const news = newsResult.status === 'fulfilled' ? newsResult.value : undefined;
 
+    // ── 5-2단계: DART 공시 추출 ────────────────────────────────────────
+    const dartFilings = dartResult.status === 'fulfilled'
+      ? dartResult.value.map(f => ({ reportNm: f.reportNm, rceptDt: f.rceptDt }))
+      : [];
+
     // ── 6단계: 차트 → 가격 이력 변환 ────────────────────────────────────
     const priceHistory = ohlcv.slice(-20).map(d => ({
       date: d.date,
@@ -329,7 +348,7 @@ export class TradeExecutorService {
 
     // ── 7단계: AI 분석 2개 병렬 실행 ──────────────────────────────────
     //  · analyzeStock : 레인보우 차트 기반 테마/섹터 모멘텀 → themeScore
-    //  · integratedAnalysis : 뉴스 + PER/PBR/ROE + 가격 이력 → newsScore, financialScore
+    //  · integratedAnalysis : 뉴스 + DART공시 + PER/PBR/ROE + 가격 이력 → newsScore, financialScore
     const [stockAnalysis, integrated] = await Promise.all([
       aiService.analyzeStock({
         stockCode: stock.code,
@@ -344,6 +363,7 @@ export class TradeExecutorService {
         financialRatios,
         priceHistory,
         news,
+        dartFilings,
       }),
     ]);
 
@@ -383,7 +403,16 @@ export class TradeExecutorService {
     ) / denominator));
 
     const hasGoodFinancials = scores.financialsScore >= 60;
-    return { confidence, hasGoodFinancials, hasHighLiquidity, ...scores };
+    // 유동성: 이진 boolean → liquidityScore 기반 (40점 이상이면 충분)
+    const hasHighLiquidityFinal = scores.liquidityScore >= 40;
+
+    // DART 위험공시 감지 → 반환값에 포함
+    const dartDangerFiling = dartFilings.find(f =>
+      DART_DANGER_KEYWORDS.some(kw => f.reportNm.includes(kw))
+    );
+    const dartDangerKeyword = dartDangerFiling?.reportNm ?? null;
+
+    return { confidence, hasGoodFinancials, hasHighLiquidity: hasHighLiquidityFinal, dartDangerKeyword, ...scores };
   }
 
   async evaluate10LineRainbow(

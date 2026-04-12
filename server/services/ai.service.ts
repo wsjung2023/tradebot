@@ -385,6 +385,7 @@ Format as JSON.`;
     financialRatios?: { per: string; pbr: string; eps: string; bps: string; roe: string };
     priceHistory?: Array<{ date: string; price: number; volume: number }>;
     news?: NewsResult;
+    dartFilings?: Array<{ reportNm: string; rceptDt: string }>;
     model?: string;
   }): Promise<{
     newsScore: number;
@@ -402,7 +403,7 @@ Format as JSON.`;
     risks: string[];
     catalysts: string[];
   }> {
-    const { stockCode, stockName, currentPrice, financialRatios, priceHistory, news, model = 'gpt-5.1' } = params;
+    const { stockCode, stockName, currentPrice, financialRatios, priceHistory, news, dartFilings, model = 'gpt-5.1' } = params;
 
     const newsSummary = news?.articles?.length
       ? buildNewsSummary(news)
@@ -416,6 +417,10 @@ Format as JSON.`;
       ? `최근 ${priceHistory.length}일 가격 데이터 (최신순): ${priceHistory.slice(0, 10).map(p => `${p.date}: ₩${p.price.toLocaleString()} (거래량 ${p.volume.toLocaleString()})`).join(', ')}`
       : '가격 이력 없음';
 
+    const dartSummary = dartFilings?.length
+      ? `최근 공시 ${dartFilings.length}건:\n${dartFilings.slice(0, 10).map((f, i) => `${i + 1}. [${f.rceptDt}] ${f.reportNm}`).join('\n')}`
+      : '최근 공시 없음';
+
     const prompt = `당신은 한국 주식시장 전문 애널리스트입니다. 아래 데이터를 종합 분석하여 투자 의견을 제시하세요.
 
 종목 정보:
@@ -428,6 +433,9 @@ ${financialSummary}
 
 최근 뉴스 (감성분석 포함):
 ${newsSummary}
+
+DART 전자공시 (금감원 공시시스템):
+${dartSummary}
 
 가격 흐름:
 ${priceSummary}
