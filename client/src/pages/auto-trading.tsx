@@ -19,6 +19,7 @@ export default function AutoTrading() {
   const [modelType, setModelType] = useState<"momentum" | "value" | "technical" | "custom">("momentum");
   const [description, setDescription] = useState("");
   const [maxPositions, setMaxPositions] = useState("5");
+  const [stopLossColor, setStopLossColor] = useState<'green' | 'blue'>("green");
   const [stopLossPercent, setStopLossPercent] = useState("5");
   const [takeProfitPercent, setTakeProfitPercent] = useState("10");
   const [learningVisibleCount, setLearningVisibleCount] = useState(10);
@@ -70,11 +71,18 @@ export default function AutoTrading() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/ai/models"] }),
   });
 
-  const resetForm = () => { setModelName(""); setModelType("momentum"); setDescription(""); setMaxPositions("5"); setStopLossPercent("5"); setTakeProfitPercent("10"); setCreateDialogOpen(false); };
+  const resetForm = () => { setModelName(""); setModelType("momentum"); setDescription(""); setMaxPositions("5"); setStopLossColor("green"); setStopLossPercent("5"); setTakeProfitPercent("10"); setCreateDialogOpen(false); };
 
   const handleCreateModel = () => {
     if (!modelName.trim()) { toast({ variant: "destructive", title: "모델 이름을 입력해주세요" }); return; }
-    createModelMutation.mutate({ modelName, modelType, description, config: { maxPositions: parseInt(maxPositions), stopLossPercent: parseFloat(stopLossPercent), takeProfitPercent: parseFloat(takeProfitPercent) } });
+    createModelMutation.mutate({
+      modelName, modelType, description,
+      config: {
+        maxPositions: parseInt(maxPositions),
+        stopLossConfig: { color: stopLossColor, percent: parseFloat(stopLossPercent) },
+        takeProfitPercent: parseFloat(takeProfitPercent),
+      },
+    });
   };
 
   const selectedModel = models.find((m) => m.id === selectedModelId);
@@ -98,11 +106,13 @@ export default function AutoTrading() {
         <AutoTradingModelDialog
           open={createDialogOpen} modelName={modelName} modelType={modelType}
           description={description} maxPositions={maxPositions}
-          stopLossPercent={stopLossPercent} takeProfitPercent={takeProfitPercent}
+          stopLossColor={stopLossColor} stopLossPercent={stopLossPercent}
+          takeProfitPercent={takeProfitPercent}
           isPending={createModelMutation.isPending}
           onOpenChange={setCreateDialogOpen}
           onModelNameChange={setModelName} onModelTypeChange={setModelType}
           onDescriptionChange={setDescription} onMaxPositionsChange={setMaxPositions}
+          onStopLossColorChange={setStopLossColor}
           onStopLossChange={setStopLossPercent} onTakeProfitChange={setTakeProfitPercent}
           onCreate={handleCreateModel}
         />

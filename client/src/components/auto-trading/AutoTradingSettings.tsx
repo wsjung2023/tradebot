@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
-import { Save, Settings2, Loader2 } from "lucide-react";
+import { Save, Settings2, Loader2, ShieldAlert, TrendingUp, LayoutList } from "lucide-react";
 import type { AutoTradingSettings as AutoTradingSettingsType, KiwoomAccount } from "@shared/schema";
 
 interface Props {
@@ -20,6 +20,51 @@ interface Props {
 
 export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: Props) {
   const { toast } = useToast();
+
+  // ── 기본 전략 설정 (모델 config 편집) ──
+  const [cfgMaxPositions, setCfgMaxPositions] = useState("5");
+  const [cfgStopLossColor, setCfgStopLossColor] = useState<'green' | 'blue'>("green");
+  const [cfgStopLossPercent, setCfgStopLossPercent] = useState("5");
+  const [cfgTakeProfitPercent, setCfgTakeProfitPercent] = useState("10");
+
+  useEffect(() => {
+    if (modelConfig) {
+      setCfgMaxPositions(String(modelConfig.maxPositions ?? 5));
+      const slc = modelConfig.stopLossConfig;
+      if (slc) {
+        setCfgStopLossColor(slc.color ?? 'green');
+        setCfgStopLossPercent(String(slc.percent ?? 5));
+      }
+      setCfgTakeProfitPercent(String(modelConfig.takeProfitPercent ?? 10));
+    }
+  }, [modelConfig]);
+
+  const configSaveMutation = useMutation({
+    mutationFn: async (config: any) => {
+      const resp = await apiRequest("PATCH", `/api/ai/models/${modelId}`, { config });
+      return resp.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/ai/models"] });
+      toast({ title: "기본 전략 설정 저장 완료" });
+    },
+    onError: (e: any) => toast({ variant: "destructive", title: "저장 실패", description: e.message }),
+  });
+
+  const handleConfigSave = () => {
+    const mp = parseInt(cfgMaxPositions);
+    const slp = parseFloat(cfgStopLossPercent);
+    const tp = parseFloat(cfgTakeProfitPercent);
+    if (isNaN(mp) || mp < 1) { toast({ variant: "destructive", title: "최대 보유 종목은 1 이상이어야 합니다" }); return; }
+    if (isNaN(slp) || slp <= 0) { toast({ variant: "destructive", title: "손절 % 값이 올바르지 않습니다" }); return; }
+    if (isNaN(tp) || tp <= 0) { toast({ variant: "destructive", title: "익절 % 값이 올바르지 않습니다" }); return; }
+    configSaveMutation.mutate({
+      ...(modelConfig || {}),
+      maxPositions: mp,
+      stopLossConfig: { color: cfgStopLossColor, percent: slp },
+      takeProfitPercent: tp,
+    });
+  };
 
   const { data: settings, isLoading } = useQuery<AutoTradingSettingsType | null>({
     queryKey: ["/api/ai/models", modelId, "trading-settings"],
@@ -160,7 +205,101 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-6">
-        <div className="space-y-3">
+
+        {/* ── 기본 전략 설정 ── */}
+        <div className="space-y-4">
+          <Label className="text-sm font-semibold">기본 전략 설정</Label>
+
+          {/* 최대 보유 종목 */}
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground flex items-center gap-1">
+              <LayoutList className="h-3 w-3" />최대 보유 종목
+            </Label>
+            <Input
+              type="number"
+              min={1}
+              value={cfgMaxPositions}
+              onChange={(e) => setCfgMaxPositions(e.target.value)}
+              data-testid="input-cfg-max-positions"
+            />
+            <p className="text-xs text-muted-foreground">이 수 이상 보유 시 신규 매수 차단</p>
+          </div>
+
+          {/* 손절 — CL선 색 기준 */}
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground flex items-center gap-1">
+              <ShieldAlert className="h-3 w-3" />손절 설정 (CL선 색 기준)
+            </Label>
+            <div className="flex gap-2">
+              <Select value={cfgStopLossColor} onValueChange={(v) => setCfgStopLossColor(v as 'green' | 'blue')}>
+                <SelectTrigger className="flex-1" data-testid="select-cfg-stop-loss-color">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="green">
+                    <span className="flex items-center gap-2">
+                      <span className="inline-block w-3 h-3 rounded-full bg-green-500" />
+                      초록 CL (30~50%)
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="blue">
+                    <span className="flex items-center gap-2">
+                      <span className="inline-block w-3 h-3 rounded-full bg-blue-500" />
+                      파랑 CL (10~20%)
+                    </span>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              <div className="flex items-center gap-1 flex-1">
+                <Input
+                  type="number"
+                  min={0.1}
+                  step={0.5}
+                  value={cfgStopLossPercent}
+                  onChange={(e) => setCfgStopLossPercent(e.target.value)}
+                  data-testid="input-cfg-stop-loss"
+                />
+                <span className="text-xs text-muted-foreground whitespace-nowrap">% 손실 시</span>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              CL선이 <strong>{cfgStopLossColor === 'green' ? '초록(30~50%)' : '파랑(10~20%)'}</strong> 구간일 때 -{cfgStopLossPercent}% 이상 손실이면 손절
+            </p>
+          </div>
+
+          {/* 익절 */}
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground flex items-center gap-1">
+              <TrendingUp className="h-3 w-3" />익절 설정
+            </Label>
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                min={0.1}
+                step={0.5}
+                value={cfgTakeProfitPercent}
+                onChange={(e) => setCfgTakeProfitPercent(e.target.value)}
+                className="flex-1"
+                data-testid="input-cfg-take-profit"
+              />
+              <span className="text-xs text-muted-foreground whitespace-nowrap">% 수익 시 익절</span>
+            </div>
+            <p className="text-xs text-muted-foreground">+{cfgTakeProfitPercent}% 이상 수익이면 전량 익절 매도</p>
+          </div>
+
+          <Button
+            onClick={handleConfigSave}
+            disabled={configSaveMutation.isPending}
+            size="sm"
+            className="w-full"
+            data-testid="button-save-model-config"
+          >
+            <Save className="h-3 w-3 mr-2" />
+            {configSaveMutation.isPending ? "저장 중..." : "전략 설정 저장"}
+          </Button>
+        </div>
+
+        <div className="border-t pt-4 space-y-3">
           <Label className="text-sm font-semibold">매매 계좌</Label>
           <Select value={selectedAccountId} onValueChange={setSelectedAccountId}>
             <SelectTrigger data-testid="select-trading-account">

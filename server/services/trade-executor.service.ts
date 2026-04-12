@@ -24,8 +24,17 @@ export type AiAnalysisResult = {
   institutionalScore: number;
 };
 
+// CL선 색 기준: 파랑(blue)=10~20, 초록(green)=30~50, 노랑(yellow)=60~70, 빨강(red)=80~100
+function getRainbowColor(line: number): 'blue' | 'green' | 'yellow' | 'red' {
+  if (line <= 20) return 'blue';
+  if (line <= 50) return 'green';
+  if (line <= 70) return 'yellow';
+  return 'red';
+}
+
 export class TradeExecutorService {
 
+  // ── 신규 진입: 최대 보유 종목 체크 + AI/레인보우 평가 ──
   async evaluateStock(
     model: AiModel,
     settings: AutoTradingSettings,
@@ -57,6 +66,143 @@ export class TradeExecutorService {
       }
     } catch (error) {
       console.error(`    ❌ Error evaluating ${stock.code}:`, error);
+    }
+  }
+
+  // ── 보유 포지션 손절/익절 체크 (매 사이클 초입에 호출) ──
+  async checkPositionsForExits(
+    model: AiModel,
+    kiwoomService: KiwoomService
+  ): Promise<void> {
+    const config = (model.config as any) || {};
+    const stopLossConfig = config.stopLossConfig as { color: 'green' | 'blue'; percent: number } | null | undefined;
+    const takeProfitPercent = config.takeProfitPercent != null ? parseFloat(String(config.takeProfitPercent)) : null;
+
+    if (!stopLossConfig && !takeProfitPercent) return;
+
+    const accounts = await storage.getKiwoomAccounts(model.userId);
+    const targetAccountId = config.accountId;
+    const activeAccount = targetAccountId
+      ? accounts.find((a: any) => a.id === targetAccountId)
+      : accounts.find((a: any) => a.isActive);
+    if (!activeAccount) return;
+
+    const holdings = await storage.getHoldings(activeAccount.id);
+    if (holdings.length === 0) return;
+
+    console.log(`  🔍 Checking ${holdings.length} holding(s) for exits (model: ${model.modelName})`);
+
+    for (const holding of holdings) {
+      try {
+        const priceData = await kiwoomService.getStockPrice(holding.stockCode);
+        const currentPrice = parseFloat(priceData.output?.stck_prpr || '0');
+        const avgPrice = parseFloat((holding.averagePrice ?? holding as any).toString?.() || '0');
+        if (!avgPrice || !currentPrice) continue;
+
+        const profitRate = ((currentPrice - avgPrice) / avgPrice) * 100;
+
+        let shouldSell = false;
+        let exitReason = '';
+
+        // 익절 체크
+        if (takeProfitPercent && profitRate >= takeProfitPercent) {
+          shouldSell = true;
+          exitReason = `익절: +${profitRate.toFixed(1)}% (기준: +${takeProfitPercent}%)`;
+        }
+
+        // 손절 체크 (CL선 색 기준)
+        if (!shouldSell && stopLossConfig && profitRate < 0) {
+          const lossAbs = Math.abs(profitRate);
+          if (lossAbs >= stopLossConfig.percent) {
+            const currentLine = await this.getCurrentRainbowLine(holding.stockCode, currentPrice, kiwoomService);
+            const currentColor = getRainbowColor(currentLine);
+            if (currentColor === stopLossConfig.color) {
+              shouldSell = true;
+              exitReason = `손절: ${profitRate.toFixed(1)}% (기준: -${stopLossConfig.percent}%, CL=${stopLossConfig.color})`;
+            } else {
+              console.log(`    ℹ️  ${holding.stockCode} 손절 조건 미충족 (현재 CL색: ${currentColor}, 설정: ${stopLossConfig.color})`);
+            }
+          }
+        }
+
+        if (shouldSell) {
+          console.log(`    🚨 Exit triggered for ${holding.stockCode}: ${exitReason}`);
+          await this.executeExitSell(model, activeAccount, holding, currentPrice, exitReason, kiwoomService);
+        }
+      } catch (err) {
+        console.error(`    ❌ Error checking exit for ${holding.stockCode}:`, err);
+      }
+    }
+  }
+
+  private async getCurrentRainbowLine(
+    stockCode: string,
+    currentPrice: number,
+    kiwoomService: KiwoomService
+  ): Promise<number> {
+    try {
+      const chartData = await kiwoomService.getStockChart(stockCode, 'D', 250);
+      const ohlcv = normalizeChartDataAsc(chartData.output || chartData);
+      const result = RainbowChartAnalyzer.analyze(stockCode, ohlcv, 240);
+      const range = result.highest - result.lowest;
+      const currentPercent = range > 0 ? ((currentPrice - result.lowest) / range) * 100 : 50;
+      return Math.min(100, Math.max(10, Math.round(currentPercent / 10) * 10));
+    } catch {
+      return 50;
+    }
+  }
+
+  private async executeExitSell(
+    model: AiModel,
+    activeAccount: any,
+    holding: any,
+    currentPrice: number,
+    exitReason: string,
+    kiwoomService: KiwoomService
+  ): Promise<void> {
+    const quantity = holding.quantity;
+    if (!quantity || quantity <= 0) return;
+
+    try {
+      const order = await storage.createOrder({
+        accountId: activeAccount.id,
+        stockCode: holding.stockCode,
+        stockName: holding.stockName || holding.stockCode,
+        orderType: 'sell',
+        orderMethod: 'market',
+        orderPrice: currentPrice.toFixed(2),
+        orderQuantity: quantity,
+        isAutoTrading: true,
+        aiModelId: model.id,
+      });
+
+      await kiwoomService.placeOrder({
+        accountNumber: activeAccount.accountNumber,
+        stockCode: holding.stockCode,
+        orderType: 'sell',
+        orderQuantity: quantity,
+        orderPrice: currentPrice,
+        orderMethod: 'market',
+      });
+
+      const avgPrice = parseFloat(holding.averagePrice?.toString() || '0');
+      const profitLoss = (currentPrice - avgPrice) * quantity;
+      const profitLossRate = avgPrice > 0 ? ((currentPrice / avgPrice) - 1) * 100 : 0;
+
+      const perfEntry = await storage.getTradingPerformanceByStock(model.id, holding.stockCode);
+      if (perfEntry) {
+        await storage.updateTradingPerformance(perfEntry.id, {
+          exitPrice: currentPrice.toFixed(2),
+          exitRainbowLine: 0,
+          exitReason,
+          profitLoss: profitLoss.toFixed(2),
+          profitLossRate: profitLossRate.toFixed(4),
+          isWin: profitLoss > 0,
+        });
+      }
+      console.log(`    ✅ Exit sell placed: ${quantity}주 @ ${currentPrice} (${exitReason})`);
+    } catch (error) {
+      console.error(`    ❌ Error executing exit sell for ${holding.stockCode}:`, error);
     }
   }
 
@@ -123,23 +269,19 @@ export class TradeExecutorService {
 
     const range = result.highest - result.lowest;
     const currentPercent = range > 0 ? ((stock.price - result.lowest) / range) * 100 : 50;
-    // currentLine: 10~100 (10% 단위, 레인보우 라인 1~10번)
     const currentLine = Math.min(100, Math.max(10, Math.round(currentPercent / 10) * 10));
 
-    // rainbowLineSettings에서 현재 라인의 buyWeight/sellWeight 조회
     const rainbowSettings = (settings.rainbowLineSettings as { line: number; buyWeight: number; sellWeight: number }[] | null | undefined);
     let buyWeight = 0;
     let sellWeight = 0;
 
     if (rainbowSettings && Array.isArray(rainbowSettings) && rainbowSettings.length > 0) {
-      // 현재 라인과 가장 가까운 설정값 찾기
       const matched = rainbowSettings.reduce((prev, curr) =>
         Math.abs(curr.line - currentLine) < Math.abs(prev.line - currentLine) ? curr : prev
       );
       buyWeight = matched.buyWeight ?? 0;
       sellWeight = matched.sellWeight ?? 0;
     } else {
-      // rainbowLineSettings 미설정 시 기존 recommendation 기반 폴백
       if (result.recommendation === 'strong-buy') buyWeight = 100;
       else if (result.recommendation === 'buy') buyWeight = 70;
       else if (result.recommendation === 'sell') sellWeight = 70;
@@ -169,17 +311,28 @@ export class TradeExecutorService {
   ): Promise<void> {
     console.log(`    💰 BUY SIGNAL: ${stock.name} at ${rainbow.currentLine}% line`);
     try {
-      const baseSize = parseFloat(settings.defaultPositionSize.toString());
-      const positionSize = Math.min(baseSize * (rainbow.weight / 100), parseFloat(settings.maxPositionSize.toString()));
-      const quantity = Math.floor(positionSize / stock.price);
-      if (quantity === 0) { console.log(`    ⚠️  Calculated quantity is 0 - skipping`); return; }
-
       const accounts = await storage.getKiwoomAccounts(model.userId);
-      const targetAccountId = (model.config as any)?.accountId;
+      const config = (model.config as any) || {};
+      const targetAccountId = config.accountId;
       const activeAccount = targetAccountId
         ? accounts.find((a: any) => a.id === targetAccountId)
         : accounts.find((a: any) => a.isActive);
       if (!activeAccount) { console.log(`    ⚠️  No active account found - skipping`); return; }
+
+      // ── 최대 보유 종목 체크 ──
+      const maxPositions = config.maxPositions != null ? parseInt(String(config.maxPositions)) : null;
+      if (maxPositions && maxPositions > 0) {
+        const holdings = await storage.getHoldings(activeAccount.id);
+        if (holdings.length >= maxPositions) {
+          console.log(`    ⚠️  최대 보유 종목 초과 (${holdings.length}/${maxPositions}) - 매수 건너뜀`);
+          return;
+        }
+      }
+
+      const baseSize = parseFloat(settings.defaultPositionSize.toString());
+      const positionSize = Math.min(baseSize * (rainbow.weight / 100), parseFloat(settings.maxPositionSize.toString()));
+      const quantity = Math.floor(positionSize / stock.price);
+      if (quantity === 0) { console.log(`    ⚠️  Calculated quantity is 0 - skipping`); return; }
 
       const order = await storage.createOrder({
         accountId: activeAccount.id,
