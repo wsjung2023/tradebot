@@ -1,9 +1,9 @@
-﻿// AutoTradingModelList.tsx — AI 자동매매 모델 목록 카드 (활성화/삭제/성과 지표)
+// AutoTradingModelList.tsx — AI 자동매매 모델 목록 카드 (활성화/수정/삭제/성과 지표)
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Loader2, Trash2, TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { Loader2, Pencil, Trash2 } from "lucide-react";
 import type { AiModel } from "@shared/schema";
 
 const MODEL_TYPE_LABELS: Record<string, string> = { momentum: "모멘텀", value: "가치투자", technical: "기술적분석", custom: "커스텀" };
@@ -16,10 +16,11 @@ interface Props {
   selectedModelId: number | null;
   onSelect: (id: number) => void;
   onToggle: (id: number, isActive: boolean) => void;
+  onEdit: (model: AiModel) => void;
   onDelete: (id: number) => void;
 }
 
-export function AutoTradingModelList({ models, isLoading, isToggling, isDeleting, selectedModelId, onSelect, onToggle, onDelete }: Props) {
+export function AutoTradingModelList({ models, isLoading, isToggling, isDeleting, selectedModelId, onSelect, onToggle, onEdit, onDelete }: Props) {
   if (isLoading) return <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin" /></div>;
   if (!models || models.length === 0) return (
     <Card>
@@ -41,6 +42,9 @@ export function AutoTradingModelList({ models, isLoading, isToggling, isDeleting
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <Switch checked={model.isActive} onCheckedChange={(v) => { onToggle(model.id, v); }} disabled={isToggling} data-testid={`switch-model-${model.id}`} onClick={(e) => e.stopPropagation()} />
+                <Button size="icon" variant="ghost" onClick={(e) => { e.stopPropagation(); onEdit(model); }} data-testid={`button-edit-model-${model.id}`}>
+                  <Pencil className="h-4 w-4" />
+                </Button>
                 <Button size="icon" variant="ghost" onClick={(e) => { e.stopPropagation(); onDelete(model.id); }} disabled={isDeleting} data-testid={`button-delete-model-${model.id}`}>
                   <Trash2 className="h-4 w-4 text-destructive" />
                 </Button>

@@ -1,4 +1,4 @@
-﻿// auto-trading.tsx — AI 자동매매 모델 관리 및 매매 신호 페이지
+// auto-trading.tsx — AI 자동매매 모델 관리 및 매매 신호 페이지
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -13,8 +13,9 @@ import { Bot } from "lucide-react";
 
 export default function AutoTrading() {
   const { toast } = useToast();
+
+  // ── 생성 다이얼로그 상태 ──
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  const [selectedModelId, setSelectedModelId] = useState<number | null>(null);
   const [modelName, setModelName] = useState("");
   const [modelType, setModelType] = useState<"momentum" | "value" | "technical" | "custom">("momentum");
   const [description, setDescription] = useState("");
@@ -22,6 +23,19 @@ export default function AutoTrading() {
   const [stopLossColor, setStopLossColor] = useState<'green' | 'blue'>("green");
   const [stopLossPercent, setStopLossPercent] = useState("5");
   const [takeProfitPercent, setTakeProfitPercent] = useState("10");
+
+  // ── 수정 다이얼로그 상태 ──
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editingModelId, setEditingModelId] = useState<number | null>(null);
+  const [editModelName, setEditModelName] = useState("");
+  const [editModelType, setEditModelType] = useState<"momentum" | "value" | "technical" | "custom">("momentum");
+  const [editDescription, setEditDescription] = useState("");
+  const [editMaxPositions, setEditMaxPositions] = useState("5");
+  const [editStopLossColor, setEditStopLossColor] = useState<'green' | 'blue'>("green");
+  const [editStopLossPercent, setEditStopLossPercent] = useState("5");
+  const [editTakeProfitPercent, setEditTakeProfitPercent] = useState("10");
+
+  const [selectedModelId, setSelectedModelId] = useState<number | null>(null);
   const [learningVisibleCount, setLearningVisibleCount] = useState(10);
   const [learningPeriodDays, setLearningPeriodDays] = useState(30);
 
@@ -49,8 +63,20 @@ export default function AutoTrading() {
 
   const createModelMutation = useMutation({
     mutationFn: async (data: any) => (await apiRequest("POST", "/api/ai/models", data)).json(),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/ai/models"] }); resetForm(); toast({ title: "AI 모델 생성됨" }); },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/ai/models"] }); resetCreateForm(); toast({ title: "AI 모델 생성됨" }); },
     onError: (e: any) => toast({ variant: "destructive", title: "생성 실패", description: e.message }),
+  });
+
+  const updateModelMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: any }) =>
+      (await apiRequest("PATCH", `/api/ai/models/${id}`, data)).json(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/ai/models"] });
+      setEditDialogOpen(false);
+      setEditingModelId(null);
+      toast({ title: "모델 수정됨" });
+    },
+    onError: (e: any) => toast({ variant: "destructive", title: "수정 실패", description: e.message }),
   });
 
   const toggleModelMutation = useMutation({
@@ -71,7 +97,11 @@ export default function AutoTrading() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/ai/models"] }),
   });
 
-  const resetForm = () => { setModelName(""); setModelType("momentum"); setDescription(""); setMaxPositions("5"); setStopLossColor("green"); setStopLossPercent("5"); setTakeProfitPercent("10"); setCreateDialogOpen(false); };
+  const resetCreateForm = () => {
+    setModelName(""); setModelType("momentum"); setDescription("");
+    setMaxPositions("5"); setStopLossColor("green"); setStopLossPercent("5");
+    setTakeProfitPercent("10"); setCreateDialogOpen(false);
+  };
 
   const handleCreateModel = () => {
     if (!modelName.trim()) { toast({ variant: "destructive", title: "모델 이름을 입력해주세요" }); return; }
@@ -81,6 +111,42 @@ export default function AutoTrading() {
         maxPositions: parseInt(maxPositions),
         stopLossConfig: { color: stopLossColor, percent: parseFloat(stopLossPercent) },
         takeProfitPercent: parseFloat(takeProfitPercent),
+      },
+    });
+  };
+
+  const handleEditClick = (model: AiModel) => {
+    const cfg = (model.config as any) || {};
+    setEditingModelId(model.id);
+    setEditModelName(model.modelName);
+    setEditModelType(model.modelType as any);
+    setEditDescription(model.description ?? "");
+    setEditMaxPositions(String(cfg.maxPositions ?? "5"));
+    setEditStopLossColor(cfg.stopLossConfig?.color ?? "green");
+    setEditStopLossPercent(String(cfg.stopLossConfig?.percent ?? "5"));
+    setEditTakeProfitPercent(String(cfg.takeProfitPercent ?? "10"));
+    setEditDialogOpen(true);
+  };
+
+  const handleUpdateModel = () => {
+    if (!editingModelId) return;
+    if (!editModelName.trim()) { toast({ variant: "destructive", title: "모델 이름을 입력해주세요" }); return; }
+
+    const currentModel = models.find(m => m.id === editingModelId);
+    const currentConfig = (currentModel?.config as any) || {};
+
+    updateModelMutation.mutate({
+      id: editingModelId,
+      data: {
+        modelName: editModelName,
+        modelType: editModelType,
+        description: editDescription,
+        config: {
+          ...currentConfig,
+          maxPositions: parseInt(editMaxPositions),
+          stopLossConfig: { color: editStopLossColor, percent: parseFloat(editStopLossPercent) },
+          takeProfitPercent: parseFloat(editTakeProfitPercent),
+        },
       },
     });
   };
@@ -104,6 +170,7 @@ export default function AutoTrading() {
           <p className="text-muted-foreground mt-1">AI 모델을 생성하고 자동매매 신호를 확인하세요</p>
         </div>
         <AutoTradingModelDialog
+          mode="create"
           open={createDialogOpen} modelName={modelName} modelType={modelType}
           description={description} maxPositions={maxPositions}
           stopLossColor={stopLossColor} stopLossPercent={stopLossPercent}
@@ -117,12 +184,31 @@ export default function AutoTrading() {
           onCreate={handleCreateModel}
         />
       </div>
+
+      {/* 수정 다이얼로그 (별도 인스턴스) */}
+      <AutoTradingModelDialog
+        mode="edit"
+        open={editDialogOpen} modelName={editModelName} modelType={editModelType}
+        description={editDescription} maxPositions={editMaxPositions}
+        stopLossColor={editStopLossColor} stopLossPercent={editStopLossPercent}
+        takeProfitPercent={editTakeProfitPercent}
+        isPending={updateModelMutation.isPending}
+        onOpenChange={(v) => { setEditDialogOpen(v); if (!v) setEditingModelId(null); }}
+        onModelNameChange={setEditModelName} onModelTypeChange={setEditModelType}
+        onDescriptionChange={setEditDescription} onMaxPositionsChange={setEditMaxPositions}
+        onStopLossColorChange={setEditStopLossColor}
+        onStopLossChange={setEditStopLossPercent} onTakeProfitChange={setEditTakeProfitPercent}
+        onCreate={handleUpdateModel}
+        onUpdate={handleUpdateModel}
+      />
+
       <AutoTradingModelList
         models={models} isLoading={modelsLoading}
         isToggling={toggleModelMutation.isPending} isDeleting={deleteModelMutation.isPending}
         selectedModelId={selectedModelId}
         onSelect={setSelectedModelId}
         onToggle={(id, isActive) => toggleModelMutation.mutate({ id, isActive })}
+        onEdit={handleEditClick}
         onDelete={(id) => deleteModelMutation.mutate(id)}
       />
       {selectedModelId && selectedModel && (
