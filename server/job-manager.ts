@@ -113,6 +113,7 @@ class JobManager {
           await storage.createUserSettings({ userId: model.userId, autoTradingEnabled: true });
         }
       }
+      autoTradingWorker.startScanJob('*/30 * * * *');
       autoTradingWorker.startTradingJob(schedule);
       return { success: true, message: `자동매매 워커를 시작했습니다. (${this.minutesToLabel(state.intervalMinutes)})` };
     }
@@ -130,6 +131,7 @@ class JobManager {
       for (const model of allModels) {
         await storage.updateUserSettings(model.userId, { autoTradingEnabled: false });
       }
+      autoTradingWorker.stopScanJob();
       autoTradingWorker.stopTradingJob();
       return { success: true, message: '자동매매 워커를 중지했습니다.' };
     }
@@ -156,7 +158,10 @@ class JobManager {
       : autoTradingWorker.isLearningJobRunning();
 
     if (wasRunning) {
-      if (id === 'auto-trading') autoTradingWorker.startTradingJob(schedule);
+      if (id === 'auto-trading') {
+        autoTradingWorker.startScanJob('*/30 * * * *');
+        autoTradingWorker.startTradingJob(schedule);
+      }
       if (id === 'learning') autoTradingWorker.startLearningJob(schedule);
     }
 

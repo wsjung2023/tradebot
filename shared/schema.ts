@@ -9,7 +9,8 @@ import {
   boolean, 
   jsonb,
   json,
-  serial
+  serial,
+  unique
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -805,3 +806,20 @@ export type InsertNewsArticleRecord = z.infer<typeof insertNewsArticleSchema>;
 
 export type AnalysisMaterialSnapshot = typeof analysisMaterialSnapshots.$inferSelect;
 export type InsertAnalysisMaterialSnapshot = z.infer<typeof insertAnalysisMaterialSnapshotSchema>;
+
+export const candidateStocks = pgTable("candidate_stocks", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  modelId: integer("model_id").notNull(),
+  stockCode: text("stock_code").notNull(),
+  stockName: text("stock_name").notNull().default(''),
+  source: text("source").notNull().default('뒷차기2'),
+  scannedLine: integer("scanned_line"),
+  scannedAt: timestamp("scanned_at").notNull().defaultNow(),
+}, (table) => ({
+  uniqueCandidate: unique().on(table.userId, table.modelId, table.stockCode),
+}));
+
+export const insertCandidateStockSchema = createInsertSchema(candidateStocks).omit({ id: true, scannedAt: true });
+export type CandidateStock = typeof candidateStocks.$inferSelect;
+export type InsertCandidateStock = z.infer<typeof insertCandidateStockSchema>;

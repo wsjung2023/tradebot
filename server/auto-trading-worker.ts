@@ -4,21 +4,28 @@ import { createHash } from 'crypto';
 import { storage } from './storage';
 import { KiwoomService } from './services/kiwoom';
 import { getUserKiwoomService } from './services/user-kiwoom.service';
-import { AIService } from './services/ai.service';
 import { LearningService } from './services/learning.service';
 import { TradeExecutorService } from './services/trade-executor.service';
 import { getOrderSyncService } from './services/order-sync.service';
 import { AgentTimeoutError } from './services/agent-proxy.service';
-import { AiModel, AutoTradingSettings, ConditionFormula } from '@shared/schema';
+import { getDartService } from './services/dart.service';
+import { AiModel, AutoTradingSettings } from '@shared/schema';
 import { getFeatureFlags } from './config/feature-flags';
 import { isKoreanMarketOpen } from './utils/market-hours';
+
+const DART_DANGER_KEYWORDS = [
+  '유상증자', '전환사채', '신주인수권부사채', '횡령', '배임', '관리종목', '상장폐지',
+  '영업정지', '파산', '회생절차', '불성실공시', '투자경고', '투자위험',
+];
 
 class AutoTradingWorker {
   private isRunning = false;
   private readonly featureFlags = getFeatureFlags();
   private isLearningRunning = false;
   private cronJob: cron.ScheduledTask | null = null;
+  private scanJob: cron.ScheduledTask | null = null;
   private learningJob: cron.ScheduledTask | null = null;
+  private isScanRunning = false;
   private learningService = new LearningService();
   private executor = new TradeExecutorService();
   private userKiwoomService = getUserKiwoomService();
@@ -45,11 +52,13 @@ class AutoTradingWorker {
   }
 
   async start() {
+    this.startScanJob('*/30 * * * *');
     this.startTradingJob('* * * * *');
     this.startLearningJob('0 16 * * *');
   }
 
   stop() {
+    this.stopScanJob();
     this.stopTradingJob();
     this.stopLearningJob();
   }
@@ -67,6 +76,89 @@ class AutoTradingWorker {
       this.cronJob.stop();
       this.cronJob = null;
       console.log('⏹️  Auto Trading Worker stopped');
+    }
+  }
+
+  startScanJob(schedule: string) {
+    if (this.scanJob) this.scanJob.stop();
+    this.scanJob = cron.schedule(schedule, async () => {
+      await this.runScanCycle();
+    });
+    console.log(`✅ Scan Job started (schedule: ${schedule})`);
+  }
+
+  stopScanJob() {
+    if (this.scanJob) {
+      this.scanJob.stop();
+      this.scanJob = null;
+      console.log('⏹️  Scan Job stopped');
+    }
+  }
+
+  isScanJobRunning(): boolean { return this.scanJob !== null; }
+
+  private async runScanCycle() {
+    if (!isKoreanMarketOpen()) return;
+    if (this.isScanRunning) {
+      console.log('[ScanJob] ⏭️  이전 스캔 사이클 실행 중 — 건너뜀');
+      return;
+    }
+    this.isScanRunning = true;
+    try {
+      console.log('[ScanJob] 🔍 30분 스캔 시작...');
+      const models = await storage.getActiveAiModels();
+      for (const model of models) {
+        const config = (model.config as any) || {};
+        if (!config.accountId) {
+          console.log(`[ScanJob] ⛔ 모델 ${model.id} 계좌 미설정 — 스킵`);
+          continue;
+        }
+        try {
+          await storage.clearCandidateStocks(model.userId, model.id);
+          const results = await this.userKiwoomService.runCondition(model.userId, '30');
+          if (!results?.length) {
+            console.log(`[ScanJob] 모델 ${model.id}: 뒷차기2 결과 0건 — 기존 후보 초기화됨`);
+            continue;
+          }
+          let savedCount = 0;
+          for (const raw of results) {
+            const stock = this.userKiwoomService.normalizeConditionResult(raw);
+            const isDangerous = await this.checkDartDanger(stock.stockCode);
+            if (isDangerous) {
+              console.log(`[ScanJob] 🚫 DART 위험공시: ${stock.stockCode} — 제외`);
+              continue;
+            }
+            await storage.upsertCandidateStock({
+              userId: model.userId,
+              modelId: model.id,
+              stockCode: stock.stockCode,
+              stockName: stock.stockName,
+              source: '뒷차기2',
+            });
+            savedCount++;
+          }
+          console.log(`[ScanJob] ✅ 모델 ${model.id}: ${savedCount}/${results.length} 종목 저장`);
+        } catch (err) {
+          console.error(`[ScanJob] ❌ 모델 ${model.id} 스캔 오류:`, err);
+        }
+      }
+      console.log('[ScanJob] ✅ 30분 스캔 완료');
+    } catch (err) {
+      console.error('[ScanJob] ❌ 스캔 사이클 오류:', err);
+    } finally {
+      this.isScanRunning = false;
+    }
+  }
+
+  private async checkDartDanger(stockCode: string): Promise<boolean> {
+    try {
+      const dartService = getDartService();
+      const filings = await dartService.getFilingsByStockCode(stockCode, 30);
+      return filings.some(f =>
+        DART_DANGER_KEYWORDS.some(kw => f.reportNm.includes(kw))
+      );
+    } catch {
+      return false;
     }
   }
 
@@ -228,9 +320,14 @@ class AutoTradingWorker {
 
       const accounts = await storage.getKiwoomAccounts(model.userId);
       const targetAccountId = (model.config as any)?.accountId;
-      const targetAccount = targetAccountId
-        ? accounts.find((a: any) => a.id === targetAccountId)
-        : accounts.find((a: any) => a.isActive);
+      if (!targetAccountId) {
+        await this.setRunState(model.userId, 'paused', model.id, 'no_account_configured', undefined, {
+          cycleId, durationMs: Date.now() - startedAt,
+        });
+        console.log(`⛔ AI 모델 ${model.id}(${model.modelName})에 계좌 미설정 — 중단`);
+        return;
+      }
+      const targetAccount = accounts.find((a: any) => a.id === targetAccountId);
 
       if (!targetAccount) {
         await this.setRunState(model.userId, 'paused', model.id, 'no_target_account', undefined, {
@@ -265,7 +362,6 @@ class AutoTradingWorker {
         appSecret,
         accountType: targetAccount.accountType === 'real' ? 'real' : 'mock',
       });
-      const aiService = new AIService(process.env.OPENAI_API_KEY || '');
 
       const settings = await storage.getAutoTradingSettings(model.id);
       if (!settings) {
@@ -294,16 +390,14 @@ class AutoTradingWorker {
         console.error(`⚠️  checkPositionsForExits 오류 (무시):`, exitErr);
       }
 
-      const allConditions = await storage.getConditionFormulas(model.userId);
-      const conditions = allConditions.filter((c: any) => c.isActive !== false);
-
-      if (conditions.length === 0) {
-        console.log('📭 활성 조건검색식 없음 - 에이전트에서 조건식을 등록해주세요');
-        return;
-      }
-
-      for (const condition of conditions) {
-        await this.processCondition(model, settings, condition, kiwoomService, aiService);
+      const candidates = await storage.getCandidateStocks(model.userId, model.id);
+      if (!candidates.length) {
+        console.log(`  📭 후보 종목 없음 — 30분 스캔 대기 중`);
+      } else {
+        console.log(`  📊 후보 종목 ${candidates.length}개 평가 시작`);
+        for (const candidate of candidates) {
+          await this.executor.evaluateCandidateStock(model, settings, candidate, kiwoomService);
+        }
       }
       this.clearAgentTimeoutCounter(model.userId);
       await this.setRunState(model.userId, 'running', model.id, 'cycle_completed', undefined, {
@@ -363,54 +457,6 @@ class AutoTradingWorker {
       console.error(`❌ Error processing model ${model.id}:`, error);
     }
   }
-
-  // 성공(종목 실행) 여부를 boolean으로 반환 — 에이전트 오프라인 감지에 활용
-  private async processCondition(
-    model: AiModel,
-    settings: AutoTradingSettings,
-    condition: ConditionFormula,
-    kiwoomService: KiwoomService,
-    aiService: AIService
-  ): Promise<boolean> {
-    console.log(`  🔍 Running condition: ${condition.conditionName}`);
-    try {
-      let conditionSeq = String((condition as any).kiwoomSeq ?? "").trim();
-      if (!conditionSeq) {
-        try {
-          const rows = await this.userKiwoomService.getConditionList(model.userId);
-          const matched = rows.find((row: any) => row.condition_name === condition.conditionName);
-          if (matched) {
-            conditionSeq = String(matched.condition_index);
-          }
-        } catch (seqResolveError) {
-          console.warn('[AutoTrading] Kiwoom 조건식 seq 자동해결 실패:', seqResolveError);
-        }
-      }
-      if (!conditionSeq) {
-        conditionSeq = String(condition.id);
-      }
-      const results = await this.userKiwoomService.runCondition(model.userId, conditionSeq);
-      if (!results?.length) {
-        console.log(`  ⚠️  No stocks found for ${condition.conditionName}`);
-        return false;
-      }
-      console.log(`  📊 Found ${results.length} stocks matching condition`);
-      for (const rawResult of results.slice(0, 10)) {
-        const stockData = this.userKiwoomService.normalizeConditionResult(rawResult);
-        await this.executor.evaluateStock(
-          model, settings,
-          { code: stockData.stockCode, name: stockData.stockName, price: parseFloat(stockData.currentPrice), volume: 0 },
-          kiwoomService, aiService
-        );
-      }
-      return true;
-    } catch (error) {
-      console.error(`  ❌ Error in condition ${condition.conditionName}:`, error);
-      return false;
-    }
-  }
-
-
 
   private async checkPriceAlerts(): Promise<void> {
     const alerts = await storage.getAllActiveAlerts();

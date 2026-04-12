@@ -29,6 +29,7 @@ import {
   type KiwoomJob, type InsertKiwoomJob,
   type AutoTradingRun, type InsertAutoTradingRun,
   type EngineNotification, type InsertEngineNotification,
+  type CandidateStock, type InsertCandidateStock,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -207,6 +208,11 @@ export interface IStorage {
     unreadCrit: number;
     unreadWarn: number;
   }>;
+
+  // 후보 종목 (candidate_stocks)
+  upsertCandidateStock(data: InsertCandidateStock): Promise<CandidateStock>;
+  getCandidateStocks(userId: string, modelId: number): Promise<CandidateStock[]>;
+  clearCandidateStocks(userId: string, modelId: number): Promise<void>;
 
   // 헬퍼
   getActiveAiModels(): Promise<AiModel[]>;

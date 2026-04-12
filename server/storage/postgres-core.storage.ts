@@ -24,6 +24,7 @@ import type {
   KiwoomJob, InsertKiwoomJob,
   AutoTradingRun,
   EngineNotification, InsertEngineNotification,
+  CandidateStock, InsertCandidateStock,
 } from '@shared/schema';
 
 export class PostgreSQLCoreStorage {
@@ -738,5 +739,36 @@ export class PostgreSQLCoreStorage {
       .where(eq(schema.kiwoomJobs.id, id))
       .limit(1);
     return result[0];
+  }
+
+  async upsertCandidateStock(data: InsertCandidateStock): Promise<CandidateStock> {
+    const result = await db.insert(schema.candidateStocks).values(data)
+      .onConflictDoUpdate({
+        target: [schema.candidateStocks.userId, schema.candidateStocks.modelId, schema.candidateStocks.stockCode],
+        set: {
+          stockName: data.stockName,
+          scannedLine: data.scannedLine,
+          scannedAt: new Date(),
+          source: data.source,
+        },
+      })
+      .returning();
+    return result[0];
+  }
+
+  async getCandidateStocks(userId: string, modelId: number): Promise<CandidateStock[]> {
+    return db.select().from(schema.candidateStocks)
+      .where(and(
+        eq(schema.candidateStocks.userId, userId),
+        eq(schema.candidateStocks.modelId, modelId),
+      ));
+  }
+
+  async clearCandidateStocks(userId: string, modelId: number): Promise<void> {
+    await db.delete(schema.candidateStocks)
+      .where(and(
+        eq(schema.candidateStocks.userId, userId),
+        eq(schema.candidateStocks.modelId, modelId),
+      ));
   }
 }

@@ -2,7 +2,7 @@
 import { storage } from '../storage';
 import { KiwoomService } from './kiwoom';
 import { AIService } from './ai.service';
-import { AiModel, AutoTradingSettings } from '@shared/schema';
+import { AiModel, AutoTradingSettings, CandidateStock } from '@shared/schema';
 import { RainbowChartAnalyzer } from '../formula/rainbow-chart';
 import { normalizeChartDataAsc } from '../utils/chart-normalization';
 import { getNewsService } from './news.service';
@@ -128,9 +128,11 @@ export class TradeExecutorService {
 
     const accounts = await storage.getKiwoomAccounts(model.userId);
     const targetAccountId = config.accountId;
-    const activeAccount = targetAccountId
-      ? accounts.find((a: any) => a.id === targetAccountId)
-      : accounts.find((a: any) => a.isActive);
+    if (!targetAccountId) {
+      console.log(`  ⛔ accountId 미설정 — checkPositionsForExits 중단`);
+      return;
+    }
+    const activeAccount = accounts.find((a: any) => a.id === targetAccountId);
     if (!activeAccount) return;
 
     const holdings = await storage.getHoldings(activeAccount.id);
@@ -464,7 +466,7 @@ export class TradeExecutorService {
     settings: AutoTradingSettings,
     stock: { code: string; name: string; price: number },
     rainbow: RainbowEval,
-    aiAnalysis: AiAnalysisResult,
+    aiAnalysis: AiAnalysisResult | null,
     kiwoomService: KiwoomService
   ): Promise<void> {
     console.log(`    💰 BUY SIGNAL: ${stock.name} at ${rainbow.currentLine}% line`);
@@ -472,19 +474,20 @@ export class TradeExecutorService {
       const accounts = await storage.getKiwoomAccounts(model.userId);
       const config = (model.config as any) || {};
       const targetAccountId = config.accountId;
-      const activeAccount = targetAccountId
-        ? accounts.find((a: any) => a.id === targetAccountId)
-        : accounts.find((a: any) => a.isActive);
+      if (!targetAccountId) { console.log(`    ⛔ accountId 미설정 — 매수 중단`); return; }
+      const activeAccount = accounts.find((a: any) => a.id === targetAccountId);
       if (!activeAccount) { console.log(`    ⚠️  No active account found - skipping`); return; }
 
-      // ── 최대 보유 종목 체크 ──
+      const holdings = await storage.getHoldings(activeAccount.id);
+      const alreadyHolding = holdings.find(h => h.stockCode === stock.code);
+      if (alreadyHolding) {
+        console.log(`    ⏭️  ${stock.code} 이미 보유 중 (${alreadyHolding.quantity}주) — 신규 매수 건너뜀`);
+        return;
+      }
       const maxPositions = config.maxPositions != null ? parseInt(String(config.maxPositions)) : null;
-      if (maxPositions && maxPositions > 0) {
-        const holdings = await storage.getHoldings(activeAccount.id);
-        if (holdings.length >= maxPositions) {
-          console.log(`    ⚠️  최대 보유 종목 초과 (${holdings.length}/${maxPositions}) - 매수 건너뜀`);
-          return;
-        }
+      if (maxPositions && maxPositions > 0 && holdings.length >= maxPositions) {
+        console.log(`    ⚠️  최대 보유 종목 초과 (${holdings.length}/${maxPositions}) - 매수 건너뜀`);
+        return;
       }
 
       // ── 일일 최대 거래 횟수 체크 ──
@@ -532,13 +535,13 @@ export class TradeExecutorService {
         entryPrice: stock.price.toFixed(2),
         quantity,
         entryRainbowLine: rainbow.currentLine,
-        entryAiConfidence: aiAnalysis.confidence.toFixed(2),
-        entryConditions: { rainbow, aiAnalysis },
-        themeScore: aiAnalysis.themeScore.toFixed(2),
-        newsScore: aiAnalysis.newsScore.toFixed(2),
-        financialsScore: aiAnalysis.financialsScore.toFixed(2),
-        liquidityScore: aiAnalysis.liquidityScore.toFixed(2),
-        institutionalScore: aiAnalysis.institutionalScore.toFixed(2),
+        entryAiConfidence: aiAnalysis ? aiAnalysis.confidence.toFixed(2) : '0',
+        entryConditions: { rainbow, ...(aiAnalysis ? { aiAnalysis } : {}) },
+        themeScore: aiAnalysis ? aiAnalysis.themeScore.toFixed(2) : '0',
+        newsScore: aiAnalysis ? aiAnalysis.newsScore.toFixed(2) : '0',
+        financialsScore: aiAnalysis ? aiAnalysis.financialsScore.toFixed(2) : '0',
+        liquidityScore: aiAnalysis ? aiAnalysis.liquidityScore.toFixed(2) : '0',
+        institutionalScore: aiAnalysis ? aiAnalysis.institutionalScore.toFixed(2) : '0',
       });
 
       console.log(`    ✅ BUY order placed: ${quantity} shares @ ${stock.price}`);
@@ -557,9 +560,8 @@ export class TradeExecutorService {
     console.log(`    💵 SELL SIGNAL: ${stock.name} at ${rainbow.currentLine}% line`);
     const accounts = await storage.getKiwoomAccounts(model.userId);
     const targetAccountId = (model.config as any)?.accountId;
-    const activeAccount = targetAccountId
-      ? accounts.find((a: any) => a.id === targetAccountId)
-      : accounts.find((a: any) => a.isActive);
+    if (!targetAccountId) { console.log(`    ⛔ accountId 미설정 — 매도 중단`); return; }
+    const activeAccount = accounts.find((a: any) => a.id === targetAccountId);
     if (!activeAccount) return;
 
     const holdings = await storage.getHoldings(activeAccount.id);
@@ -607,6 +609,124 @@ export class TradeExecutorService {
       }
     } catch (error) {
       console.error(`    ❌ Error executing sell:`, error);
+    }
+  }
+
+  async evaluateCandidateStock(
+    model: AiModel,
+    settings: AutoTradingSettings,
+    candidate: CandidateStock,
+    kiwoomService: KiwoomService
+  ): Promise<void> {
+    try {
+      const priceData = await kiwoomService.getStockPrice(candidate.stockCode);
+      const price = parseFloat(priceData.output?.stck_prpr ?? '0');
+      if (!price) return;
+      const stock = { code: candidate.stockCode, name: candidate.stockName, price };
+
+      const config = (model.config as any) || {};
+      if (!config.accountId) return;
+      const accounts = await storage.getKiwoomAccounts(model.userId);
+      const activeAccount = accounts.find((a: any) => a.id === config.accountId);
+      if (!activeAccount) return;
+
+      const holdings = await storage.getHoldings(activeAccount.id);
+      const existingHolding = holdings.find(h => h.stockCode === stock.code);
+
+      const rainbowEval = await this.evaluate10LineRainbow(stock, settings, kiwoomService);
+      const { currentLine } = rainbowEval;
+      console.log(`    🌈 ${stock.name}(${stock.code}): currentLine=${currentLine}`);
+
+      if (!existingHolding) {
+        const unitCount = this.getUnitCountForLine(currentLine, config);
+        if (unitCount > 0 && currentLine <= 50) {
+          await this.executeBuy(model, settings, stock, rainbowEval, null, kiwoomService);
+        }
+      } else {
+        const perfEntry = await storage.getTradingPerformanceByStock(model.id, stock.code);
+        const entryLine = perfEntry?.entryRainbowLine ?? candidate.scannedLine ?? 50;
+        const nextLowerLine = entryLine - 10;
+        if (currentLine <= nextLowerLine && currentLine >= 10) {
+          await this.executeAdditionalBuy(model, settings, stock, existingHolding, rainbowEval, kiwoomService);
+        }
+      }
+    } catch (err) {
+      console.error(`    ❌ evaluateCandidateStock ${candidate.stockCode}:`, err);
+    }
+  }
+
+  private getUnitCountForLine(currentLine: number, config: any): number {
+    const lineUnits: Record<number, number> = config.lineUnits || {};
+    return lineUnits[currentLine] ?? 1;
+  }
+
+  async executeAdditionalBuy(
+    model: AiModel,
+    settings: AutoTradingSettings,
+    stock: { code: string; name: string; price: number },
+    holding: any,
+    rainbow: RainbowEval,
+    kiwoomService: KiwoomService
+  ): Promise<void> {
+    console.log(`    ➕ 추가매수 검토: ${stock.name}(${stock.code}) @ ${rainbow.currentLine}% 라인`);
+    try {
+      const config = (model.config as any) || {};
+      if (!config.accountId) return;
+      const accounts = await storage.getKiwoomAccounts(model.userId);
+      const activeAccount = accounts.find((a: any) => a.id === config.accountId);
+      if (!activeAccount) return;
+
+      const maxDailyTrades = parseInt(settings.maxDailyTrades?.toString() || '0');
+      if (maxDailyTrades > 0) {
+        const todayCount = await this.countTodayAutoTrades(activeAccount.id);
+        if (todayCount >= maxDailyTrades) {
+          console.log(`    ⚠️  일일 최대 거래 횟수 초과 — 추가매수 건너뜀`);
+          return;
+        }
+      }
+
+      const unitSize = config.unitSize
+        ? parseFloat(String(config.unitSize))
+        : parseFloat(settings.defaultPositionSize.toString());
+      const unitCount = this.getUnitCountForLine(rainbow.currentLine, config);
+      const quantity = Math.floor((unitSize * unitCount) / stock.price);
+      if (quantity === 0) {
+        console.log(`    ⚠️  추가매수 수량 0 — 건너뜀`);
+        return;
+      }
+
+      await storage.createOrder({
+        accountId: activeAccount.id,
+        stockCode: stock.code,
+        stockName: stock.name,
+        orderType: 'buy',
+        orderMethod: 'market',
+        orderPrice: stock.price.toFixed(2),
+        orderQuantity: quantity,
+        isAutoTrading: true,
+        aiModelId: model.id,
+      });
+
+      await kiwoomService.placeOrder({
+        accountNumber: activeAccount.accountNumber,
+        stockCode: stock.code,
+        orderType: 'buy',
+        orderQuantity: quantity,
+        orderPrice: stock.price,
+        orderMethod: 'market',
+      });
+
+      const perfEntry = await storage.getTradingPerformanceByStock(model.id, stock.code);
+      if (perfEntry) {
+        await storage.updateTradingPerformance(perfEntry.id, {
+          entryRainbowLine: rainbow.currentLine,
+          quantity: (perfEntry.quantity || 0) + quantity,
+        });
+      }
+
+      console.log(`    ✅ 추가매수 완료: ${stock.name} ${quantity}주 @ ${stock.price}원 (${rainbow.currentLine}% 라인, ${unitCount}유닛)`);
+    } catch (err) {
+      console.error(`    ❌ 추가매수 실패 ${stock.code}:`, err);
     }
   }
 
