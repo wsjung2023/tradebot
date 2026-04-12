@@ -3,17 +3,18 @@ import { Pool } from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
 import * as schema from "@shared/schema";
 
-// Replit 내장 DATABASE_URL만 사용 (NEON_DATABASE_URL 우선순위 제거)
-const resolvedDatabaseUrl = process.env.DATABASE_URL;
+// NEON_DATABASE_URL 우선, 없으면 DATABASE_URL 폴백
+const resolvedDatabaseUrl = process.env.NEON_DATABASE_URL || process.env.DATABASE_URL;
 
 if (!resolvedDatabaseUrl) {
-  throw new Error("DATABASE_URL 이 설정되어야 합니다.");
+  throw new Error("DATABASE_URL 또는 NEON_DATABASE_URL 이 설정되어야 합니다.");
 }
 
 const poolConfig = {
   connectionString: resolvedDatabaseUrl,
   idleTimeoutMillis: 10000,
   connectionTimeoutMillis: 5000,
+  ssl: { rejectUnauthorized: false },
   keepAlive: true,
   keepAliveInitialDelayMillis: 5000,
 };
