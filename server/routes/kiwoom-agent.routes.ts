@@ -330,19 +330,8 @@ export function registerKiwoomAgentRoutes(app: Express): void {
   // 하위 호환: real/mock 필드는 기본 폴백용으로 유지
   app.get("/api/kiwoom-agent/appkeys", (req: Request, res: Response) => {
     if (!requireAgentKey(req, res)) return;
-    const realKey =
-      process.env.KIWOOM_APP_KEY_REAL ||
-      process.env.KIWOOM_KEY_59190647 ||
-      process.env.KIWOOM_APP_KEY || "";
-    const realSecret =
-      process.env.KIWOOM_APP_SECRET_REAL ||
-      process.env.KIWOOM_SECRET_59190647 ||
-      process.env.KIWOOM_APP_SECRET || "";
-    const mockKey = process.env.KIWOOM_APP_KEY || "";
-    const mockSecret = process.env.KIWOOM_APP_SECRET || "";
-
-    const accountKeys: Record<string, { appKey: string; appSecret: string }> = {};
     const knownAccounts = ["59190647", "51342627", "39083177"];
+    const accountKeys: Record<string, { appKey: string; appSecret: string }> = {};
     for (const acnt of knownAccounts) {
       const k = process.env[`KIWOOM_KEY_${acnt}`];
       const s = process.env[`KIWOOM_SECRET_${acnt}`];
@@ -350,6 +339,13 @@ export function registerKiwoomAgentRoutes(app: Express): void {
         accountKeys[acnt] = { appKey: k, appSecret: s };
       }
     }
+
+    // 기본 real 폴백: 하드코딩 없이 3개 계좌 중 첫 번째 키를 사용
+    const firstAccount = Object.values(accountKeys)[0];
+    const realKey = process.env.KIWOOM_APP_KEY_REAL || firstAccount?.appKey || process.env.KIWOOM_APP_KEY || "";
+    const realSecret = process.env.KIWOOM_APP_SECRET_REAL || firstAccount?.appSecret || process.env.KIWOOM_APP_SECRET || "";
+    const mockKey = process.env.KIWOOM_APP_KEY || "";
+    const mockSecret = process.env.KIWOOM_APP_SECRET || "";
 
     res.json({
       real: { appKey: realKey, appSecret: realSecret },
