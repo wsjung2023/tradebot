@@ -16,6 +16,8 @@ interface StockAnalysisRequest {
 interface StockAnalysisResponse {
   action: 'buy' | 'sell' | 'hold';
   confidence: number;
+  themeScore: number;
+  newsScore: number;
   targetPrice: number | null;
   reasoning: string;
   indicators: any;
@@ -111,14 +113,18 @@ Rainbow Chart Analysis (240-Day Range):
 Based on technical analysis, market trends, and trading patterns, provide:
 1. Recommended action: BUY, SELL, or HOLD
 2. Confidence level: 0-100%
-3. Target price (if applicable)
-4. Clear reasoning for your recommendation
-5. Key indicators that support your decision
+3. Theme score: sector/theme momentum strength (0-100, independent of news)
+4. News score: implied news sentiment from price action and volume patterns (0-100)
+5. Target price (if applicable)
+6. Clear reasoning for your recommendation
+7. Key indicators that support your decision
 
 Format your response as JSON:
 {
   "action": "buy|sell|hold",
   "confidence": 75,
+  "themeScore": 60,
+  "newsScore": 55,
   "targetPrice": 50000,
   "reasoning": "detailed explanation",
   "indicators": {
@@ -143,10 +149,13 @@ Format your response as JSON:
       { model, temperature: 0.3 }
     );
     
+    const clamp = (v: unknown) => Math.min(100, Math.max(0, Number(v) || 50));
     return {
-      action: response.action || 'hold',
-      confidence: response.confidence || 50,
-      targetPrice: response.targetPrice || null,
+      action: (['buy', 'sell', 'hold'].includes(response.action) ? response.action : 'hold') as 'buy' | 'sell' | 'hold',
+      confidence: clamp(response.confidence),
+      themeScore: clamp(response.themeScore),
+      newsScore: clamp(response.newsScore),
+      targetPrice: typeof response.targetPrice === 'number' ? response.targetPrice : null,
       reasoning: response.reasoning || 'Analysis pending',
       indicators: response.indicators || {},
     };

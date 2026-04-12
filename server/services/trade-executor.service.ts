@@ -314,21 +314,31 @@ export class TradeExecutorService {
       institutional: parseFloat(settings.institutionalWeight.toString()),
     };
 
+    // ── 기관 점수: 거래량 기반 5단계 그레이딩 (하드코딩 50 제거) ──
+    const institutionalScore =
+      volume >= 1_000_000 ? 75 :
+      volume >= 500_000  ? 65 :
+      volume >= 100_000  ? 55 :
+      volume >= 50_000   ? 45 : 35;
+
     const scores = {
-      themeScore: analysis.confidence,
-      newsScore: analysis.confidence,
+      themeScore: analysis.themeScore,   // AI가 독립 산출한 테마/섹터 모멘텀 점수
+      newsScore: analysis.newsScore,     // AI가 독립 산출한 뉴스 감성 점수
       financialsScore: hasGoodFinancials ? 80 : 30,
       liquidityScore: hasHighLiquidity ? 80 : 30,
-      institutionalScore: 50,
+      institutionalScore,
     };
 
-    const confidence = (
+    // ── 가중치 합계로 정규화 (합이 100 초과해도 신뢰도 0~100 보장) ──
+    const totalWeight = weights.theme + weights.news + weights.financials + weights.liquidity + weights.institutional;
+    const denominator = totalWeight > 0 ? totalWeight : 100;
+    const confidence = Math.min(100, Math.max(0, (
       scores.themeScore * weights.theme +
       scores.newsScore * weights.news +
       scores.financialsScore * weights.financials +
       scores.liquidityScore * weights.liquidity +
       scores.institutionalScore * weights.institutional
-    ) / 100;
+    ) / denominator));
 
     return { confidence, hasGoodFinancials, hasHighLiquidity, ...scores };
   }
