@@ -112,7 +112,8 @@ _STALE_THRESHOLD_SEC = 30
 ### 7. 에이전트 앱키 수신 로직
 **파일**: `server/routes/kiwoom-agent.routes.ts` `/api/kiwoom-agent/appkeys` 엔드포인트  
 **규칙**: 이 엔드포인트는 에이전트가 시작 시 서버 Secrets에서 앱키를 가져오는 핵심 경로. 환경변수 우선순위:  
-`KIWOOM_APP_KEY_REAL` > `KIWOOM_KEY_59190647` > `KIWOOM_APP_KEY`  
+`KIWOOM_KEY_59190647` > `KIWOOM_APP_KEY`  
+(`KIWOOM_APP_KEY_REAL` 같은 변수는 존재하지 않음 — 실계좌는 계좌번호별 키 사용)  
 수신 로직(에이전트 `fetch_appkeys_from_server()`) 절대 변경 금지.
 
 ### 8. 잔고 파싱 로직
@@ -134,6 +135,40 @@ _STALE_THRESHOLD_SEC = 30
 
 실계좌 응답 예시: `"pur_pric": "000000000006336"`, `"prft_rt": "-26.71"`, `"evltv_prft": "-00000000863228"`  
 모의계좌 필드명은 폴백으로 유지해야 모의계좌 호환이 깨지지 않음. 어느 쪽 필드명도 삭제 금지.
+
+---
+
+## 환경변수 & 계좌 키 매핑 (확정 — 다시 묻지 말 것)
+
+### 등록된 환경변수 전체 목록 (2026-04-12 기준)
+```
+KIWOOM_APP_KEY          → 모의계좌(81208166) 앱키  ← KIWOOM_APP_KEY_MOCK 타령 금지, 이미 등록됨
+KIWOOM_APP_SECRET       → 모의계좌(81208166) 시크릿
+AGENT_KEY               → 집 PC 에이전트 인증키
+KIWOOM_KEY_59190647     → 실계좌 59190647 앱키
+KIWOOM_SECRET_59190647  → 실계좌 59190647 시크릿
+KIWOOM_KEY_51342627     → 실계좌 51342627 앱키
+KIWOOM_SECRET_51342627  → 실계좌 51342627 시크릿
+KIWOOM_KEY_39083177     → 실계좌 39083177 앱키
+KIWOOM_SECRET_39083177  → 실계좌 39083177 시크릿
+NAVER_CLIENT_ID         → 네이버 뉴스 API
+NAVER_CLIENT_SECRET     → 네이버 뉴스 API
+DART_API_KEY            → DART 공시 API
+```
+
+### 계좌 ID ↔ DB ID ↔ 환경변수 매핑
+| 계좌번호 | DB id | 종류 | 앱키 환경변수 | 시크릿 환경변수 |
+|---------|-------|------|-------------|--------------|
+| 59190647 | 17 | 실계좌 | `KIWOOM_KEY_59190647` | `KIWOOM_SECRET_59190647` |
+| 51342627 | 18 | 실계좌 | `KIWOOM_KEY_51342627` | `KIWOOM_SECRET_51342627` |
+| 39083177 | 19 | 실계좌 | `KIWOOM_KEY_39083177` | `KIWOOM_SECRET_39083177` |
+| 81208166 | 20 | 모의계좌 | `KIWOOM_APP_KEY` | `KIWOOM_APP_SECRET` |
+
+### 절대 규칙
+- `KIWOOM_APP_KEY_MOCK` 같은 변수는 존재하지 않음 — 모의계좌는 `KIWOOM_APP_KEY` 사용
+- `KIWOOM_APP_KEY_REAL` 같은 변수도 존재하지 않음 — 실계좌는 계좌번호별 키 사용
+- 위 목록에 없는 환경변수를 요구하거나 "키가 없다"고 말하는 것 금지
+- 모의계좌 관련 키 타령, "missing_secrets" 타령 금지 — 전부 등록되어 있음
 
 ---
 
