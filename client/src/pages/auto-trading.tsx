@@ -11,6 +11,28 @@ import { AutoTradingLearningRecords } from "@/components/auto-trading/AutoTradin
 import type { AiModel, AiRecommendation, LearningRecord } from "@shared/schema";
 import { Bot } from "lucide-react";
 
+type ModelType = "momentum" | "value" | "technical" | "custom";
+const MODEL_TYPES: ModelType[] = ["momentum", "value", "technical", "custom"];
+
+interface ModelConfig {
+  maxPositions?: number;
+  stopLossConfig?: { color: 'green' | 'blue'; percent: number };
+  takeProfitPercent?: number;
+  accountId?: number | null;
+  [key: string]: unknown;
+}
+
+function toModelType(v: string): ModelType {
+  return MODEL_TYPES.includes(v as ModelType) ? (v as ModelType) : "momentum";
+}
+
+function extractConfig(raw: unknown): ModelConfig {
+  if (raw !== null && typeof raw === 'object' && !Array.isArray(raw)) {
+    return raw as ModelConfig;
+  }
+  return {};
+}
+
 export default function AutoTrading() {
   const { toast } = useToast();
 
@@ -116,10 +138,10 @@ export default function AutoTrading() {
   };
 
   const handleEditClick = (model: AiModel) => {
-    const cfg = (model.config as any) || {};
+    const cfg = extractConfig(model.config);
     setEditingModelId(model.id);
     setEditModelName(model.modelName);
-    setEditModelType(model.modelType as any);
+    setEditModelType(toModelType(model.modelType));
     setEditDescription(model.description ?? "");
     setEditMaxPositions(String(cfg.maxPositions ?? "5"));
     setEditStopLossColor(cfg.stopLossConfig?.color ?? "green");
@@ -133,7 +155,7 @@ export default function AutoTrading() {
     if (!editModelName.trim()) { toast({ variant: "destructive", title: "모델 이름을 입력해주세요" }); return; }
 
     const currentModel = models.find(m => m.id === editingModelId);
-    const currentConfig = (currentModel?.config as any) || {};
+    const currentConfig = extractConfig(currentModel?.config);
 
     updateModelMutation.mutate({
       id: editingModelId,
@@ -155,7 +177,7 @@ export default function AutoTrading() {
 
   const handleAccountChange = (accountId: number | null) => {
     if (!selectedModel) return;
-    const currentConfig = (selectedModel.config as any) || {};
+    const currentConfig = extractConfig(selectedModel.config);
     updateModelConfigMutation.mutate({
       id: selectedModel.id,
       config: { ...currentConfig, accountId },
