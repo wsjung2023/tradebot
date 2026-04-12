@@ -3,8 +3,8 @@ import { Pool } from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
 import * as schema from "@shared/schema";
 
-// NEON_DATABASE_URL 우선, 없으면 DATABASE_URL 폴백
-const resolvedDatabaseUrl = process.env.NEON_DATABASE_URL || process.env.DATABASE_URL;
+// DATABASE_URL(헬리엄) 우선, 없으면 NEON_DATABASE_URL 폴백
+const resolvedDatabaseUrl = process.env.DATABASE_URL || process.env.NEON_DATABASE_URL;
 
 if (!resolvedDatabaseUrl) {
   throw new Error("DATABASE_URL 또는 NEON_DATABASE_URL 이 설정되어야 합니다.");
