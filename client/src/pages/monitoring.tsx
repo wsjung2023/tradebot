@@ -9,7 +9,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Monitor, CircleDot, Clock, ArrowDownCircle, ArrowUpCircle, MinusCircle, AlertTriangle, Loader2, Bell } from "lucide-react";
+import { Monitor, CircleDot, Clock, ArrowDownCircle, ArrowUpCircle, MinusCircle, AlertTriangle, Loader2, Bell, Power } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface JobInfo {
@@ -24,16 +24,39 @@ interface JobInfo {
   lastError: string | null;
 }
 
+interface EngineRun {
+  state: string;
+  lastCycleAt: string | null;
+}
+
+interface CandidateEvaluation {
+  confidence?: number;
+  themeScore?: number;
+  newsScore?: number;
+  financialsScore?: number;
+  liquidityScore?: number;
+}
+
 interface CandidateStock {
   id: number;
   stockCode: string;
   stockName: string;
   scannedLine: number | null;
   scannedAt: string;
-  evaluationResult: any;
+  evaluationResult: CandidateEvaluation | null;
   skipReason: string | null;
   evaluatedAt: string | null;
   modelId: number;
+}
+
+interface NotificationPayload {
+  confidence?: number;
+  themeScore?: number;
+  newsScore?: number;
+  financialsScore?: number;
+  liquidityScore?: number;
+  skipReason?: string;
+  profitLoss?: number;
 }
 
 interface EngineNotification {
@@ -41,7 +64,7 @@ interface EngineNotification {
   type: string;
   severity: string;
   message: string;
-  payload: any;
+  payload: NotificationPayload | null;
   createdAt: string;
   readAt: string | null;
 }
@@ -94,7 +117,7 @@ function JobCard({ job }: { job: JobInfo }) {
           <span>실행 {job.runCount}회 / 오류 {job.errorCount}회</span>
         </div>
         {job.lastError && (
-          <p className="text-xs text-red-500 mt-1 truncate">{job.lastError}</p>
+          <p className="text-xs text-red-500 dark:text-red-400 mt-1 truncate">{job.lastError}</p>
         )}
       </CardContent>
     </Card>
@@ -124,6 +147,11 @@ export default function Monitoring() {
     refetchInterval: 30_000,
   });
 
+  const { data: engineData } = useQuery<{ initialized: boolean; run: EngineRun | null }>({
+    queryKey: ["/api/auto-trading/engine-status"],
+    refetchInterval: 30_000,
+  });
+
   const { data: candidatesData, isLoading: candidatesLoading } = useQuery<{ candidates: CandidateStock[] }>({
     queryKey: ["/api/auto-trading/candidates"],
     refetchInterval: 30_000,
@@ -145,47 +173,48 @@ export default function Monitoring() {
   });
 
   const jobs = jobsData ?? [];
+  const engineRun = engineData?.run;
   const candidates = candidatesData?.candidates ?? [];
   const notifications = notifData?.notifications ?? [];
   const summary = summaryData?.summary;
 
   return (
     <div className="p-3 md:p-6 space-y-4 md:space-y-6">
-      <div>
-        <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-2" data-testid="text-monitoring-title">
-          <Monitor className="h-7 w-7" />
-          실시간 자동매매 모니터
-        </h1>
-        <p className="text-muted-foreground mt-1">봇 상태, 후보 종목, 매매 결정을 실시간으로 확인합니다 (30초 자동갱신)</p>
+      <div className="flex items-start justify-between gap-2 flex-wrap">
+        <div>
+          <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-2" data-testid="text-monitoring-title">
+            <Monitor className="h-7 w-7" />
+            실시간 자동매매 모니터
+          </h1>
+          <p className="text-muted-foreground mt-1">봇 상태, 후보 종목, 매매 결정을 실시간으로 확인합니다 (30초 자동갱신)</p>
+        </div>
+        {engineRun && (
+          <Badge variant={engineRun.state === "running" ? "default" : "secondary"} data-testid="badge-engine-state">
+            <Power className="h-3 w-3 mr-1" />
+            엔진: {engineRun.state === "running" ? "가동중" : engineRun.state}
+            {engineRun.lastCycleAt && <span className="ml-1">({formatTime(engineRun.lastCycleAt)})</span>}
+          </Badge>
+        )}
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {jobs.length > 0 ? jobs.map((job) => (
           <JobCard key={job.id} job={job} />
         )) : (
           <>
-            <Card>
-              <CardContent className="pt-4 pb-3 px-4">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-sm font-medium">자동매매 워커</span>
-                  <Badge variant="secondary">
-                    <CircleDot className="h-3 w-3 mr-1" />
-                    로딩중
-                  </Badge>
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-4 pb-3 px-4">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-sm font-medium">학습 시스템</span>
-                  <Badge variant="secondary">
-                    <CircleDot className="h-3 w-3 mr-1" />
-                    로딩중
-                  </Badge>
-                </div>
-              </CardContent>
-            </Card>
+            {["스캔 잡", "매매 잡", "학습 잡"].map((name) => (
+              <Card key={name}>
+                <CardContent className="pt-4 pb-3 px-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-medium">{name}</span>
+                    <Badge variant="secondary">
+                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                      로딩중
+                    </Badge>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
           </>
         )}
       </div>
@@ -238,7 +267,7 @@ export default function Monitoring() {
                   </TableHeader>
                   <TableBody>
                     {candidates.map((c) => {
-                      const evalResult = c.evaluationResult as any;
+                      const evalResult = c.evaluationResult;
                       const confidence = evalResult?.confidence;
                       return (
                         <TableRow key={c.id} data-testid={`row-candidate-${c.id}`}>
@@ -292,7 +321,7 @@ export default function Monitoring() {
               <ScrollArea className="max-h-[500px]">
                 <div className="divide-y">
                   {notifications.map((n) => {
-                    const payload = n.payload as any;
+                    const payload = n.payload;
                     return (
                       <div key={n.id} className="px-4 py-3 space-y-1" data-testid={`row-notification-${n.id}`}>
                         <div className="flex items-center gap-2">
@@ -310,7 +339,7 @@ export default function Monitoring() {
                             {payload.liquidityScore != null && <span>유동성: {payload.liquidityScore}</span>}
                             {payload.skipReason && <span className="font-medium">{payload.skipReason}</span>}
                             {payload.profitLoss != null && (
-                              <span className={Number(payload.profitLoss) > 0 ? "text-green-600" : "text-red-600"}>
+                              <span className={Number(payload.profitLoss) > 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}>
                                 P/L: {Number(payload.profitLoss) > 0 ? "+" : ""}{Number(payload.profitLoss).toLocaleString()}원
                               </span>
                             )}

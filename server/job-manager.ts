@@ -24,6 +24,7 @@ class JobManager {
     errorCount: number;
     lastError: string | null;
   }> = new Map([
+    ['scan',         { intervalMinutes: 30, lastRun: null, runCount: 0, errorCount: 0, lastError: null }],
     ['auto-trading', { intervalMinutes: 1, lastRun: null, runCount: 0, errorCount: 0, lastError: null }],
     ['learning',     { intervalMinutes: 1440, lastRun: null, runCount: 0, errorCount: 0, lastError: null }],
   ]);
@@ -42,16 +43,34 @@ class JobManager {
   }
 
   getJobs(): JobInfo[] {
+    const scanState = this.jobStates.get('scan')!;
     const tradingState = this.jobStates.get('auto-trading')!;
     const learningState = this.jobStates.get('learning')!;
 
+    const scanRunning = autoTradingWorker.isScanJobRunning();
     const tradingRunning = autoTradingWorker.isTradingJobRunning();
     const learningRunning = autoTradingWorker.isLearningJobRunning();
 
     return [
       {
+        id: 'scan',
+        name: '스캔 잡',
+        description: '30분마다 뒷차기2 조건검색으로 후보 종목을 스캔하여 candidate_stocks에 저장.',
+        status: scanRunning ? 'running' : 'stopped',
+        scheduleLabel: this.minutesToLabel(scanState.intervalMinutes),
+        intervalMinutes: scanState.intervalMinutes,
+        lastRun: scanState.lastRun,
+        nextRun: scanRunning && scanState.lastRun
+          ? new Date(scanState.lastRun.getTime() + scanState.intervalMinutes * 60 * 1000)
+          : null,
+        runCount: scanState.runCount,
+        errorCount: scanState.errorCount,
+        lastError: scanState.lastError,
+        isCurrentlyExecuting: false,
+      },
+      {
         id: 'auto-trading',
-        name: '자동매매 워커',
+        name: '매매 잡',
         description: '장중(09:00~15:30 KST) AI 모델 기반 자동 주문 실행. 활성 AI 모델이 없으면 아무것도 하지 않음.',
         status: tradingRunning ? 'running' : 'stopped',
         scheduleLabel: this.minutesToLabel(tradingState.intervalMinutes),
@@ -67,7 +86,7 @@ class JobManager {
       },
       {
         id: 'learning',
-        name: '학습 시스템',
+        name: '학습 잡',
         description: '거래 성과 데이터를 분석해 AI 모델 파라미터를 자동 최적화. 최소 50건 거래 데이터 필요.',
         status: learningRunning ? 'running' : 'stopped',
         scheduleLabel: this.minutesToLabel(learningState.intervalMinutes),
@@ -94,7 +113,7 @@ class JobManager {
 
     const schedule = this.minutesToCron(state.intervalMinutes);
 
-    if (id === 'auto-trading') {
+    if (id === 'scan' || id === 'auto-trading') {
       const allModels = await storage.getAllAiModels();
       for (const model of allModels) {
         if (!model.isActive) {
