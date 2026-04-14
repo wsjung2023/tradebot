@@ -1,5 +1,5 @@
 // postgres-core.storage.ts — 핵심 엔티티(유저/계좌/보유/주문/AI모델/관심종목/알림/설정/로그) CRUD
-import { eq, and, desc, lt, inArray, or, sql } from 'drizzle-orm';
+import { eq, and, desc, lt, gte, inArray, or, sql } from 'drizzle-orm';
 import { db } from '../db';
 import * as schema from '@shared/schema';
 import type {
@@ -25,6 +25,7 @@ import type {
   AutoTradingRun,
   EngineNotification, InsertEngineNotification,
   CandidateStock, InsertCandidateStock,
+  AssetSnapshot, InsertAssetSnapshot,
 } from '@shared/schema';
 
 export class PostgreSQLCoreStorage {
@@ -770,5 +771,52 @@ export class PostgreSQLCoreStorage {
         eq(schema.candidateStocks.userId, userId),
         eq(schema.candidateStocks.modelId, modelId),
       ));
+  }
+
+  async updateCandidateStock(id: number, updates: Partial<CandidateStock>): Promise<CandidateStock | undefined> {
+    const result = await db.update(schema.candidateStocks)
+      .set(updates)
+      .where(eq(schema.candidateStocks.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async getAllHoldingsForUser(userId: string): Promise<(Holding & { accountName: string; accountNumber: string })[]> {
+    const rows = await db
+      .select({
+        id: schema.holdings.id,
+        accountId: schema.holdings.accountId,
+        stockCode: schema.holdings.stockCode,
+        stockName: schema.holdings.stockName,
+        quantity: schema.holdings.quantity,
+        avgPrice: schema.holdings.avgPrice,
+        currentPrice: schema.holdings.currentPrice,
+        profitLoss: schema.holdings.profitLoss,
+        profitRate: schema.holdings.profitRate,
+        updatedAt: schema.holdings.updatedAt,
+        accountName: schema.kiwoomAccounts.accountName,
+        accountNumber: schema.kiwoomAccounts.accountNumber,
+      })
+      .from(schema.holdings)
+      .innerJoin(schema.kiwoomAccounts, eq(schema.holdings.accountId, schema.kiwoomAccounts.id))
+      .where(eq(schema.kiwoomAccounts.userId, userId))
+      .orderBy(desc(schema.holdings.updatedAt));
+    return rows as any;
+  }
+
+  async createAssetSnapshot(data: InsertAssetSnapshot): Promise<AssetSnapshot> {
+    const result = await db.insert(schema.assetSnapshots).values([data]).returning();
+    return result[0];
+  }
+
+  async getAssetSnapshots(accountId: number, days: number = 30): Promise<AssetSnapshot[]> {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - days);
+    return db.select().from(schema.assetSnapshots)
+      .where(and(
+        eq(schema.assetSnapshots.accountId, accountId),
+        gte(schema.assetSnapshots.snapshotAt, cutoff),
+      ))
+      .orderBy(schema.assetSnapshots.snapshotAt);
   }
 }

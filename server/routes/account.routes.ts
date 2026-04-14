@@ -380,9 +380,9 @@ export function registerAccountRoutes(app: Router) {
       const account = await getAuthorizedAccount(user!.id, accountId);
       if (!account) return res.status(404).json({ error: "Account not found" });
 
-      // 실제 자산 스냅샷이 쌓이면 여기서 조회
-      // 현재는 스냅샷 저장 기능 미구현 → 빈 배열 반환 (가짜 데이터 표시 금지)
-      res.json([]);
+      const days = req.query.days ? parseInt(req.query.days as string) : 30;
+      const snapshots = await storage.getAssetSnapshots(accountId, days);
+      res.json(snapshots);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -396,7 +396,18 @@ export function registerAccountRoutes(app: Router) {
       const account = await getAuthorizedAccount(user!.id, accountId);
       if (!account) return res.status(404).json({ error: "Account not found" });
       const limit = req.query.limit ? parseInt(req.query.limit as string) : 100;
-      const orders = await storage.getOrders(accountId, limit);
+      let orders = await storage.getOrders(accountId, limit);
+      const startDate = req.query.startDate as string | undefined;
+      const endDate = req.query.endDate as string | undefined;
+      if (startDate) {
+        const start = new Date(startDate);
+        orders = orders.filter(o => new Date(o.createdAt).getTime() >= start.getTime());
+      }
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setDate(end.getDate() + 1);
+        orders = orders.filter(o => new Date(o.createdAt).getTime() < end.getTime());
+      }
       res.json(orders);
     } catch (error: any) {
       res.status(500).json({ error: error.message });

@@ -30,6 +30,7 @@ import {
   type AutoTradingRun, type InsertAutoTradingRun,
   type EngineNotification, type InsertEngineNotification,
   type CandidateStock, type InsertCandidateStock,
+  type AssetSnapshot, type InsertAssetSnapshot,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -214,6 +215,14 @@ export interface IStorage {
   upsertCandidateStock(data: InsertCandidateStock): Promise<CandidateStock>;
   getCandidateStocks(userId: string, modelId: number): Promise<CandidateStock[]>;
   clearCandidateStocks(userId: string, modelId: number): Promise<void>;
+  updateCandidateStock(id: number, updates: Partial<CandidateStock>): Promise<CandidateStock | undefined>;
+
+  // 전계좌 보유종목
+  getAllHoldingsForUser(userId: string): Promise<(Holding & { accountName: string; accountNumber: string })[]>;
+
+  // 자산 스냅샷
+  createAssetSnapshot(data: InsertAssetSnapshot): Promise<AssetSnapshot>;
+  getAssetSnapshots(accountId: number, days?: number): Promise<AssetSnapshot[]>;
 
   // 헬퍼
   getActiveAiModels(): Promise<AiModel[]>;

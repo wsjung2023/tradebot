@@ -15,6 +15,8 @@ import { registerSettingsRoutes } from "./settings.routes";
 import { registerKiwoomAgentRoutes } from "./kiwoom-agent.routes";
 import { balanceRefreshService } from "../services/balance-refresh.service";
 import { autoTradingWorker } from "../auto-trading-worker";
+import { storage } from "../storage";
+import { getOrderSyncService } from "../services/order-sync.service";
 
 export async function registerRoutes(app: Express, httpServer: Server, sessionMiddleware: any): Promise<void> {
   const marketHub = new MarketDataHub();
@@ -31,7 +33,20 @@ export async function registerRoutes(app: Express, httpServer: Server, sessionMi
   registerKiwoomAgentRoutes(app as any);
 
   balanceRefreshService.start();
-  // 배치잡은 서버 시작 시 자동 실행하지 않음 — UI에서 명시적으로 시작해야 함
+
+  const orderSyncService = getOrderSyncService();
+  const expireAllPendingOrders = async () => {
+    try {
+      const accounts = await storage.getAllRealKiwoomAccounts();
+      for (const account of accounts) {
+        await orderSyncService.expireOldPendingOrders(account.id);
+      }
+    } catch (e) {
+      console.error('[PendingExpiry] 만료 주문 처리 실패:', e);
+    }
+  };
+  setTimeout(expireAllPendingOrders, 5000);
+  setInterval(expireAllPendingOrders, 60 * 60 * 1000);
 
   app.use("/api/rainbow", rainbowRouter);
 

@@ -816,6 +816,9 @@ export const candidateStocks = pgTable("candidate_stocks", {
   source: text("source").notNull().default('뒷차기2'),
   scannedLine: integer("scanned_line"),
   scannedAt: timestamp("scanned_at").notNull().defaultNow(),
+  evaluationResult: jsonb("evaluation_result"),
+  skipReason: text("skip_reason"),
+  evaluatedAt: timestamp("evaluated_at"),
 }, (table) => ({
   uniqueCandidate: unique().on(table.userId, table.modelId, table.stockCode),
 }));
@@ -823,3 +826,16 @@ export const candidateStocks = pgTable("candidate_stocks", {
 export const insertCandidateStockSchema = createInsertSchema(candidateStocks).omit({ id: true, scannedAt: true });
 export type CandidateStock = typeof candidateStocks.$inferSelect;
 export type InsertCandidateStock = z.infer<typeof insertCandidateStockSchema>;
+
+export const assetSnapshots = pgTable("asset_snapshots", {
+  id: serial("id").primaryKey(),
+  accountId: integer("account_id").notNull().references(() => kiwoomAccounts.id, { onDelete: 'cascade' }),
+  totalAssets: text("total_assets").notNull().default('0'),
+  totalProfitLoss: text("total_profit_loss").notNull().default('0'),
+  totalProfitRate: text("total_profit_rate").notNull().default('0'),
+  snapshotAt: timestamp("snapshot_at").notNull().defaultNow(),
+});
+
+export const insertAssetSnapshotSchema = createInsertSchema(assetSnapshots).omit({ id: true, snapshotAt: true });
+export type AssetSnapshot = typeof assetSnapshots.$inferSelect;
+export type InsertAssetSnapshot = z.infer<typeof insertAssetSnapshotSchema>;
