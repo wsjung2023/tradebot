@@ -109,16 +109,17 @@ const flowSteps: FlowStep[] = [
       { step: "[병렬] analyzeStock() 호출", detail: "GPT에게 테마/모멘텀/기술적 신호 분석 요청 → themeScore (0~100) 반환" },
       { step: "[병렬] integratedAnalysis() 호출", detail: "GPT에게 뉴스·DART·PER/PBR/ROE 분석 요청 → newsScore, financialScore (0~100) 반환" },
       { step: "liquidityScore 계산", detail: "거래량 기준 규칙: ≥500K→80, ≥100K→65, ≥50K→45, 기타→25" },
-      { step: "institutionalScore 계산", detail: "기관거래량 기준: ≥1M→75, ≥500K→65, ≥100K→55, ≥50K→45, 기타→35" },
+      { step: "institutionalScore 계산", detail: "동일 acml_vol로 더 높은 임계값 적용: ≥1M→75, ≥500K→65, ≥100K→55, ≥50K→45, 기타→35 (별도 기관 데이터 없음)" },
       { step: "가중합산 → confidence", detail: "5개 점수 × 각 슬라이더 가중치(%) → 합산 = confidence (0~100)" },
       { step: "DART 위험공시 이중확인", detail: "dartDangerKeyword 있으면 이 단계에서도 차단" },
     ],
-    code: `confidence =
-  themeScore        × themeWeight%        (기본 20)
-+ newsScore         × newsWeight%         (기본 15)
-+ financialScore    × financialsWeight%   (기본 25)
-+ liquidityScore    × liquidityWeight%    (기본 20)
-+ institutionalScore× institutionalWeight%(기본 20)
+    code: `confidence = (
+  themeScore         × themeWeight         (기본 20)
++ newsScore          × newsWeight          (기본 15)
++ financialScore     × financialsWeight    (기본 25)
++ liquidityScore     × liquidityWeight     (기본 20)
++ institutionalScore × institutionalWeight (기본 20)
+) / totalWeight   ← 슬라이더 합계로 나눔 (자동 정규화)
 
 hasGoodFinancials = financialScore ≥ 60
 hasHighLiquidity  = liquidityScore ≥ 40`,
@@ -191,15 +192,19 @@ hasHighLiquidity  = liquidityScore ≥ 40`,
     process: [
       { step: "보유 포지션 조회", detail: "auto_trading_positions에서 현재 보유 종목 목록 가져오기" },
       { step: "현재 레인보우 라인 계산", detail: "실시간 현재가로 currentLine 재계산" },
-      { step: "추가매수 조건 확인", detail: "currentLine ≤ entryRainbowLine - 10% 이면 추가매수 조건 충족" },
+      { step: "추가매수 조건 확인", detail: "entryLine > 10 이고 currentLine ≤ entryLine - 10 이고 currentLine ≥ 10 이면 조건 충족" },
       { step: "일일 한도 재확인", detail: "maxDailyTrades 초과 여부 재검사" },
       { step: "유닛 수 조회", detail: "해당 currentLine에 대한 lineUnits 조회" },
       { step: "주문 수량 계산 & 실행", detail: "동일 유닛 공식으로 수량 계산 후 시장가 매수 주문" },
     ],
-    code: `추가매수 예시:
-  30% 라인에서 최초 매수 (entryRainbowLine = 30)
-  → 현재 레인보우 라인이 20% 이하가 되면 추가매수
-  → 20% 라인의 lineUnits 수량으로 추가 주문`,
+    code: `추가매수 조건:
+  조건1: entryLine > 10  (10% 라인 진입 시 추가매수 불가)
+  조건2: currentLine ≤ entryLine - 10
+  조건3: currentLine ≥ 10
+
+  예) 30% 라인에서 최초 매수 (entryLine = 30)
+      → currentLine ≤ 20 이고 ≥ 10 이면 추가매수
+      → 해당 라인(20%)의 lineUnits 수량으로 추가 주문`,
     output: "추가매수 체결 → auto_trading_positions 업데이트 → 로그 기록",
     notes: [
       "같은 라인에 이미 추가매수가 체결된 경우 중복 매수를 방지합니다",

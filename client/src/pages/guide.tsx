@@ -167,25 +167,34 @@ export default function Guide() {
     ≥  50,000주 → 45점
     그 외       → 25점
 
-  institutionalScore  기관 거래량 기준
+  institutionalScore  동일한 acml_vol(당일 누적 거래량)을 더 높은 임계값으로 재평가
     ≥ 1,000,000주 → 75점
     ≥   500,000주 → 65점
     ≥   100,000주 → 55점
     ≥    50,000주 → 45점
-    그 외          → 35점`}</Code>
+    그 외          → 35점
+
+※ liquidityScore와 institutionalScore 모두 동일한 거래량(acml_vol) 변수 사용
+   institutionalScore는 별도 기관 데이터가 없고, 임계값만 더 높게 설정됨`}</Code>
       </SectionCard>
 
       {/* ── 5. Confidence 산출 ── */}
       <SectionCard {...sections[4]}>
-        <p className="text-sm text-muted-foreground">5개 점수를 자동매매 설정의 "AI 분석 가중치" 슬라이더 값으로 가중합산합니다. 기본 합계는 100%이어야 합니다.</p>
-        <Code>{`confidence =
-  themeScore        × (themeWeight        / 100)   [기본: 20%]
-+ newsScore         × (newsWeight         / 100)   [기본: 15%]
-+ financialScore    × (financialsWeight   / 100)   [기본: 25%]
-+ liquidityScore    × (liquidityWeight    / 100)   [기본: 20%]
-+ institutionalScore× (institutionalWeight/ 100)   [기본: 20%]
+        <p className="text-sm text-muted-foreground">5개 점수를 자동매매 설정의 "AI 분석 가중치" 슬라이더 값으로 가중합산합니다. 합계가 100이 아니어도 totalWeight로 나눠 자동 정규화됩니다.</p>
+        <Code>{`totalWeight = themeWeight + newsWeight + financialsWeight + liquidityWeight + institutionalWeight
 
-결과 범위: 0 ~ 100점`}</Code>
+confidence = (
+  themeScore         × themeWeight         [기본: 20]
++ newsScore          × newsWeight          [기본: 15]
++ financialScore     × financialsWeight    [기본: 25]
++ liquidityScore     × liquidityWeight     [기본: 20]
++ institutionalScore × institutionalWeight [기본: 20]
+) / totalWeight
+
+결과 범위: 0 ~ 100 (clamp)
+
+※ 슬라이더 합계가 100이 아니어도 totalWeight로 나누므로 정규화됨
+   예) 가중치 합이 80이면 denominator=80으로 나눔`}</Code>
         <div className="space-y-1">
           <Row label="hasGoodFinancials 판정" value="financialScore ≥ 60 이면 true" />
           <Row label="hasHighLiquidity 판정" value="liquidityScore ≥ 40 이면 true" />
@@ -215,8 +224,12 @@ export default function Guide() {
 
       {/* ── 7. 레인보우 라인 ── */}
       <SectionCard {...sections[6]}>
-        <p className="text-sm text-muted-foreground">레인보우 라인은 현재가가 과거 구간 고점 대비 어느 위치인지를 10% 단위로 나타냅니다. 낮을수록 저점권.</p>
-        <Code>{`currentLine = round(현재가 / 과거고점 × 100 ÷ 10) × 10
+        <p className="text-sm text-muted-foreground">레인보우 라인은 240일 구간의 고점-저점 범위 내에서 현재가가 어느 위치인지를 10% 단위로 나타냅니다. 낮을수록 저점권.</p>
+        <Code>{`[레인보우 라인 계산]
+range        = 구간최고가 - 구간최저가  (RainbowChartAnalyzer 240일 기준)
+currentPct   = (현재가 - 구간최저가) / range × 100
+currentLine  = round(currentPct / 10) × 10   (클램프: 최소 10, 최대 100)
+
 → 결과: 10, 20, 30, 40, 50, 60, 70, 80, 90, 100
 
 자동매매 설정 > "레인보우 라인 설정"에서 라인별 유닛 수 지정:
@@ -238,14 +251,16 @@ export default function Guide() {
 주문 수량 = floor( unitSize × unitCount(currentLine) ÷ 현재가 )
 
   unitSize  : 1유닛당 금액 (원), 자동매매 설정에서 지정
-  unitCount : 해당 라인별 유닛 수 (lineUnits 설정)
+  unitCount : lineUnits[currentLine] ?? 1  (미설정 라인은 1유닛)
   예) unitSize=500,000 / unitCount=2 / 주가=25,000
       → floor(500,000 × 2 ÷ 25,000) = 40주
 
 [추가매수]
-  조건: 현재 레인보우 라인 ≤ 진입 라인 - 10%
-       (예: 30%에 진입 → 현재 20% 이하일 때 추가매수)
-  수량: 동일 유닛 공식 적용 (해당 라인 unitCount 기준)`}</Code>
+  조건1: entryLine > 10  (10% 라인에서 진입했으면 추가매수 불가)
+  조건2: currentLine ≤ entryLine - 10  (한 단계 더 내려가야 함)
+  조건3: currentLine ≥ 10  (최하위 라인 이상이어야 함)
+  예) 30%에 진입 → currentLine ≤ 20 이고 ≥ 10 이면 추가매수
+  수량: 동일 유닛 공식 적용 (해당 currentLine의 unitCount 기준)`}</Code>
         <Warn>같은 종목에 이미 보유 중이면 추가매수 조건이 충족될 때만 추가 주문합니다. 동일 라인에 중복 추가매수는 발생하지 않습니다.</Warn>
       </SectionCard>
 
