@@ -99,6 +99,10 @@ class AutoTradingWorker {
 
   isScanJobRunning(): boolean { return this.scanJob !== null; }
 
+  async runScanNow() {
+    await this.runScanCycle();
+  }
+
   private async runScanCycle() {
     if (!isKoreanMarketOpen()) return;
     if (this.isScanRunning) {

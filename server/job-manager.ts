@@ -113,7 +113,12 @@ class JobManager {
 
     const schedule = this.minutesToCron(state.intervalMinutes);
 
-    if (id === 'scan' || id === 'auto-trading') {
+    if (id === 'scan') {
+      const scanSchedule = this.minutesToCron(state.intervalMinutes);
+      autoTradingWorker.startScanJob(scanSchedule);
+      return { success: true, message: `스캔 잡을 시작했습니다. (${this.minutesToLabel(state.intervalMinutes)})` };
+    }
+    if (id === 'auto-trading') {
       const allModels = await storage.getAllAiModels();
       for (const model of allModels) {
         if (!model.isActive) {
@@ -132,7 +137,8 @@ class JobManager {
           await storage.createUserSettings({ userId: model.userId, autoTradingEnabled: true });
         }
       }
-      autoTradingWorker.startScanJob('*/30 * * * *');
+      const scanState = this.jobStates.get('scan')!;
+      autoTradingWorker.startScanJob(this.minutesToCron(scanState.intervalMinutes));
       autoTradingWorker.startTradingJob(schedule);
       return { success: true, message: `자동매매 워커를 시작했습니다. (${this.minutesToLabel(state.intervalMinutes)})` };
     }
@@ -145,7 +151,11 @@ class JobManager {
   }
 
   async stopJob(id: string): Promise<{ success: boolean; message: string }> {
-    if (id === 'scan' || id === 'auto-trading') {
+    if (id === 'scan') {
+      autoTradingWorker.stopScanJob();
+      return { success: true, message: '스캔 잡을 중지했습니다.' };
+    }
+    if (id === 'auto-trading') {
       const allModels = await storage.getActiveAiModels();
       for (const model of allModels) {
         await storage.updateUserSettings(model.userId, { autoTradingEnabled: false });
@@ -172,19 +182,12 @@ class JobManager {
     state.intervalMinutes = intervalMinutes;
     const schedule = this.minutesToCron(intervalMinutes);
 
-    let wasRunning = false;
-    if (id === 'scan' || id === 'auto-trading') {
-      wasRunning = autoTradingWorker.isTradingJobRunning() || autoTradingWorker.isScanJobRunning();
-    } else if (id === 'learning') {
-      wasRunning = autoTradingWorker.isLearningJobRunning();
-    }
-
-    if (wasRunning) {
-      if (id === 'scan' || id === 'auto-trading') {
-        autoTradingWorker.startScanJob('*/30 * * * *');
-        autoTradingWorker.startTradingJob(schedule);
-      }
-      if (id === 'learning') autoTradingWorker.startLearningJob(schedule);
+    if (id === 'scan' && autoTradingWorker.isScanJobRunning()) {
+      autoTradingWorker.startScanJob(schedule);
+    } else if (id === 'auto-trading' && autoTradingWorker.isTradingJobRunning()) {
+      autoTradingWorker.startTradingJob(schedule);
+    } else if (id === 'learning' && autoTradingWorker.isLearningJobRunning()) {
+      autoTradingWorker.startLearningJob(schedule);
     }
 
     return { success: true, message: `주기를 ${this.minutesToLabel(intervalMinutes)}으로 변경했습니다.` };
@@ -195,7 +198,13 @@ class JobManager {
       const state = this.jobStates.get(id);
       if (!state) return { success: false, message: '잡을 찾을 수 없습니다.' };
 
-      if (id === 'scan' || id === 'auto-trading') {
+      if (id === 'scan') {
+        state.runCount++;
+        state.lastRun = new Date();
+        await autoTradingWorker.runScanNow();
+        return { success: true, message: '스캔 사이클을 즉시 실행했습니다.' };
+      }
+      if (id === 'auto-trading') {
         state.runCount++;
         state.lastRun = new Date();
         await autoTradingWorker.runTradingNow();
