@@ -263,4 +263,49 @@ export function registerWatchlistRoutes(app: Router) {
     }
   });
 
+  // ── /api/watchlist-signals — 사용자 전체 시그널 조회/삭제/생성 ────────────
+  // watchlist-signals 페이지가 사용하는 flat 라우트
+
+  app.get("/api/watchlist-signals", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const signals = await storage.getAllUserWatchlistSignals(user!.id);
+      res.json(signals);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/watchlist-signals/:id", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const signalId = parseInt(req.params.id);
+      if (isNaN(signalId)) return res.status(400).json({ error: "Invalid signal id" });
+      const allSignals = await storage.getAllUserWatchlistSignals(user!.id);
+      const owned = allSignals.find(s => s.id === signalId);
+      if (!owned) return res.status(404).json({ error: "Signal not found" });
+      await storage.deleteWatchlistSignal(signalId);
+      res.json({ message: "Signal deleted" });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/watchlist-signals/generate-all", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const watchlistItems = await storage.getWatchlist(user!.id);
+      if (!watchlistItems.length) {
+        return res.json({ message: "관심종목이 없습니다", generated: 0 });
+      }
+      res.json({
+        message: `관심종목 ${watchlistItems.length}개를 확인했습니다. 시그널은 뒷차기 스캔 탭에서 실행하거나, 각 종목의 시그널을 개별 추가하세요.`,
+        generated: 0,
+        watchlistCount: watchlistItems.length,
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
 }

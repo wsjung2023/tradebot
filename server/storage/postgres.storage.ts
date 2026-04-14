@@ -90,6 +90,27 @@ export class PostgreSQLStorage extends PostgreSQLCoreStorage implements IStorage
     return db.select().from(schema.watchlistSignals).where(eq(schema.watchlistSignals.watchlistId, watchlistId));
   }
 
+  async getAllUserWatchlistSignals(userId: string): Promise<(WatchlistSignal & { stockCode: string; stockName: string })[]> {
+    const rows = await db
+      .select({
+        id: schema.watchlistSignals.id,
+        watchlistId: schema.watchlistSignals.watchlistId,
+        chartFormulaId: schema.watchlistSignals.chartFormulaId,
+        signalData: schema.watchlistSignals.signalData,
+        currentSignal: schema.watchlistSignals.currentSignal,
+        signalStrength: schema.watchlistSignals.signalStrength,
+        lastCalculatedAt: schema.watchlistSignals.lastCalculatedAt,
+        updatedAt: schema.watchlistSignals.updatedAt,
+        stockCode: schema.watchlist.stockCode,
+        stockName: schema.watchlist.stockName,
+      })
+      .from(schema.watchlistSignals)
+      .innerJoin(schema.watchlist, eq(schema.watchlistSignals.watchlistId, schema.watchlist.id))
+      .where(eq(schema.watchlist.userId, userId))
+      .orderBy(desc(schema.watchlistSignals.lastCalculatedAt));
+    return rows as any;
+  }
+
   async createWatchlistSignal(signal: InsertWatchlistSignal): Promise<WatchlistSignal> {
     const result = await db.insert(schema.watchlistSignals).values([signal]).returning();
     return result[0];

@@ -121,6 +121,7 @@ export interface IStorage {
 
   // 관심종목 시그널
   getWatchlistSignals(watchlistId: number): Promise<WatchlistSignal[]>;
+  getAllUserWatchlistSignals(userId: string): Promise<(WatchlistSignal & { stockCode: string; stockName: string })[]>;
   createWatchlistSignal(signal: InsertWatchlistSignal): Promise<WatchlistSignal>;
   updateWatchlistSignal(id: number, updates: Partial<WatchlistSignal>): Promise<WatchlistSignal | undefined>;
   deleteWatchlistSignal(id: number): Promise<void>;
