@@ -9,18 +9,19 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Monitor, CircleDot, Clock, ArrowDownCircle, ArrowUpCircle, MinusCircle, AlertTriangle, Loader2 } from "lucide-react";
+import { Monitor, CircleDot, Clock, ArrowDownCircle, ArrowUpCircle, MinusCircle, AlertTriangle, Loader2, Bell } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
-interface EngineRun {
-  state: string;
-  lastCycleAt?: string;
-  scanJobLastRun?: string;
-  tradingJobLastRun?: string;
-  learningJobLastRun?: string;
-  scanJobState?: string;
-  tradingJobState?: string;
-  learningJobState?: string;
+interface JobInfo {
+  id: string;
+  name: string;
+  status: "running" | "stopped";
+  scheduleLabel: string;
+  lastRun: string | null;
+  nextRun: string | null;
+  runCount: number;
+  errorCount: number;
+  lastError: string | null;
 }
 
 interface CandidateStock {
@@ -45,6 +46,13 @@ interface EngineNotification {
   readAt: string | null;
 }
 
+interface NotifSummary {
+  total: number;
+  unreadTotal: number;
+  unreadCrit: number;
+  unreadWarn: number;
+}
+
 function formatTime(dateStr?: string | null): string {
   if (!dateStr) return "-";
   try {
@@ -65,22 +73,29 @@ function formatDateTime(dateStr?: string | null): string {
   }
 }
 
-function JobCard({ title, state, lastRun }: { title: string; state?: string; lastRun?: string }) {
-  const isRunning = state === "running" || state === "active";
+function JobCard({ job }: { job: JobInfo }) {
+  const isRunning = job.status === "running";
   return (
-    <Card data-testid={`card-job-${title}`}>
+    <Card data-testid={`card-job-${job.id}`}>
       <CardContent className="pt-4 pb-3 px-4">
         <div className="flex items-center justify-between gap-2">
-          <span className="text-sm font-medium">{title}</span>
+          <span className="text-sm font-medium">{job.name}</span>
           <Badge variant={isRunning ? "default" : "secondary"}>
             <CircleDot className="h-3 w-3 mr-1" />
-            {isRunning ? "실행중" : state || "정지"}
+            {isRunning ? "실행중" : "정지"}
           </Badge>
         </div>
         <div className="flex items-center gap-1 mt-2 text-xs text-muted-foreground">
           <Clock className="h-3 w-3" />
-          <span>마지막: {formatTime(lastRun)}</span>
+          <span>마지막: {formatTime(job.lastRun)}</span>
         </div>
+        <div className="flex items-center justify-between gap-2 mt-1 text-xs text-muted-foreground">
+          <span>{job.scheduleLabel}</span>
+          <span>실행 {job.runCount}회 / 오류 {job.errorCount}회</span>
+        </div>
+        {job.lastError && (
+          <p className="text-xs text-red-500 mt-1 truncate">{job.lastError}</p>
+        )}
       </CardContent>
     </Card>
   );
@@ -104,8 +119,8 @@ function typeBadgeVariant(type: string) {
 }
 
 export default function Monitoring() {
-  const { data: engineData } = useQuery<{ initialized: boolean; run: EngineRun | null }>({
-    queryKey: ["/api/auto-trading/engine-status"],
+  const { data: jobsData } = useQuery<JobInfo[]>({
+    queryKey: ["/api/admin/jobs"],
     refetchInterval: 30_000,
   });
 
@@ -124,9 +139,15 @@ export default function Monitoring() {
     refetchInterval: 30_000,
   });
 
-  const run = engineData?.run;
+  const { data: summaryData } = useQuery<{ summary: NotifSummary }>({
+    queryKey: ["/api/auto-trading/notifications/summary"],
+    refetchInterval: 30_000,
+  });
+
+  const jobs = jobsData ?? [];
   const candidates = candidatesData?.candidates ?? [];
   const notifications = notifData?.notifications ?? [];
+  const summary = summaryData?.summary;
 
   return (
     <div className="p-3 md:p-6 space-y-4 md:space-y-6">
@@ -138,23 +159,57 @@ export default function Monitoring() {
         <p className="text-muted-foreground mt-1">봇 상태, 후보 종목, 매매 결정을 실시간으로 확인합니다 (30초 자동갱신)</p>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <JobCard
-          title="스캔 잡"
-          state={run?.scanJobState || (run?.state === "running" ? "running" : undefined)}
-          lastRun={run?.scanJobLastRun || run?.lastCycleAt}
-        />
-        <JobCard
-          title="매매 잡"
-          state={run?.tradingJobState || (run?.state === "running" ? "running" : undefined)}
-          lastRun={run?.tradingJobLastRun || run?.lastCycleAt}
-        />
-        <JobCard
-          title="학습 잡"
-          state={run?.learningJobState || (run?.state === "running" ? "running" : undefined)}
-          lastRun={run?.learningJobLastRun || run?.lastCycleAt}
-        />
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {jobs.length > 0 ? jobs.map((job) => (
+          <JobCard key={job.id} job={job} />
+        )) : (
+          <>
+            <Card>
+              <CardContent className="pt-4 pb-3 px-4">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-medium">자동매매 워커</span>
+                  <Badge variant="secondary">
+                    <CircleDot className="h-3 w-3 mr-1" />
+                    로딩중
+                  </Badge>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4 pb-3 px-4">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-medium">학습 시스템</span>
+                  <Badge variant="secondary">
+                    <CircleDot className="h-3 w-3 mr-1" />
+                    로딩중
+                  </Badge>
+                </div>
+              </CardContent>
+            </Card>
+          </>
+        )}
       </div>
+
+      {summary && (
+        <Card data-testid="card-notification-summary">
+          <CardContent className="pt-3 pb-3 px-4">
+            <div className="flex items-center flex-wrap gap-4 text-sm">
+              <div className="flex items-center gap-1">
+                <Bell className="h-4 w-4" />
+                <span className="font-medium">알림 요약</span>
+              </div>
+              <span>전체: {summary.total}건</span>
+              <span>미확인: {summary.unreadTotal}건</span>
+              {summary.unreadCrit > 0 && (
+                <Badge variant="destructive" className="text-xs">긴급 {summary.unreadCrit}</Badge>
+              )}
+              {summary.unreadWarn > 0 && (
+                <Badge variant="secondary" className="text-xs">경고 {summary.unreadWarn}</Badge>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card>
@@ -205,7 +260,7 @@ export default function Monitoring() {
                             {c.skipReason ? (
                               <Badge variant="secondary" className="text-xs">{c.skipReason}</Badge>
                             ) : confidence != null ? (
-                              <Badge variant="default" className="text-xs">{confidence.toFixed(0)}%</Badge>
+                              <Badge variant="default" className="text-xs">{Number(confidence).toFixed(0)}%</Badge>
                             ) : (
                               <span className="text-xs text-muted-foreground">대기</span>
                             )}
