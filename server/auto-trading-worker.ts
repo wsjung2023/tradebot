@@ -27,6 +27,12 @@ class AutoTradingWorker {
   private scanJob: cron.ScheduledTask | null = null;
   private learningJob: cron.ScheduledTask | null = null;
   private isScanRunning = false;
+  private tradingErrorCount = 0;
+  private lastTradingError: string | null = null;
+  private scanErrorCount = 0;
+  private lastScanError: string | null = null;
+  private learningErrorCount = 0;
+  private lastLearningError: string | null = null;
   private learningService = new LearningService();
   private executor = new TradeExecutorService();
   private aiService = getAIService();
@@ -76,11 +82,12 @@ class AutoTradingWorker {
   startTradingJob(schedule: string) {
     if (this.cronJob) this.cronJob.stop();
     this.cronJob = cron.schedule(schedule, async () => {
-      try {
-        await this.executeTradingCycle();
+      const errorsBefore = this.tradingErrorCount;
+      await this.executeTradingCycle();
+      if (this.tradingErrorCount > errorsBefore) {
+        this.onJobError?.('auto-trading', this.lastTradingError || 'cycle error');
+      } else {
         this.onJobRun?.('auto-trading');
-      } catch (err: any) {
-        this.onJobError?.('auto-trading', err?.message || 'unknown');
       }
     });
     console.log(`✅ Auto Trading Worker started (schedule: ${schedule})`);
@@ -97,11 +104,12 @@ class AutoTradingWorker {
   startScanJob(schedule: string) {
     if (this.scanJob) this.scanJob.stop();
     this.scanJob = cron.schedule(schedule, async () => {
-      try {
-        await this.runScanCycle();
+      const errorsBefore = this.scanErrorCount;
+      await this.runScanCycle();
+      if (this.scanErrorCount > errorsBefore) {
+        this.onJobError?.('scan', this.lastScanError || 'scan error');
+      } else {
         this.onJobRun?.('scan');
-      } catch (err: any) {
-        this.onJobError?.('scan', err?.message || 'unknown');
       }
     });
     console.log(`✅ Scan Job started (schedule: ${schedule})`);
@@ -167,7 +175,9 @@ class AutoTradingWorker {
         }
       }
       console.log('[ScanJob] ✅ 30분 스캔 완료');
-    } catch (err) {
+    } catch (err: any) {
+      this.scanErrorCount++;
+      this.lastScanError = err?.message || 'unknown scan error';
       console.error('[ScanJob] ❌ 스캔 사이클 오류:', err);
     } finally {
       this.isScanRunning = false;
@@ -189,11 +199,12 @@ class AutoTradingWorker {
   startLearningJob(schedule: string) {
     if (this.learningJob) this.learningJob.stop();
     this.learningJob = cron.schedule(schedule, async () => {
-      try {
-        await this.executeLearningCycleWrapper();
+      const errorsBefore = this.learningErrorCount;
+      await this.executeLearningCycleWrapper();
+      if (this.learningErrorCount > errorsBefore) {
+        this.onJobError?.('learning', this.lastLearningError || 'learning error');
+      } else {
         this.onJobRun?.('learning');
-      } catch (err: any) {
-        this.onJobError?.('learning', err?.message || 'unknown');
       }
     });
     console.log(`✅ Learning System started (schedule: ${schedule})`);
@@ -301,7 +312,9 @@ class AutoTradingWorker {
       }
 
       console.log(`[AutoTrading][${cycleId}] ✅ Trading cycle completed`);
-    } catch (error) {
+    } catch (error: any) {
+      this.tradingErrorCount++;
+      this.lastTradingError = error?.message || 'unknown trading error';
       console.error(`[AutoTrading][${cycleId}] ❌ Error in trading cycle:`, error);
     } finally {
       this.isRunning = false;
@@ -555,7 +568,9 @@ class AutoTradingWorker {
       console.log(`📊 Analyzing ${activeModels.length} active model(s)...`);
       for (const model of activeModels) await this.optimizeModel(model);
       console.log('✅ Learning optimization cycle completed\n');
-    } catch (error) {
+    } catch (error: any) {
+      this.learningErrorCount++;
+      this.lastLearningError = error?.message || 'unknown learning error';
       console.error('❌ Error in learning cycle:', error);
     }
   }
