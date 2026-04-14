@@ -423,4 +423,14 @@ export function registerAccountRoutes(app: Router) {
       res.status(500).json({ error: error.message });
     }
   });
+
+  app.get("/api/portfolio/holdings", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const holdings = await storage.getAllHoldingsForUser(user!.id);
+      res.json({ holdings });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
 }
