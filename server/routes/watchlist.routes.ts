@@ -7,6 +7,8 @@ import { encrypt } from "../utils/crypto";
 import { z } from "zod";
 import { AgentTimeoutError } from "../services/agent-proxy.service";
 import { getUserKiwoomService } from "../services/user-kiwoom.service";
+import { RainbowChartAnalyzer } from "../formula/rainbow-chart";
+import { normalizeChartDataAsc } from "../utils/chart-normalization";
 
 export function registerWatchlistRoutes(app: Router) {
   const userKiwoomService = getUserKiwoomService();
@@ -296,12 +298,81 @@ export function registerWatchlistRoutes(app: Router) {
       const user = getCurrentUser(req);
       const watchlistItems = await storage.getWatchlist(user!.id);
       if (!watchlistItems.length) {
-        return res.json({ message: "관심종목이 없습니다", generated: 0 });
+        return res.json({ message: "관심종목이 없습니다", generated: 0, failed: 0, total: 0 });
       }
+
+      let generated = 0;
+      let failed = 0;
+      const errors: Array<{ stockCode: string; stockName: string; error: string }> = [];
+
+      for (const item of watchlistItems) {
+        try {
+          const rawChartData = await userKiwoomService.getChart(user!.id, item.stockCode, "D", 400);
+          const normalized = normalizeChartDataAsc(rawChartData);
+          if (!normalized || normalized.length < 240) {
+            throw new Error(`차트 데이터 부족: ${normalized?.length || 0}개 (240개 필요)`);
+          }
+
+          const rainbow = RainbowChartAnalyzer.analyze(item.stockCode, normalized, 240);
+          const strength = RainbowChartAnalyzer.getSignalStrength(rainbow);
+
+          let currentSignal: string;
+          if (rainbow.currentPosition <= 30) {
+            currentSignal = "buy";
+          } else if (rainbow.currentPosition >= 70) {
+            currentSignal = "sell";
+          } else {
+            currentSignal = "neutral";
+          }
+
+          const signalData = {
+            currentPosition: rainbow.currentPosition,
+            CL: rainbow.CL,
+            clWidth: rainbow.clWidth,
+            current: rainbow.current,
+            recommendation: rainbow.recommendation,
+            currentZone: rainbow.currentZone,
+            signals: rainbow.signals,
+            lines: rainbow.lines.map(l => ({ name: l.name, price: l.price, zone: l.zone })),
+          };
+
+          const existingSignals = await storage.getWatchlistSignals(item.id);
+          if (existingSignals.length > 0) {
+            await storage.updateWatchlistSignal(existingSignals[0].id, {
+              currentSignal,
+              signalStrength: strength.toFixed(2),
+              signalData,
+              lastCalculatedAt: new Date(),
+              updatedAt: new Date(),
+            });
+          } else {
+            await storage.createWatchlistSignal({
+              watchlistId: item.id,
+              currentSignal,
+              signalStrength: strength.toFixed(2),
+              signalData,
+            });
+          }
+
+          generated++;
+          console.log(`[signal-gen] ${item.stockName}(${item.stockCode}) → ${currentSignal} (pos=${rainbow.currentPosition.toFixed(1)}%, strength=${strength})`);
+
+          if (generated + failed < watchlistItems.length) {
+            await new Promise((r) => setTimeout(r, 100));
+          }
+        } catch (err: any) {
+          failed++;
+          errors.push({ stockCode: item.stockCode, stockName: item.stockName, error: err.message });
+          console.error(`[signal-gen] ${item.stockName}(${item.stockCode}) 실패: ${err.message}`);
+        }
+      }
+
       res.json({
-        message: `관심종목 ${watchlistItems.length}개를 확인했습니다. 시그널은 뒷차기 스캔 탭에서 실행하거나, 각 종목의 시그널을 개별 추가하세요.`,
-        generated: 0,
-        watchlistCount: watchlistItems.length,
+        message: `시그널 생성 완료: ${generated}건 성공, ${failed}건 실패`,
+        generated,
+        failed,
+        total: watchlistItems.length,
+        errors: errors.length > 0 ? errors : undefined,
       });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
