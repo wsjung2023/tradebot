@@ -343,4 +343,107 @@ export function registerTradingRoutes(app: Router) {
       res.status(500).json({ error: error.message });
     }
   });
+
+  app.get("/api/trading-performance/summary", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const groupBy = (req.query.groupBy as string) || "day";
+      const startDate = req.query.startDate as string | undefined;
+      const endDate = req.query.endDate as string | undefined;
+      const modelIdParam = req.query.modelId ? Number(req.query.modelId) : undefined;
+
+      if (!["day", "month", "stock"].includes(groupBy)) {
+        return res.status(400).json({ error: "Invalid groupBy parameter" });
+      }
+      if (startDate && isNaN(new Date(startDate).getTime())) {
+        return res.status(400).json({ error: "Invalid startDate format" });
+      }
+      if (endDate && isNaN(new Date(endDate).getTime())) {
+        return res.status(400).json({ error: "Invalid endDate format" });
+      }
+
+      const models = await storage.getAiModels(user!.id);
+      if (models.length === 0) return res.json([]);
+
+      const modelIds = modelIdParam
+        ? models.filter(m => m.id === modelIdParam).map(m => m.id)
+        : models.map(m => m.id);
+      if (modelIds.length === 0) return res.json([]);
+
+      const { db: drizzleDb } = await import("../db");
+      const { sql } = await import("drizzle-orm");
+
+      const chunks: any[] = [];
+
+      let selectExpr: string;
+      let groupExpr: string;
+      let orderExpr: string;
+
+      if (groupBy === "month") {
+        selectExpr = `to_char(tp.entry_time, 'YYYY-MM') as "groupKey"`;
+        groupExpr = `to_char(tp.entry_time, 'YYYY-MM')`;
+        orderExpr = `"groupKey" ASC`;
+      } else if (groupBy === "stock") {
+        selectExpr = `tp.stock_code as "groupKey", tp.stock_name as "stockName"`;
+        groupExpr = `tp.stock_code, tp.stock_name`;
+        orderExpr = `"totalPnL" DESC`;
+      } else {
+        selectExpr = `to_char(tp.entry_time, 'YYYY-MM-DD') as "groupKey"`;
+        groupExpr = `to_char(tp.entry_time, 'YYYY-MM-DD')`;
+        orderExpr = `"groupKey" ASC`;
+      }
+
+      chunks.push(sql.raw(`
+        SELECT
+          ${selectExpr},
+          COUNT(*) FILTER (WHERE tp.exit_price IS NULL)::int as "buyCount",
+          COUNT(*) FILTER (WHERE tp.exit_price IS NOT NULL)::int as "sellCount",
+          COUNT(*)::int as "totalCount",
+          COALESCE(SUM(tp.profit_loss), 0)::numeric as "totalPnL",
+          CASE WHEN COUNT(*) FILTER (WHERE tp.is_win IS NOT NULL) > 0
+            THEN (COUNT(*) FILTER (WHERE tp.is_win = true)::numeric / NULLIF(COUNT(*) FILTER (WHERE tp.is_win IS NOT NULL), 0) * 100)
+            ELSE 0
+          END as "winRate",
+          CASE WHEN COUNT(*) FILTER (WHERE tp.profit_loss_rate IS NOT NULL) > 0
+            THEN AVG(tp.profit_loss_rate)
+            ELSE 0
+          END as "avgProfitRate"
+        FROM trading_performance tp
+        WHERE tp.model_id IN (`));
+
+      chunks.push(sql.join(modelIds.map(id => sql`${id}`), sql.raw(",")));
+      chunks.push(sql.raw(`)`));
+
+      if (startDate) {
+        chunks.push(sql` AND tp.entry_time >= ${new Date(startDate)}`);
+      }
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setDate(end.getDate() + 1);
+        chunks.push(sql` AND tp.entry_time < ${end}`);
+      }
+
+      chunks.push(sql.raw(`
+        GROUP BY ${groupExpr}
+        ORDER BY ${orderExpr}
+      `));
+
+      const finalQuery = sql.join(chunks, sql.raw(""));
+      const result = await drizzleDb.execute(finalQuery);
+
+      const rows = (result as any).rows || result;
+      res.json(rows.map((r: any) => ({
+        groupKey: r.groupKey,
+        stockName: r.stockName || undefined,
+        buyCount: Number(r.buyCount) || 0,
+        sellCount: Number(r.sellCount) || 0,
+        totalCount: Number(r.totalCount) || 0,
+        totalPnL: Number(r.totalPnL) || 0,
+        winRate: Number(Number(r.winRate).toFixed(1)) || 0,
+        avgProfitRate: Number(Number(r.avgProfitRate).toFixed(2)) || 0,
+      })));
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
 }

@@ -1,3 +1,4 @@
+import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -10,7 +11,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { format } from "date-fns";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { format, subDays } from "date-fns";
 import {
   TrendingUp,
   TrendingDown,
@@ -19,8 +22,22 @@ import {
   BarChart3,
   CheckCircle2,
   XCircle,
-  Clock
+  Calendar,
+  Loader2,
+  AlertCircle,
 } from "lucide-react";
+import {
+  BarChart,
+  Bar,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Cell,
+} from "recharts";
 
 interface Order {
   id: number;
@@ -48,18 +65,310 @@ interface TradingLog {
   createdAt: string;
 }
 
+interface PerformanceSummary {
+  groupKey: string;
+  stockName?: string;
+  buyCount: number;
+  sellCount: number;
+  totalCount: number;
+  totalPnL: number;
+  winRate: number;
+  avgProfitRate: number;
+}
+
+function formatKRW(val: number): string {
+  return val.toLocaleString("ko-KR") + "원";
+}
+
+function pnlColor(val: number): string {
+  if (val > 0) return "text-green-600 dark:text-green-400";
+  if (val < 0) return "text-red-600 dark:text-red-400";
+  return "";
+}
+
+function buildPerfUrl(groupBy: string, startDate?: string, endDate?: string): string {
+  const params = new URLSearchParams({ groupBy });
+  if (startDate) params.set("startDate", startDate);
+  if (endDate) params.set("endDate", endDate);
+  return `/api/trading-performance/summary?${params.toString()}`;
+}
+
+function DailyPerformanceTab() {
+  const [startDate, setStartDate] = useState(() => format(subDays(new Date(), 30), "yyyy-MM-dd"));
+  const [endDate, setEndDate] = useState(() => format(new Date(), "yyyy-MM-dd"));
+
+  const url = buildPerfUrl("day", startDate, endDate);
+  const { data = [], isLoading, isError } = useQuery<PerformanceSummary[]>({
+    queryKey: [url],
+  });
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Calendar className="h-4 w-4" />
+          일별 성과
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Input
+            type="date"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+            className="w-40"
+            data-testid="input-daily-start"
+          />
+          <span className="text-muted-foreground text-sm">~</span>
+          <Input
+            type="date"
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
+            className="w-40"
+            data-testid="input-daily-end"
+          />
+        </div>
+
+        {isError ? (
+          <div className="flex items-center justify-center gap-2 py-8 text-muted-foreground" data-testid="text-daily-error">
+            <AlertCircle className="h-5 w-5" />
+            <span className="text-sm">데이터를 불러올 수 없습니다</span>
+          </div>
+        ) : isLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : data.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground text-sm" data-testid="text-daily-empty">
+            거래 데이터가 없습니다
+          </div>
+        ) : (
+          <>
+            <div className="h-48">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={data}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                  <XAxis dataKey="groupKey" tick={{ fontSize: 11 }} className="fill-muted-foreground" />
+                  <YAxis tick={{ fontSize: 11 }} className="fill-muted-foreground" />
+                  <Tooltip
+                    formatter={(value: number) => formatKRW(value)}
+                    labelFormatter={(label) => `${label}`}
+                    contentStyle={{ fontSize: 12, borderRadius: 6 }}
+                  />
+                  <Bar dataKey="totalPnL" name="실현손익" radius={[3, 3, 0, 0]}>
+                    {data.map((entry, index) => (
+                      <Cell key={index} fill={entry.totalPnL >= 0 ? "#22c55e" : "#ef4444"} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>날짜</TableHead>
+                    <TableHead className="text-right">매수</TableHead>
+                    <TableHead className="text-right">매도</TableHead>
+                    <TableHead className="text-right">실현손익</TableHead>
+                    <TableHead className="text-right">승률</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.map((row) => (
+                    <TableRow key={row.groupKey} data-testid={`row-daily-${row.groupKey}`}>
+                      <TableCell className="font-mono text-sm">{row.groupKey}</TableCell>
+                      <TableCell className="text-right text-sm">{row.buyCount}건</TableCell>
+                      <TableCell className="text-right text-sm">{row.sellCount}건</TableCell>
+                      <TableCell className={`text-right font-mono text-sm ${pnlColor(row.totalPnL)}`}>
+                        {row.totalPnL > 0 ? "+" : ""}{formatKRW(row.totalPnL)}
+                      </TableCell>
+                      <TableCell className="text-right text-sm">{row.winRate}%</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function MonthlyPerformanceTab() {
+  const url = buildPerfUrl("month");
+  const { data = [], isLoading, isError } = useQuery<PerformanceSummary[]>({
+    queryKey: [url],
+  });
+
+  const cumulativeData = useMemo(() => {
+    let cumPnL = 0;
+    return data.map((row) => {
+      cumPnL += row.totalPnL;
+      return { ...row, cumulativePnL: cumPnL };
+    });
+  }, [data]);
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <BarChart3 className="h-4 w-4" />
+          월별 성과
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {isError ? (
+          <div className="flex items-center justify-center gap-2 py-8 text-muted-foreground" data-testid="text-monthly-error">
+            <AlertCircle className="h-5 w-5" />
+            <span className="text-sm">데이터를 불러올 수 없습니다</span>
+          </div>
+        ) : isLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : data.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground text-sm" data-testid="text-monthly-empty">
+            거래 데이터가 없습니다
+          </div>
+        ) : (
+          <>
+            <div className="h-48">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={cumulativeData}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                  <XAxis dataKey="groupKey" tick={{ fontSize: 11 }} className="fill-muted-foreground" />
+                  <YAxis tick={{ fontSize: 11 }} className="fill-muted-foreground" />
+                  <Tooltip
+                    formatter={(value: number) => formatKRW(value)}
+                    contentStyle={{ fontSize: 12, borderRadius: 6 }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="cumulativePnL"
+                    name="누적 수익"
+                    stroke="hsl(var(--primary))"
+                    strokeWidth={2}
+                    dot={{ r: 4 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>월</TableHead>
+                    <TableHead className="text-right">총 거래</TableHead>
+                    <TableHead className="text-right">매수</TableHead>
+                    <TableHead className="text-right">매도</TableHead>
+                    <TableHead className="text-right">실현손익</TableHead>
+                    <TableHead className="text-right">승률</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.map((row) => (
+                    <TableRow key={row.groupKey} data-testid={`row-monthly-${row.groupKey}`}>
+                      <TableCell className="font-mono text-sm">{row.groupKey}</TableCell>
+                      <TableCell className="text-right text-sm">{row.totalCount}건</TableCell>
+                      <TableCell className="text-right text-sm">{row.buyCount}건</TableCell>
+                      <TableCell className="text-right text-sm">{row.sellCount}건</TableCell>
+                      <TableCell className={`text-right font-mono text-sm ${pnlColor(row.totalPnL)}`}>
+                        {row.totalPnL > 0 ? "+" : ""}{formatKRW(row.totalPnL)}
+                      </TableCell>
+                      <TableCell className="text-right text-sm">{row.winRate}%</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function StockPerformanceTab() {
+  const url = buildPerfUrl("stock");
+  const { data = [], isLoading, isError } = useQuery<PerformanceSummary[]>({
+    queryKey: [url],
+  });
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Activity className="h-4 w-4" />
+          종목별 성과
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {isError ? (
+          <div className="flex items-center justify-center gap-2 py-8 text-muted-foreground" data-testid="text-stock-error">
+            <AlertCircle className="h-5 w-5" />
+            <span className="text-sm">데이터를 불러올 수 없습니다</span>
+          </div>
+        ) : isLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : data.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground text-sm" data-testid="text-stock-empty">
+            거래 데이터가 없습니다
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>종목</TableHead>
+                  <TableHead className="text-right">거래 횟수</TableHead>
+                  <TableHead className="text-right">평균 수익률</TableHead>
+                  <TableHead className="text-right">총 손익</TableHead>
+                  <TableHead className="text-right">승률</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data.map((row) => (
+                  <TableRow key={row.groupKey} data-testid={`row-stock-${row.groupKey}`}>
+                    <TableCell>
+                      <div className="flex flex-col">
+                        <span className="font-medium text-sm">{row.stockName || row.groupKey}</span>
+                        <span className="text-xs text-muted-foreground font-mono">{row.groupKey}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right text-sm">{row.totalCount}건</TableCell>
+                    <TableCell className={`text-right font-mono text-sm ${pnlColor(row.avgProfitRate)}`}>
+                      {row.avgProfitRate > 0 ? "+" : ""}{row.avgProfitRate.toFixed(2)}%
+                    </TableCell>
+                    <TableCell className={`text-right font-mono text-sm ${pnlColor(row.totalPnL)}`}>
+                      {row.totalPnL > 0 ? "+" : ""}{formatKRW(row.totalPnL)}
+                    </TableCell>
+                    <TableCell className="text-right text-sm">{row.winRate}%</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function TradeHistory() {
-  // Fetch all orders
   const { data: orders = [], isLoading: ordersLoading } = useQuery<Order[]>({
     queryKey: ['/api/all-orders'],
   });
 
-  // Fetch trading logs
   const { data: logs = [], isLoading: logsLoading } = useQuery<TradingLog[]>({
     queryKey: ['/api/trading-logs'],
   });
 
-  // Calculate statistics
   const completedOrders = orders.filter(o => o.orderStatus === 'completed');
   const buyOrders = completedOrders.filter(o => o.orderType === 'buy');
   const sellOrders = completedOrders.filter(o => o.orderType === 'sell');
@@ -106,7 +415,6 @@ export default function TradeHistory() {
         </div>
       </div>
 
-      {/* Statistics Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-2">
@@ -177,11 +485,13 @@ export default function TradeHistory() {
         </Card>
       </div>
 
-      {/* Tabs for Orders and Logs */}
       <Tabs defaultValue="orders" className="flex-1">
-        <TabsList>
+        <TabsList className="flex-wrap">
           <TabsTrigger value="orders" data-testid="tab-orders">주문 내역</TabsTrigger>
           <TabsTrigger value="logs" data-testid="tab-logs">거래 로그</TabsTrigger>
+          <TabsTrigger value="daily" data-testid="tab-daily">일별 성과</TabsTrigger>
+          <TabsTrigger value="monthly" data-testid="tab-monthly">월별 성과</TabsTrigger>
+          <TabsTrigger value="stock" data-testid="tab-stock">종목별 성과</TabsTrigger>
         </TabsList>
 
         <TabsContent value="orders" className="space-y-4">
@@ -302,6 +612,18 @@ export default function TradeHistory() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="daily" className="space-y-4">
+          <DailyPerformanceTab />
+        </TabsContent>
+
+        <TabsContent value="monthly" className="space-y-4">
+          <MonthlyPerformanceTab />
+        </TabsContent>
+
+        <TabsContent value="stock" className="space-y-4">
+          <StockPerformanceTab />
         </TabsContent>
       </Tabs>
     </div>
