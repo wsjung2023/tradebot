@@ -130,19 +130,23 @@ export default function Guide() {
       <SectionCard {...sections[2]}>
         <p className="text-sm text-muted-foreground">매 1분마다 실행되며, 평일 09:00–15:30 (한국 주식 시장 개장 시간) 에만 실제 매매 판단을 수행합니다.</p>
         <Code>{`[1분 사이클 — 활성 모델 순회]
-1. 한국장 개장 여부 확인 (09:00 ~ 15:30, 평일)
+1. 한국장 개장 여부 확인 (isKoreanMarketOpen)
 2. 모델별 autoTradingEnabled 확인 → false면 건너뜀
-3. ─── 청산 판단 ───
+3. 계좌·API키 확인 → 미설정 시 건너뜀
+4. 주문 동기화: 오래된 pending 만료 + 오늘 체결 상태 업데이트
+5. ─── checkPositionsForExits() ───
    보유 포지션 전체 조회 → 각 종목 현재가 조회
    → 익절/손절/급등청산/장기보유청산 조건 확인 → 매도 주문
-4. ─── 신규 매수 판단 ───
-   candidate_stocks 조회 → 미보유 종목만 필터
-   → maxPositions / maxDailyTrades 초과 체크
-   → comprehensiveAiAnalysis() 호출 (GPT 분석)
-   → 필터 통과 여부 판단
-   → 레인보우 라인 ≤ 50% 이면 매수 주문
-5. ─── 추가매수 판단 ───
-   기존 보유 종목 중 추가매수 조건 충족 시 주문`}</Code>
+6. ─── candidate_stocks 조회 ───
+   후보 없으면 "30분 스캔 대기 중" 로그 출력
+7. ─── evaluateCandidateStock() (후보 종목별) ───
+   ① requireMarketIssue 필터
+   ② comprehensiveAiAnalysis() 호출 (GPT 2개 + 거래량 점수)
+   ③ minAiConfidence / requireGoodFinancials / requireHighLiquidity / DART 필터
+   ④ 레인보우 라인 계산
+   ⑤ 미보유 종목: unitCount > 0 && currentLine ≤ 50 → executeBuy()
+      기보유 종목: 추가매수 조건 충족 시 → executeAdditionalBuy()
+      (maxPositions / maxDailyTrades는 executeBuy 내부에서 최종 확인)`}</Code>
         <Warn>시장이 닫혀 있는 시간에도 잡 자체는 실행되지만 매매 로직은 건너뜁니다. 잡 실행 ≠ 매매 실행.</Warn>
       </SectionCard>
 
@@ -151,12 +155,13 @@ export default function Guide() {
         <p className="text-sm text-muted-foreground">후보 종목 1개당 GPT 호출 2개가 병렬로 실행됩니다. 설정 → AI 모델에서 선택한 GPT 모델을 사용합니다.</p>
         <Code>{`병렬 실행:
   [A] aiService.analyzeStock()
-      입력: 종목코드, 현재가, 거래량, 레인보우 라인 데이터
+      입력: stockCode, stockName, currentPrice, rainbowChart (레인보우 차트 결과)
       GPT가 분석: 테마적합성, 모멘텀, 기술적 신호
       출력: themeScore (0~100)
+      ※ 거래량(volume)은 직접 입력되지 않음. rainbowChart 데이터에 포함된 정보로 판단
 
   [B] aiService.integratedAnalysis()
-      입력: 종목코드, 뉴스 헤드라인, DART 공시, PER/PBR/ROE
+      입력: stockCode, stockName, currentPrice, financialRatios, priceHistory(20일), news(10개), dartFilings(30일)
       GPT가 분석: 뉴스 센티멘트, 재무 건전성
       출력: newsScore (0~100), financialScore (0~100)
 
@@ -203,16 +208,17 @@ confidence = (
 
       {/* ── 6. 매수 필터 ── */}
       <SectionCard {...sections[5]}>
-        <p className="text-sm text-muted-foreground">GPT 분석 완료 후 아래 필터를 순서대로 통과해야 매수 진행. 하나라도 실패하면 해당 종목 스킵.</p>
+        <p className="text-sm text-muted-foreground">아래 필터를 순서대로 통과해야 매수 진행. 하나라도 실패하면 해당 종목 스킵. requireMarketIssue는 GPT 호출 전, 나머지는 GPT 분석 후 순서대로 적용됩니다.</p>
         <div className="space-y-2">
           {[
-            { k: "minAiConfidence", v: "confidence < 설정값(%) 이면 스킵 (예: 60이면 60점 미만 종목 제외)" },
+            { k: "requireMarketIssue", v: "ON이면 오늘 날짜 시장이슈(market_issues)에 등록된 종목만 통과 — 가장 먼저 체크" },
+            { k: "minAiConfidence", v: "confidence < 설정값이면 스킵. 0이면 비활성 (GPT 분석 직후 체크)" },
             { k: "requireGoodFinancials", v: "ON이면 financialScore < 60인 종목 매수 차단" },
             { k: "requireHighLiquidity", v: "ON이면 liquidityScore < 40인 종목 매수 차단" },
-            { k: "DART 위험공시", v: "dartDangerKeyword 있으면 무조건 매수 차단 (스캔 단계 + 매수 단계 이중 확인)" },
-            { k: "maxPositions", v: "현재 보유 종목 수 ≥ 설정값이면 신규 매수 건너뜀" },
-            { k: "maxDailyTrades", v: "오늘 자동매매 건수 ≥ 설정값이면 추가 매수 건너뜀" },
-            { k: "레인보우 라인 > 50%", v: "현재 가격이 50% 라인보다 위에 있으면 매수하지 않음" },
+            { k: "DART 위험공시", v: "dartDangerKeyword 있으면 무조건 매수 차단 (스캔 + 매수 이중 확인)" },
+            { k: "레인보우 라인 > 50%", v: "currentLine > 50 이거나 unitCount = 0이면 매수 안 함" },
+            { k: "maxPositions", v: "executeBuy() 내부에서 체크 — 보유 종목 수 ≥ 설정값이면 주문 취소" },
+            { k: "maxDailyTrades", v: "executeBuy() 내부에서 체크 — 오늘 자동매매 건수 ≥ 설정값이면 주문 취소" },
           ].map(({ k, v }) => (
             <div key={k} className="flex items-start gap-2 p-2.5 bg-muted/30 rounded-md border border-border/30">
               <Badge variant="outline" className="text-xs shrink-0 font-mono">{k}</Badge>
@@ -286,15 +292,20 @@ currentLine  = round(currentPct / 10) × 10   (클램프: 최소 10, 최대 100)
       {/* ── 10. 학습 ── */}
       <SectionCard {...sections[9]}>
         <p className="text-sm text-muted-foreground">매일 오후 4시에 자동 실행됩니다. 별도로 조작할 필요 없음.</p>
-        <Code>{`[학습 사이클]
+        <Code>{`[학습 사이클 — LearningService.optimizeModel()]
 1. 활성 AI 모델 전체 조회
-2. 각 모델별 거래 성과 분석:
+2. 각 모델별 완료 트레이드에서 성과 데이터 집계:
    - totalTrades, winRate(%), totalReturn(%)
-3. 결과에 따라 파라미터 자동 조정:
-   - winRate 낮으면 minAiConfidence 상향
-   - return 높으면 현재 설정 유지 권장
-4. 자동 적용 여부: appliedChanges = true/false
-5. 권장사항(recommendations) 콘솔 출력`}</Code>
+   - bestEntryLines / bestExitLines (라인별 승률·수익)
+3. totalTrades < 20이면 데이터 부족 → 변경 없이 종료
+4. 권장사항(recommendations) 생성:
+   - winRate < 50%: "진입 기준 강화 필요" + 최고 승률 라인 제안
+   - winRate ≥ 70%: "우수! 현재 전략 유지"
+   - 손익비 낮으면 "목표가 상향 조정 권장"
+5. 파라미터 제안:
+   - minAiConfidence = round(승리 트레이드의 평균 confidence)
+6. autoApply=true이면 DB에 즉시 적용 (appliedChanges=true)
+   autoApply=false이면 권장사항만 출력하고 적용 안 함`}</Code>
       </SectionCard>
 
       {/* ── 11. 설정 파라미터 ── */}
@@ -320,12 +331,13 @@ currentLine  = round(currentPct / 10) × 10   (클램프: 최소 10, 최대 100)
               <Row label="newsWeight" value="GPT 뉴스 센티멘트 점수 비중 (기본 15%)" />
               <Row label="financialsWeight" value="GPT 재무 점수 비중 (기본 25%)" />
               <Row label="liquidityWeight" value="거래량 유동성 점수 비중 (기본 20%)" />
-              <Row label="institutionalWeight" value="기관 거래량 점수 비중 (기본 20%)" />
+              <Row label="institutionalWeight" value="거래량 기반 기관수급 점수 비중 (기본 20%) — 별도 기관 데이터 없이 acml_vol로 산출" />
             </div>
           </div>
           <div>
-            <p className="text-sm font-semibold mb-2">AI 최소 신뢰도 필터</p>
+            <p className="text-sm font-semibold mb-2">매수 필터 설정</p>
             <div className="space-y-0.5">
+              <Row label="requireMarketIssue" value="ON: 오늘 시장이슈 DB에 등록된 종목만 매수 허용 (기본 OFF)" />
               <Row label="minAiConfidence" value="이 값 미만 confidence면 매수 스킵 (0=비활성)" />
               <Row label="requireGoodFinancials" value="ON: financialScore < 60 종목 제외" />
               <Row label="requireHighLiquidity" value="ON: liquidityScore < 40 종목 제외" />
