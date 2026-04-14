@@ -8,7 +8,6 @@ import { SettingsTrading } from "@/components/settings/SettingsTrading";
 import { SettingsNotifications } from "@/components/settings/SettingsNotifications";
 import { SettingsStockAlerts } from "@/components/settings/SettingsStockAlerts";
 import { SettingsAgentMonitor } from "@/components/settings/SettingsAgentMonitor";
-import { SettingsAI } from "@/components/settings/SettingsAI";
 import type { Alert } from "@shared/schema";
 
 export default function Settings() {
@@ -89,12 +88,6 @@ export default function Settings() {
         isPending={updateSettingsMutation.isPending} hasKiwoomKeys={s?.hasKiwoomKeys}
         onAppKeyChange={setAppKey} onAppSecretChange={setAppSecret}
         onShowSecretChange={setShowSecret} onSave={saveApiKeys}
-      />
-
-      <SettingsAI
-        aiModel={s?.aiModel}
-        isPending={updateSettingsMutation.isPending}
-        onModelChange={(value) => updateSettingsMutation.mutate({ aiModel: value })}
       />
 
       <SettingsTrading

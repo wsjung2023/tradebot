@@ -450,14 +450,14 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
           )}
         </div>
 
-        {/* AI 설정 */}
+        {/* 분석 설정 */}
         <div className="border-t pt-4 space-y-4">
-          <Label className="text-sm font-semibold">AI 설정</Label>
+          <Label className="text-sm font-semibold">분석 설정</Label>
 
-          {/* AI 최소 신뢰도 */}
+          {/* 종합 점수 최소값 */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <Label className="text-xs text-muted-foreground">AI 최소 신뢰도</Label>
+              <Label className="text-xs text-muted-foreground">종합 점수 최소값</Label>
               <span className="text-xs font-mono">{minAiConfidence}%</span>
             </div>
             <Slider
@@ -468,13 +468,13 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
               onValueChange={([v]) => setMinAiConfidence(v)}
               data-testid="slider-min-ai-confidence"
             />
-            <p className="text-xs text-muted-foreground">이 신뢰도 이상일 때만 매매 신호를 발생시킵니다</p>
+            <p className="text-xs text-muted-foreground">이 점수 이상일 때만 매매 신호를 발생시킵니다 (테마·뉴스·재무·유동성·기관 가중 합산)</p>
           </div>
 
-          {/* AI 분석 가중치 */}
+          {/* 분석 가중치 */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <Label className="text-xs text-muted-foreground">AI 분석 가중치</Label>
+              <Label className="text-xs text-muted-foreground">분석 가중치</Label>
               <span className={`text-xs font-mono ${Math.abs(themeWeight + newsWeight + financialsWeight + liquidityWeight + institutionalWeight - 100) > 0.01 ? 'text-destructive' : 'text-green-600 dark:text-green-400'}`}>
                 합계: {themeWeight + newsWeight + financialsWeight + liquidityWeight + institutionalWeight}%
               </span>
