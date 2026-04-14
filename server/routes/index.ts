@@ -37,13 +37,9 @@ export async function registerRoutes(app: Express, httpServer: Server, sessionMi
   const orderSyncService = getOrderSyncService();
   const expireAllPendingOrders = async () => {
     try {
-      const allModels = await storage.getAllAiModels();
-      const userIds = [...new Set(allModels.map(m => m.userId))];
-      for (const userId of userIds) {
-        const accounts = await storage.getKiwoomAccounts(userId);
-        for (const account of accounts) {
-          await orderSyncService.expireOldPendingOrders(account.id);
-        }
+      const accounts = await storage.getAllActiveKiwoomAccounts();
+      for (const account of accounts) {
+        await orderSyncService.expireOldPendingOrders(account.id);
       }
     } catch (e) {
       console.error('[PendingExpiry] 만료 주문 처리 실패:', e);
