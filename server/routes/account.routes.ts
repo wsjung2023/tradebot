@@ -380,7 +380,11 @@ export function registerAccountRoutes(app: Router) {
       const account = await getAuthorizedAccount(user!.id, accountId);
       if (!account) return res.status(404).json({ error: "Account not found" });
 
-      const days = req.query.days ? parseInt(req.query.days as string) : 30;
+      const daysRaw = req.query.days as string | undefined;
+      const days = daysRaw ? parseInt(daysRaw) : 30;
+      if (daysRaw && (isNaN(days) || days < 1)) {
+        return res.status(400).json({ error: "Invalid days parameter" });
+      }
       const snapshots = await storage.getAssetSnapshots(accountId, days);
       res.json(snapshots);
     } catch (error: any) {
@@ -395,16 +399,22 @@ export function registerAccountRoutes(app: Router) {
       const accountId = parseInt(req.params.accountId);
       const account = await getAuthorizedAccount(user!.id, accountId);
       if (!account) return res.status(404).json({ error: "Account not found" });
-      const limit = req.query.limit ? parseInt(req.query.limit as string) : 100;
-      let orders = await storage.getOrders(accountId, limit);
       const startDate = req.query.startDate as string | undefined;
       const endDate = req.query.endDate as string | undefined;
+      const hasDateFilter = !!(startDate || endDate);
+      const limit = hasDateFilter ? 10000 : (req.query.limit ? parseInt(req.query.limit as string) : 100);
+      if (req.query.limit && isNaN(parseInt(req.query.limit as string))) {
+        return res.status(400).json({ error: "Invalid limit parameter" });
+      }
+      let orders = await storage.getOrders(accountId, limit);
       if (startDate) {
         const start = new Date(startDate);
+        if (isNaN(start.getTime())) return res.status(400).json({ error: "Invalid startDate format" });
         orders = orders.filter(o => new Date(o.createdAt).getTime() >= start.getTime());
       }
       if (endDate) {
         const end = new Date(endDate);
+        if (isNaN(end.getTime())) return res.status(400).json({ error: "Invalid endDate format" });
         end.setDate(end.getDate() + 1);
         orders = orders.filter(o => new Date(o.createdAt).getTime() < end.getTime());
       }
