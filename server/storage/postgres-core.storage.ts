@@ -789,10 +789,10 @@ export class PostgreSQLCoreStorage {
         stockCode: schema.holdings.stockCode,
         stockName: schema.holdings.stockName,
         quantity: schema.holdings.quantity,
-        avgPrice: schema.holdings.avgPrice,
+        averagePrice: schema.holdings.averagePrice,
         currentPrice: schema.holdings.currentPrice,
         profitLoss: schema.holdings.profitLoss,
-        profitRate: schema.holdings.profitRate,
+        profitLossRate: schema.holdings.profitLossRate,
         updatedAt: schema.holdings.updatedAt,
         accountName: schema.kiwoomAccounts.accountName,
         accountNumber: schema.kiwoomAccounts.accountNumber,
@@ -801,7 +801,7 @@ export class PostgreSQLCoreStorage {
       .innerJoin(schema.kiwoomAccounts, eq(schema.holdings.accountId, schema.kiwoomAccounts.id))
       .where(eq(schema.kiwoomAccounts.userId, userId))
       .orderBy(desc(schema.holdings.updatedAt));
-    return rows as any;
+    return rows;
   }
 
   async createAssetSnapshot(data: InsertAssetSnapshot): Promise<AssetSnapshot> {
