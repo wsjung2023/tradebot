@@ -443,4 +443,31 @@ export function registerFormulaRoutes(app: Router) {
       res.status(500).json({ error: error.message });
     }
   });
+
+  app.post("/api/market-issues", isAuthenticated, async (req, res) => {
+    try {
+      const { insertMarketIssueSchema } = await import("@shared/schema");
+      const parsed = insertMarketIssueSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "invalid_input", details: parsed.error.flatten() });
+      }
+      const issue = await storage.createMarketIssue(parsed.data);
+      res.status(201).json(issue);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/market-issues/:id", isAuthenticated, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (!Number.isFinite(id) || id <= 0) {
+        return res.status(400).json({ error: "invalid_id" });
+      }
+      await storage.deleteMarketIssue(id);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
 }

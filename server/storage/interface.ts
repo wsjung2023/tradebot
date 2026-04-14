@@ -138,6 +138,7 @@ export interface IStorage {
   getMarketIssues(issueDate: string): Promise<MarketIssue[]>;
   getMarketIssuesByStock(stockCode: string): Promise<MarketIssue[]>;
   createMarketIssue(issue: InsertMarketIssue): Promise<MarketIssue>;
+  deleteMarketIssue(id: number): Promise<void>;
   deleteMarketIssues(issueDate: string): Promise<void>;
 
   // 자동매매 설정

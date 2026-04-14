@@ -165,6 +165,10 @@ export class PostgreSQLStorage extends PostgreSQLCoreStorage implements IStorage
     return result[0];
   }
 
+  async deleteMarketIssue(id: number): Promise<void> {
+    await db.delete(schema.marketIssues).where(eq(schema.marketIssues.id, id));
+  }
+
   async deleteMarketIssues(issueDate: string): Promise<void> {
     await db.delete(schema.marketIssues).where(eq(schema.marketIssues.issueDate, issueDate));
   }

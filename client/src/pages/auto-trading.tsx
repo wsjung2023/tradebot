@@ -8,6 +8,7 @@ import { AutoTradingModelList } from "@/components/auto-trading/AutoTradingModel
 import { AutoTradingSettings } from "@/components/auto-trading/AutoTradingSettings";
 import { AutoTradingRecommendations } from "@/components/auto-trading/AutoTradingRecommendations";
 import { AutoTradingLearningRecords } from "@/components/auto-trading/AutoTradingLearningRecords";
+import { MarketIssuesManager } from "@/components/auto-trading/MarketIssuesManager";
 import type { AiModel, AiRecommendation, LearningRecord } from "@shared/schema";
 import { Bot } from "lucide-react";
 
@@ -240,6 +241,7 @@ export default function AutoTrading() {
           onAccountChange={handleAccountChange}
         />
       )}
+      <MarketIssuesManager />
       <AutoTradingRecommendations recommendations={recommendations as AiRecommendation[]} />
       <AutoTradingLearningRecords
         records={filteredLearningRecords}
