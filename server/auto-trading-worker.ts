@@ -65,10 +65,23 @@ class AutoTradingWorker {
     this.stopLearningJob();
   }
 
+  private onJobRun?: (jobId: string) => void;
+  private onJobError?: (jobId: string, message: string) => void;
+
+  setJobCallbacks(onRun: (jobId: string) => void, onError: (jobId: string, message: string) => void) {
+    this.onJobRun = onRun;
+    this.onJobError = onError;
+  }
+
   startTradingJob(schedule: string) {
     if (this.cronJob) this.cronJob.stop();
     this.cronJob = cron.schedule(schedule, async () => {
-      await this.executeTradingCycle();
+      try {
+        await this.executeTradingCycle();
+        this.onJobRun?.('auto-trading');
+      } catch (err: any) {
+        this.onJobError?.('auto-trading', err?.message || 'unknown');
+      }
     });
     console.log(`✅ Auto Trading Worker started (schedule: ${schedule})`);
   }
@@ -84,7 +97,12 @@ class AutoTradingWorker {
   startScanJob(schedule: string) {
     if (this.scanJob) this.scanJob.stop();
     this.scanJob = cron.schedule(schedule, async () => {
-      await this.runScanCycle();
+      try {
+        await this.runScanCycle();
+        this.onJobRun?.('scan');
+      } catch (err: any) {
+        this.onJobError?.('scan', err?.message || 'unknown');
+      }
     });
     console.log(`✅ Scan Job started (schedule: ${schedule})`);
   }
@@ -171,7 +189,12 @@ class AutoTradingWorker {
   startLearningJob(schedule: string) {
     if (this.learningJob) this.learningJob.stop();
     this.learningJob = cron.schedule(schedule, async () => {
-      await this.executeLearningCycleWrapper();
+      try {
+        await this.executeLearningCycleWrapper();
+        this.onJobRun?.('learning');
+      } catch (err: any) {
+        this.onJobError?.('learning', err?.message || 'unknown');
+      }
     });
     console.log(`✅ Learning System started (schedule: ${schedule})`);
   }

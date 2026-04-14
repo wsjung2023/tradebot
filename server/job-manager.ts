@@ -246,3 +246,8 @@ class JobManager {
 }
 
 export const jobManager = new JobManager();
+
+autoTradingWorker.setJobCallbacks(
+  (jobId: string) => jobManager.recordRun(jobId),
+  (jobId: string, message: string) => jobManager.recordError(jobId, message),
+);
