@@ -614,8 +614,9 @@ export class TradeExecutorService {
         orderMethod: 'market',
       });
 
-      let profitLoss = 0;
-      let profitLossRate = 0;
+      const holdingAvgPrice = parseFloat(holding.averagePrice?.toString() || '0');
+      let profitLoss = holdingAvgPrice > 0 ? (stock.price - holdingAvgPrice) * sellQuantity : 0;
+      let profitLossRate = holdingAvgPrice > 0 ? ((stock.price / holdingAvgPrice) - 1) * 100 : 0;
       const perfEntry = await storage.getTradingPerformanceByStock(model.id, stock.code);
       if (perfEntry) {
         profitLoss = (stock.price - parseFloat(perfEntry.entryPrice.toString())) * sellQuantity;
