@@ -21,8 +21,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { StockSelector } from "@/components/stocks/StockSelector";
 import { Newspaper, Plus, Trash2, CalendarDays, Loader2 } from "lucide-react";
 import type { MarketIssue } from "@shared/schema";
+import type { SelectedStock } from "@/lib/stocks";
 
 const ISSUE_TYPES = [
   { value: "news", label: "뉴스" },
@@ -60,12 +62,10 @@ function impactBadgeVariant(level: string) {
 export function MarketIssuesManager() {
   const { toast } = useToast();
   const [selectedDate, setSelectedDate] = useState(todayKST());
-  const [stockCode, setStockCode] = useState("");
-  const [stockName, setStockName] = useState("");
+  const [selectedStock, setSelectedStock] = useState<SelectedStock | null>(null);
   const [issueType, setIssueType] = useState<string>("theme");
   const [impactLevel, setImpactLevel] = useState<string>("medium");
   const [issueTitle, setIssueTitle] = useState("");
-  const [issueDescription, setIssueDescription] = useState("");
 
   const dateForInput = selectedDate.length === 8
     ? `${selectedDate.slice(0, 4)}-${selectedDate.slice(4, 6)}-${selectedDate.slice(6, 8)}`
@@ -86,10 +86,8 @@ export function MarketIssuesManager() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/market-issues", selectedDate] });
-      setStockCode("");
-      setStockName("");
+      setSelectedStock(null);
       setIssueTitle("");
-      setIssueDescription("");
       toast({ title: "시장 이슈 종목 등록됨" });
     },
     onError: (e: any) => toast({ variant: "destructive", title: "등록 실패", description: e.message }),
@@ -107,22 +105,17 @@ export function MarketIssuesManager() {
   });
 
   const handleCreate = () => {
-    if (!stockCode.trim()) {
-      toast({ variant: "destructive", title: "종목코드를 입력하세요" });
-      return;
-    }
-    if (!stockName.trim()) {
-      toast({ variant: "destructive", title: "종목명을 입력하세요" });
+    if (!selectedStock) {
+      toast({ variant: "destructive", title: "종목을 검색하여 선택하세요" });
       return;
     }
     createMutation.mutate({
       issueDate: selectedDate,
-      stockCode: stockCode.trim(),
-      stockName: stockName.trim(),
+      stockCode: selectedStock.stockCode,
+      stockName: selectedStock.stockName,
       issueType,
       impactLevel,
       issueTitle: issueTitle.trim() || undefined,
-      issueDescription: issueDescription.trim() || undefined,
     });
   };
 
@@ -150,24 +143,14 @@ export function MarketIssuesManager() {
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex flex-wrap items-end gap-2">
-          <div className="space-y-1">
-            <label className="text-xs text-muted-foreground">종목코드</label>
-            <Input
-              placeholder="005930"
-              value={stockCode}
-              onChange={(e) => setStockCode(e.target.value)}
-              className="w-[100px]"
-              data-testid="input-market-issue-stock-code"
-            />
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs text-muted-foreground">종목명</label>
-            <Input
-              placeholder="삼성전자"
-              value={stockName}
-              onChange={(e) => setStockName(e.target.value)}
-              className="w-[120px]"
-              data-testid="input-market-issue-stock-name"
+          <div className="space-y-1 min-w-[220px]">
+            <label className="text-xs text-muted-foreground">종목 검색</label>
+            <StockSelector
+              value={selectedStock}
+              onChange={setSelectedStock}
+              placeholder="종목명 또는 코드 검색"
+              inputTestId="input-market-issue-stock-search"
+              allowManualCode
             />
           </div>
           <div className="space-y-1">
@@ -208,7 +191,7 @@ export function MarketIssuesManager() {
           </div>
           <Button
             onClick={handleCreate}
-            disabled={createMutation.isPending}
+            disabled={createMutation.isPending || !selectedStock}
             data-testid="button-create-market-issue"
           >
             {createMutation.isPending ? (
