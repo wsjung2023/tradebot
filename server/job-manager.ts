@@ -145,7 +145,7 @@ class JobManager {
   }
 
   async stopJob(id: string): Promise<{ success: boolean; message: string }> {
-    if (id === 'auto-trading') {
+    if (id === 'scan' || id === 'auto-trading') {
       const allModels = await storage.getActiveAiModels();
       for (const model of allModels) {
         await storage.updateUserSettings(model.userId, { autoTradingEnabled: false });
@@ -172,12 +172,15 @@ class JobManager {
     state.intervalMinutes = intervalMinutes;
     const schedule = this.minutesToCron(intervalMinutes);
 
-    const wasRunning = id === 'auto-trading'
-      ? autoTradingWorker.isTradingJobRunning()
-      : autoTradingWorker.isLearningJobRunning();
+    let wasRunning = false;
+    if (id === 'scan' || id === 'auto-trading') {
+      wasRunning = autoTradingWorker.isTradingJobRunning() || autoTradingWorker.isScanJobRunning();
+    } else if (id === 'learning') {
+      wasRunning = autoTradingWorker.isLearningJobRunning();
+    }
 
     if (wasRunning) {
-      if (id === 'auto-trading') {
+      if (id === 'scan' || id === 'auto-trading') {
         autoTradingWorker.startScanJob('*/30 * * * *');
         autoTradingWorker.startTradingJob(schedule);
       }
@@ -192,7 +195,7 @@ class JobManager {
       const state = this.jobStates.get(id);
       if (!state) return { success: false, message: '잡을 찾을 수 없습니다.' };
 
-      if (id === 'auto-trading') {
+      if (id === 'scan' || id === 'auto-trading') {
         state.runCount++;
         state.lastRun = new Date();
         await autoTradingWorker.runTradingNow();
