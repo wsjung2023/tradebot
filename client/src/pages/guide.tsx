@@ -1,407 +1,354 @@
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { 
-  UserPlus, 
-  Wallet, 
-  TrendingUp, 
-  Bot, 
-  AlertCircle, 
-  Settings, 
-  BarChart3,
-  ArrowRight,
-  CheckCircle2,
-  Zap
+import { useState } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import {
+  Clock, Brain, TrendingUp, Filter, ShoppingCart, TrendingDown,
+  GraduationCap, Settings2, Database, Cpu, Zap, AlertTriangle,
+  ChevronDown, ChevronRight, BarChart3, Layers
 } from "lucide-react";
+
+interface Section {
+  id: string;
+  title: string;
+  icon: any;
+  color: string;
+  badge?: string;
+}
+
+const sections: Section[] = [
+  { id: "architecture", title: "전체 아키텍처", icon: Layers, color: "neon-cyan", badge: "개요" },
+  { id: "scan", title: "스캔 배치잡 (30분 주기)", icon: Database, color: "neon-purple", badge: "CRON" },
+  { id: "trading", title: "매매 배치잡 (1분 주기)", icon: Zap, color: "neon-green", badge: "CRON" },
+  { id: "gpt", title: "GPT 분석 프로세스", icon: Brain, color: "neon-cyan", badge: "AI" },
+  { id: "confidence", title: "신뢰도(Confidence) 산출", icon: BarChart3, color: "neon-purple", badge: "산식" },
+  { id: "filter", title: "매수 필터 체계", icon: Filter, color: "neon-green", badge: "필터" },
+  { id: "rainbow", title: "레인보우 라인 체계", icon: TrendingUp, color: "neon-cyan", badge: "진입" },
+  { id: "buy", title: "매수 / 추가매수 로직", icon: ShoppingCart, color: "neon-purple", badge: "매수" },
+  { id: "sell", title: "청산 로직", icon: TrendingDown, color: "neon-green", badge: "매도" },
+  { id: "learning", title: "야간 학습 사이클 (매일 16:00)", icon: GraduationCap, color: "neon-cyan", badge: "학습" },
+  { id: "settings", title: "설정 파라미터 전체 목록", icon: Settings2, color: "neon-purple", badge: "설정" },
+  { id: "accounts", title: "계좌 구성 & 제어 방법", icon: Cpu, color: "neon-green", badge: "계좌" },
+];
+
+function Row({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div className="flex justify-between items-start gap-4 py-1.5 border-b border-border/30 last:border-0">
+      <span className="text-sm text-muted-foreground shrink-0">{label}</span>
+      <span className={`text-sm text-right ${mono ? "font-mono" : ""}`}>{value}</span>
+    </div>
+  );
+}
+
+function Code({ children }: { children: string }) {
+  return (
+    <pre className="bg-muted/40 rounded-md p-3 text-xs font-mono overflow-x-auto whitespace-pre-wrap border border-border/30">
+      {children}
+    </pre>
+  );
+}
+
+function SectionCard({ id, title, icon: Icon, color, badge, children }: Section & { children: React.ReactNode }) {
+  const [open, setOpen] = useState(true);
+  return (
+    <Card className={`border-[hsl(var(--${color}))]/25`} id={id}>
+      <CardHeader
+        className="cursor-pointer select-none flex flex-row items-center justify-between gap-2 pb-3 flex-wrap"
+        onClick={() => setOpen(o => !o)}
+      >
+        <div className="flex items-center gap-3">
+          <div className={`w-9 h-9 rounded-full bg-[hsl(var(--${color}))]/15 flex items-center justify-center shrink-0`}>
+            <Icon className={`w-4 h-4 text-[hsl(var(--${color}))]`} />
+          </div>
+          <CardTitle className="text-base">{title}</CardTitle>
+          {badge && <Badge variant="outline" className={`text-[hsl(var(--${color}))] border-[hsl(var(--${color}))]/40 text-xs`}>{badge}</Badge>}
+        </div>
+        {open ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
+      </CardHeader>
+      {open && <CardContent className="space-y-4 pt-0">{children}</CardContent>}
+    </Card>
+  );
+}
+
+function Warn({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-2 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-md">
+      <AlertTriangle className="w-4 h-4 text-yellow-500 mt-0.5 shrink-0" />
+      <p className="text-sm">{children}</p>
+    </div>
+  );
+}
 
 export default function Guide() {
   return (
-    <div className="relative min-h-screen">
-      {/* Animated gradient background */}
-      <div className="fixed inset-0 bg-gradient-to-br from-[hsl(var(--background))] via-[hsl(var(--neon-cyan))]/5 to-[hsl(var(--neon-purple))]/5 animate-gradient-flow -z-10" />
-      
-      <div className="p-6 space-y-6 relative z-0 max-w-5xl mx-auto">
-        {/* Header */}
-        <div className="text-center mb-12">
-          <h1 className="text-4xl md:text-5xl font-bold text-gradient-cyber mb-4" data-testid="text-guide-title">
-            시작 가이드
-          </h1>
-          <p className="text-lg text-muted-foreground">
-            키움 AI 자동매매 플랫폼 사용 방법을 단계별로 안내합니다
-          </p>
-        </div>
+    <div className="p-4 md:p-6 max-w-4xl mx-auto space-y-5" data-testid="text-guide-title">
 
-        {/* Step 1: 회원가입 */}
-        <Card className="hover-elevate border-[hsl(var(--neon-cyan))]/20">
-          <CardHeader>
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-[hsl(var(--neon-cyan))]/20 flex items-center justify-center">
-                <span className="text-xl font-bold text-[hsl(var(--neon-cyan))]">1</span>
-              </div>
-              <div>
-                <CardTitle className="flex items-center gap-2">
-                  <UserPlus className="w-5 h-5 text-[hsl(var(--neon-cyan))]" />
-                  회원가입 및 로그인
-                </CardTitle>
-                <CardDescription>플랫폼 사용을 위한 계정 생성</CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex items-start gap-3">
-              <CheckCircle2 className="w-5 h-5 text-[hsl(var(--neon-green))] mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="font-medium">이메일로 회원가입</p>
-                <p className="text-sm text-muted-foreground">
-                  이메일과 비밀번호를 입력하여 계정을 생성하세요 (비밀번호 최소 8자)
-                </p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3">
-              <CheckCircle2 className="w-5 h-5 text-[hsl(var(--neon-green))] mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="font-medium">Google 간편 로그인</p>
-                <p className="text-sm text-muted-foreground">
-                  Google 계정으로 빠르게 로그인할 수 있습니다
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Step 2: 계좌 연동 */}
-        <Card className="hover-elevate border-[hsl(var(--neon-purple))]/20">
-          <CardHeader>
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-[hsl(var(--neon-purple))]/20 flex items-center justify-center">
-                <span className="text-xl font-bold text-[hsl(var(--neon-purple))]">2</span>
-              </div>
-              <div>
-                <CardTitle className="flex items-center gap-2">
-                  <Wallet className="w-5 h-5 text-[hsl(var(--neon-purple))]" />
-                  키움증권 계좌 연동
-                </CardTitle>
-                <CardDescription>거래를 위한 증권 계좌 등록</CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex items-start gap-3">
-              <ArrowRight className="w-5 h-5 text-[hsl(var(--neon-purple))] mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="font-medium">대시보드에서 '계좌 추가' 클릭</p>
-                <p className="text-sm text-muted-foreground">
-                  로그인 후 대시보드 우측 상단의 '계좌 추가' 버튼을 누르세요
-                </p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3">
-              <ArrowRight className="w-5 h-5 text-[hsl(var(--neon-purple))] mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="font-medium">계좌번호 입력</p>
-                <p className="text-sm text-muted-foreground">
-                  키움증권 계좌번호를 입력하세요 (하이픈 없이 숫자만 입력 권장)
-                </p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3">
-              <ArrowRight className="w-5 h-5 text-[hsl(var(--neon-purple))] mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="font-medium">계좌 유형 선택</p>
-                <p className="text-sm text-muted-foreground">
-                  실계좌 또는 모의투자 계좌를 선택하세요 (처음에는 모의투자 권장)
-                </p>
-              </div>
-            </div>
-            <div className="mt-4 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-md">
-              <div className="flex items-start gap-2">
-                <AlertCircle className="w-5 h-5 text-yellow-500 mt-0.5 flex-shrink-0" />
-                <div>
-                  <p className="text-sm font-medium text-yellow-500">안전 팁</p>
-                  <p className="text-sm text-muted-foreground">
-                    처음에는 모의투자로 시작하여 시스템에 익숙해진 후 실계좌를 사용하세요
-                  </p>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Step 3: 대시보드 확인 */}
-        <Card className="hover-elevate border-[hsl(var(--neon-green))]/20">
-          <CardHeader>
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-[hsl(var(--neon-green))]/20 flex items-center justify-center">
-                <span className="text-xl font-bold text-[hsl(var(--neon-green))]">3</span>
-              </div>
-              <div>
-                <CardTitle className="flex items-center gap-2">
-                  <BarChart3 className="w-5 h-5 text-[hsl(var(--neon-green))]" />
-                  대시보드 활용
-                </CardTitle>
-                <CardDescription>실시간 자산 현황 모니터링</CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="grid md:grid-cols-2 gap-3">
-              <div className="p-3 bg-card/50 rounded-md border">
-                <p className="font-medium text-sm mb-1">총 자산</p>
-                <p className="text-xs text-muted-foreground">
-                  현재 보유 중인 총 자산 금액을 실시간으로 확인
-                </p>
-              </div>
-              <div className="p-3 bg-card/50 rounded-md border">
-                <p className="font-medium text-sm mb-1">오늘 수익</p>
-                <p className="text-xs text-muted-foreground">
-                  당일 수익률과 수익금을 실시간 업데이트
-                </p>
-              </div>
-              <div className="p-3 bg-card/50 rounded-md border">
-                <p className="font-medium text-sm mb-1">포트폴리오 구성</p>
-                <p className="text-xs text-muted-foreground">
-                  종목별 보유 비중을 차트로 시각화
-                </p>
-              </div>
-              <div className="p-3 bg-card/50 rounded-md border">
-                <p className="font-medium text-sm mb-1">자산 추이</p>
-                <p className="text-xs text-muted-foreground">
-                  최근 30일간 자산 변화를 그래프로 확인
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Step 4: 수동 거래 */}
-        <Card className="hover-elevate border-[hsl(var(--neon-cyan))]/20">
-          <CardHeader>
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-[hsl(var(--neon-cyan))]/20 flex items-center justify-center">
-                <span className="text-xl font-bold text-[hsl(var(--neon-cyan))]">4</span>
-              </div>
-              <div>
-                <CardTitle className="flex items-center gap-2">
-                  <TrendingUp className="w-5 h-5 text-[hsl(var(--neon-cyan))]" />
-                  주식 거래하기
-                </CardTitle>
-                <CardDescription>실시간 호가와 차트를 보며 직접 매매</CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex items-start gap-3">
-              <ArrowRight className="w-5 h-5 text-[hsl(var(--neon-cyan))] mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="font-medium">거래 메뉴 이동</p>
-                <p className="text-sm text-muted-foreground">
-                  좌측 메뉴에서 '거래' 탭을 클릭하세요
-                </p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3">
-              <ArrowRight className="w-5 h-5 text-[hsl(var(--neon-cyan))] mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="font-medium">종목 검색</p>
-                <p className="text-sm text-muted-foreground">
-                  종목코드 또는 종목명으로 원하는 주식을 검색하세요 (예: 삼성전자, 005930)
-                </p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3">
-              <ArrowRight className="w-5 h-5 text-[hsl(var(--neon-cyan))] mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="font-medium">실시간 정보 확인</p>
-                <p className="text-sm text-muted-foreground">
-                  현재가, 일봉 차트, 호가 10단을 확인하며 매매 타이밍 결정
-                </p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3">
-              <ArrowRight className="w-5 h-5 text-[hsl(var(--neon-cyan))] mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="font-medium">주문 실행</p>
-                <p className="text-sm text-muted-foreground">
-                  매수/매도, 가격, 수량을 입력하고 주문 버튼을 클릭하세요
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Step 5: AI 분석 활용 */}
-        <Card className="hover-elevate border-[hsl(var(--neon-purple))]/20">
-          <CardHeader>
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-[hsl(var(--neon-purple))]/20 flex items-center justify-center">
-                <span className="text-xl font-bold text-[hsl(var(--neon-purple))]">5</span>
-              </div>
-              <div>
-                <CardTitle className="flex items-center gap-2">
-                  <Bot className="w-5 h-5 text-[hsl(var(--neon-purple))]" />
-                  AI 분석 활용
-                </CardTitle>
-                <CardDescription>GPT-4 기반 종목 분석 및 추천</CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex items-start gap-3">
-              <CheckCircle2 className="w-5 h-5 text-[hsl(var(--neon-green))] mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="font-medium">종목 분석 요청</p>
-                <p className="text-sm text-muted-foreground">
-                  'AI 분석' 메뉴에서 종목코드를 입력하면 GPT-4가 실시간 분석 제공
-                </p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3">
-              <CheckCircle2 className="w-5 h-5 text-[hsl(var(--neon-green))] mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="font-medium">포트폴리오 최적화</p>
-                <p className="text-sm text-muted-foreground">
-                  현재 보유 종목을 분석하여 최적의 포트폴리오 구성 추천
-                </p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3">
-              <CheckCircle2 className="w-5 h-5 text-[hsl(var(--neon-green))] mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="font-medium">신뢰도 점수 확인</p>
-                <p className="text-sm text-muted-foreground">
-                  AI가 제시하는 신뢰도 점수를 참고하여 투자 결정
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Step 6: 자동매매 설정 */}
-        <Card className="hover-elevate border-[hsl(var(--neon-green))]/20">
-          <CardHeader>
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-[hsl(var(--neon-green))]/20 flex items-center justify-center">
-                <span className="text-xl font-bold text-[hsl(var(--neon-green))]">6</span>
-              </div>
-              <div>
-                <CardTitle className="flex items-center gap-2">
-                  <Zap className="w-5 h-5 text-[hsl(var(--neon-green))]" />
-                  AI 자동매매 시작
-                </CardTitle>
-                <CardDescription>AI가 자동으로 매매하도록 설정</CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex items-start gap-3">
-              <ArrowRight className="w-5 h-5 text-[hsl(var(--neon-green))] mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="font-medium">자동매매 모델 생성</p>
-                <p className="text-sm text-muted-foreground">
-                  '자동매매' 메뉴에서 새 모델을 생성하고 투자 전략, 위험도, 예산을 설정
-                </p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3">
-              <ArrowRight className="w-5 h-5 text-[hsl(var(--neon-green))] mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="font-medium">모델 활성화</p>
-                <p className="text-sm text-muted-foreground">
-                  생성한 모델을 활성화하면 AI가 자동으로 시장을 분석하고 매매 실행
-                </p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3">
-              <ArrowRight className="w-5 h-5 text-[hsl(var(--neon-green))] mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="font-medium">실시간 모니터링</p>
-                <p className="text-sm text-muted-foreground">
-                  AI 추천 내역과 자동 실행된 거래를 실시간으로 확인
-                </p>
-              </div>
-            </div>
-            <div className="mt-4 p-3 bg-red-500/10 border border-red-500/20 rounded-md">
-              <div className="flex items-start gap-2">
-                <AlertCircle className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0" />
-                <div>
-                  <p className="text-sm font-medium text-red-500">중요 주의사항</p>
-                  <p className="text-sm text-muted-foreground">
-                    자동매매는 반드시 모의투자로 충분히 테스트한 후 실계좌에 적용하세요
-                  </p>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Step 7: 거래 내역 및 설정 */}
-        <Card className="hover-elevate border-[hsl(var(--neon-cyan))]/20">
-          <CardHeader>
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-[hsl(var(--neon-cyan))]/20 flex items-center justify-center">
-                <span className="text-xl font-bold text-[hsl(var(--neon-cyan))]">7</span>
-              </div>
-              <div>
-                <CardTitle className="flex items-center gap-2">
-                  <Settings className="w-5 h-5 text-[hsl(var(--neon-cyan))]" />
-                  거래 내역 및 설정
-                </CardTitle>
-                <CardDescription>거래 이력 확인 및 시스템 설정</CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex items-start gap-3">
-              <CheckCircle2 className="w-5 h-5 text-[hsl(var(--neon-green))] mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="font-medium">거래 내역 조회</p>
-                <p className="text-sm text-muted-foreground">
-                  '거래 내역' 메뉴에서 주문/체결 내역과 상세 거래 로그 확인
-                </p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3">
-              <CheckCircle2 className="w-5 h-5 text-[hsl(var(--neon-green))] mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="font-medium">관심종목 관리</p>
-                <p className="text-sm text-muted-foreground">
-                  관심 있는 종목을 등록하고 가격 알림을 설정하세요
-                </p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3">
-              <CheckCircle2 className="w-5 h-5 text-[hsl(var(--neon-green))] mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="font-medium">시스템 설정</p>
-                <p className="text-sm text-muted-foreground">
-                  '설정' 메뉴에서 거래 모드(실전/모의), 알림 설정 등을 변경
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Bottom CTA */}
-        <div className="mt-12 text-center">
-          <Card className="glass-card border-[hsl(var(--neon-purple))]/30">
-            <CardContent className="py-8">
-              <Bot className="w-16 h-16 mx-auto mb-4 text-[hsl(var(--neon-purple))] animate-pulse-glow" />
-              <h3 className="text-2xl font-bold mb-2 text-gradient-cyber">
-                준비 완료!
-              </h3>
-              <p className="text-muted-foreground mb-6">
-                이제 키움 AI 자동매매 플랫폼을 완벽하게 활용할 수 있습니다
-              </p>
-              <div className="flex justify-center gap-4">
-                <a 
-                  href="/"
-                  className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-gradient-to-r from-[hsl(var(--neon-cyan))] to-[hsl(var(--neon-purple))] text-white hover:opacity-90 h-10 px-6"
-                >
-                  대시보드로 이동
-                </a>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+      <div className="mb-6">
+        <h1 className="text-3xl font-bold mb-1">시스템 운영 매뉴얼</h1>
+        <p className="text-muted-foreground text-sm">키움 AI 자동매매 플랫폼 — 실제 작동 방식 완전 기술서</p>
       </div>
+
+      {/* ── 1. 전체 아키텍처 ── */}
+      <SectionCard {...sections[0]}>
+        <p className="text-sm text-muted-foreground">세 개의 독립 cron 잡이 서버에서 상시 실행됩니다. 배치잡은 서버 시작 시 자동으로 켜지지 않으며, 자동매매 페이지에서 직접 시작해야 합니다.</p>
+        <Code>{`[스캔잡]    매 30분  →  뒷차기2 조건검색 → DART 필터 → candidate_stocks DB 저장
+[매매잡]    매  1분  →  후보종목 → 레인보우 → GPT분석 → confidence → 매수/청산
+[학습잡]    매일 16:00 →  AI모델 성과분석 → 파라미터 자동 최적화`}</Code>
+        <div className="grid md:grid-cols-3 gap-3">
+          {[
+            { t: "키움 에이전트", d: "PC에서 실행되는 키움 Open API 프록시. 서버와 HTTP로 통신하며 실시간 시세·주문을 처리" },
+            { t: "서버 (Node.js)", d: "cron 스케줄러, GPT 호출, DART 조회, 레인보우 계산, 주문 실행 모두 서버에서 처리" },
+            { t: "PostgreSQL", d: "candidate_stocks, auto_trading_positions, auto_trading_logs, ai_models 등 핵심 테이블 보관" },
+          ].map(({ t, d }) => (
+            <div key={t} className="p-3 bg-muted/30 rounded-md border border-border/30">
+              <p className="text-sm font-semibold mb-1">{t}</p>
+              <p className="text-xs text-muted-foreground">{d}</p>
+            </div>
+          ))}
+        </div>
+      </SectionCard>
+
+      {/* ── 2. 스캔 배치잡 ── */}
+      <SectionCard {...sections[1]}>
+        <p className="text-sm text-muted-foreground">30분마다 키움 조건검색을 실행하고, 위험 공시가 없는 종목만 후보로 DB에 저장합니다.</p>
+        <Code>{`1. 활성 AI 모델 전체 조회 (status = 'active')
+2. 각 모델의 키움 계좌로 조건검색 실행 (뒷차기2)
+3. 결과 종목 순회:
+   a. DART API 조회 → 위험 공시 키워드 포함 시 제외
+   b. 통과 종목 → candidate_stocks 테이블에 upsert (source = '뒷차기2')
+4. 조건검색 결과 0건이면 기존 후보 전체 삭제 (초기화)`}</Code>
+        <div className="p-3 bg-muted/30 rounded-md border border-border/30">
+          <p className="text-sm font-semibold mb-2">DART 위험 공시 차단 키워드 (13종)</p>
+          <div className="flex flex-wrap gap-1.5">
+            {['유상증자','전환사채','신주인수권부사채','횡령','배임','관리종목','상장폐지','영업정지','파산','회생절차','불성실공시','투자경고','투자위험'].map(k => (
+              <Badge key={k} variant="outline" className="text-xs text-red-500 border-red-500/30">{k}</Badge>
+            ))}
+          </div>
+        </div>
+      </SectionCard>
+
+      {/* ── 3. 매매 배치잡 ── */}
+      <SectionCard {...sections[2]}>
+        <p className="text-sm text-muted-foreground">매 1분마다 실행되며, 평일 09:00–15:30 (한국 주식 시장 개장 시간) 에만 실제 매매 판단을 수행합니다.</p>
+        <Code>{`[1분 사이클 — 활성 모델 순회]
+1. 한국장 개장 여부 확인 (09:00 ~ 15:30, 평일)
+2. 모델별 autoTradingEnabled 확인 → false면 건너뜀
+3. ─── 청산 판단 ───
+   보유 포지션 전체 조회 → 각 종목 현재가 조회
+   → 익절/손절/급등청산/장기보유청산 조건 확인 → 매도 주문
+4. ─── 신규 매수 판단 ───
+   candidate_stocks 조회 → 미보유 종목만 필터
+   → maxPositions / maxDailyTrades 초과 체크
+   → comprehensiveAiAnalysis() 호출 (GPT 분석)
+   → 필터 통과 여부 판단
+   → 레인보우 라인 ≤ 50% 이면 매수 주문
+5. ─── 추가매수 판단 ───
+   기존 보유 종목 중 추가매수 조건 충족 시 주문`}</Code>
+        <Warn>시장이 닫혀 있는 시간에도 잡 자체는 실행되지만 매매 로직은 건너뜁니다. 잡 실행 ≠ 매매 실행.</Warn>
+      </SectionCard>
+
+      {/* ── 4. GPT 분석 ── */}
+      <SectionCard {...sections[3]}>
+        <p className="text-sm text-muted-foreground">후보 종목 1개당 GPT 호출 2개가 병렬로 실행됩니다. 설정 → AI 모델에서 선택한 GPT 모델을 사용합니다.</p>
+        <Code>{`병렬 실행:
+  [A] aiService.analyzeStock()
+      입력: 종목코드, 현재가, 거래량, 레인보우 라인 데이터
+      GPT가 분석: 테마적합성, 모멘텀, 기술적 신호
+      출력: themeScore (0~100)
+
+  [B] aiService.integratedAnalysis()
+      입력: 종목코드, 뉴스 헤드라인, DART 공시, PER/PBR/ROE
+      GPT가 분석: 뉴스 센티멘트, 재무 건전성
+      출력: newsScore (0~100), financialScore (0~100)
+
+[C] 규칙 기반 (GPT 미사용):
+  liquidityScore    거래량 기준
+    ≥ 500,000주 → 80점
+    ≥ 100,000주 → 65점
+    ≥  50,000주 → 45점
+    그 외       → 25점
+
+  institutionalScore  기관 거래량 기준
+    ≥ 1,000,000주 → 75점
+    ≥   500,000주 → 65점
+    ≥   100,000주 → 55점
+    ≥    50,000주 → 45점
+    그 외          → 35점`}</Code>
+      </SectionCard>
+
+      {/* ── 5. Confidence 산출 ── */}
+      <SectionCard {...sections[4]}>
+        <p className="text-sm text-muted-foreground">5개 점수를 자동매매 설정의 "AI 분석 가중치" 슬라이더 값으로 가중합산합니다. 기본 합계는 100%이어야 합니다.</p>
+        <Code>{`confidence =
+  themeScore        × (themeWeight        / 100)   [기본: 20%]
++ newsScore         × (newsWeight         / 100)   [기본: 15%]
++ financialScore    × (financialsWeight   / 100)   [기본: 25%]
++ liquidityScore    × (liquidityWeight    / 100)   [기본: 20%]
++ institutionalScore× (institutionalWeight/ 100)   [기본: 20%]
+
+결과 범위: 0 ~ 100점`}</Code>
+        <div className="space-y-1">
+          <Row label="hasGoodFinancials 판정" value="financialScore ≥ 60 이면 true" />
+          <Row label="hasHighLiquidity 판정" value="liquidityScore ≥ 40 이면 true" />
+        </div>
+      </SectionCard>
+
+      {/* ── 6. 매수 필터 ── */}
+      <SectionCard {...sections[5]}>
+        <p className="text-sm text-muted-foreground">GPT 분석 완료 후 아래 필터를 순서대로 통과해야 매수 진행. 하나라도 실패하면 해당 종목 스킵.</p>
+        <div className="space-y-2">
+          {[
+            { k: "minAiConfidence", v: "confidence < 설정값(%) 이면 스킵 (예: 60이면 60점 미만 종목 제외)" },
+            { k: "requireGoodFinancials", v: "ON이면 financialScore < 60인 종목 매수 차단" },
+            { k: "requireHighLiquidity", v: "ON이면 liquidityScore < 40인 종목 매수 차단" },
+            { k: "DART 위험공시", v: "dartDangerKeyword 있으면 무조건 매수 차단 (스캔 단계 + 매수 단계 이중 확인)" },
+            { k: "maxPositions", v: "현재 보유 종목 수 ≥ 설정값이면 신규 매수 건너뜀" },
+            { k: "maxDailyTrades", v: "오늘 자동매매 건수 ≥ 설정값이면 추가 매수 건너뜀" },
+            { k: "레인보우 라인 > 50%", v: "현재 가격이 50% 라인보다 위에 있으면 매수하지 않음" },
+          ].map(({ k, v }) => (
+            <div key={k} className="flex items-start gap-2 p-2.5 bg-muted/30 rounded-md border border-border/30">
+              <Badge variant="outline" className="text-xs shrink-0 font-mono">{k}</Badge>
+              <p className="text-xs text-muted-foreground">{v}</p>
+            </div>
+          ))}
+        </div>
+      </SectionCard>
+
+      {/* ── 7. 레인보우 라인 ── */}
+      <SectionCard {...sections[6]}>
+        <p className="text-sm text-muted-foreground">레인보우 라인은 현재가가 과거 구간 고점 대비 어느 위치인지를 10% 단위로 나타냅니다. 낮을수록 저점권.</p>
+        <Code>{`currentLine = round(현재가 / 과거고점 × 100 ÷ 10) × 10
+→ 결과: 10, 20, 30, 40, 50, 60, 70, 80, 90, 100
+
+자동매매 설정 > "레인보우 라인 설정"에서 라인별 유닛 수 지정:
+  예) 10% 라인 → 3유닛, 20% 라인 → 2유닛, 30% 라인 → 1유닛
+
+매수 조건: currentLine ≤ 50 이고 해당 라인 유닛 수 > 0`}</Code>
+        <div className="grid grid-cols-5 gap-1.5">
+          {[10,20,30,40,50,60,70,80,90,100].map(l => (
+            <div key={l} className={`p-2 rounded-md text-center text-xs border ${l <= 50 ? 'border-green-500/30 bg-green-500/10 text-green-400' : 'border-border/30 bg-muted/30 text-muted-foreground'}`}>
+              {l}%<br/><span className="text-[10px]">{l <= 50 ? '매수권' : '관망'}</span>
+            </div>
+          ))}
+        </div>
+      </SectionCard>
+
+      {/* ── 8. 매수 / 추가매수 ── */}
+      <SectionCard {...sections[7]}>
+        <Code>{`[신규 매수]
+주문 수량 = floor( unitSize × unitCount(currentLine) ÷ 현재가 )
+
+  unitSize  : 1유닛당 금액 (원), 자동매매 설정에서 지정
+  unitCount : 해당 라인별 유닛 수 (lineUnits 설정)
+  예) unitSize=500,000 / unitCount=2 / 주가=25,000
+      → floor(500,000 × 2 ÷ 25,000) = 40주
+
+[추가매수]
+  조건: 현재 레인보우 라인 ≤ 진입 라인 - 10%
+       (예: 30%에 진입 → 현재 20% 이하일 때 추가매수)
+  수량: 동일 유닛 공식 적용 (해당 라인 unitCount 기준)`}</Code>
+        <Warn>같은 종목에 이미 보유 중이면 추가매수 조건이 충족될 때만 추가 주문합니다. 동일 라인에 중복 추가매수는 발생하지 않습니다.</Warn>
+      </SectionCard>
+
+      {/* ── 9. 청산 로직 ── */}
+      <SectionCard {...sections[8]}>
+        <Code>{`[청산 우선순위 — 1분 사이클마다 보유 종목 전체 점검]
+
+1. 익절 (takeProfitPercent)
+   수익률 ≥ takeProfitPercent% → 전량 시장가 매도
+
+2. 손절 (stopLoss)
+   수익률 < 0 이고 |수익률| ≥ stopLoss.percent% → 전량 시장가 매도
+   (stopLoss.color 설정으로 특정 레인보우 색 이하 시 손절 가능)
+
+3. 급등 청산 (surgeThreshold)
+   수익률 ≥ surgeThreshold% → 익절 유사 청산
+   (takeProfitPercent와 별도로 빠른 급등 시 조기 매도)
+
+4. 장기보유 청산 (stalePeriodDays)
+   보유 일수 ≥ stalePeriodDays 이고 손실 중 → 청산`}</Code>
+      </SectionCard>
+
+      {/* ── 10. 학습 ── */}
+      <SectionCard {...sections[9]}>
+        <p className="text-sm text-muted-foreground">매일 오후 4시에 자동 실행됩니다. 별도로 조작할 필요 없음.</p>
+        <Code>{`[학습 사이클]
+1. 활성 AI 모델 전체 조회
+2. 각 모델별 거래 성과 분석:
+   - totalTrades, winRate(%), totalReturn(%)
+3. 결과에 따라 파라미터 자동 조정:
+   - winRate 낮으면 minAiConfidence 상향
+   - return 높으면 현재 설정 유지 권장
+4. 자동 적용 여부: appliedChanges = true/false
+5. 권장사항(recommendations) 콘솔 출력`}</Code>
+      </SectionCard>
+
+      {/* ── 11. 설정 파라미터 ── */}
+      <SectionCard {...sections[10]}>
+        <div className="space-y-4">
+          <div>
+            <p className="text-sm font-semibold mb-2">자동매매 기본 설정</p>
+            <div className="space-y-0.5">
+              <Row label="unitSize" value="1유닛당 투자금액 (원)" />
+              <Row label="lineUnits[N]" value="레인보우 N% 라인에서 매수할 유닛 수" />
+              <Row label="maxPositions" value="최대 동시 보유 종목 수" />
+              <Row label="maxDailyTrades" value="일일 최대 자동매매 건수" />
+              <Row label="takeProfitPercent" value="익절 기준 수익률 (%)" />
+              <Row label="stopLoss.percent" value="손절 기준 손실률 (%)" />
+              <Row label="surgeThreshold" value="급등 청산 기준 수익률 (%)" />
+              <Row label="stalePeriodDays" value="장기보유 청산 기준 일수" />
+            </div>
+          </div>
+          <div>
+            <p className="text-sm font-semibold mb-2">AI 분석 가중치 (합계 = 100%)</p>
+            <div className="space-y-0.5">
+              <Row label="themeWeight" value="GPT 테마/모멘텀 점수 비중 (기본 20%)" />
+              <Row label="newsWeight" value="GPT 뉴스 센티멘트 점수 비중 (기본 15%)" />
+              <Row label="financialsWeight" value="GPT 재무 점수 비중 (기본 25%)" />
+              <Row label="liquidityWeight" value="거래량 유동성 점수 비중 (기본 20%)" />
+              <Row label="institutionalWeight" value="기관 거래량 점수 비중 (기본 20%)" />
+            </div>
+          </div>
+          <div>
+            <p className="text-sm font-semibold mb-2">AI 최소 신뢰도 필터</p>
+            <div className="space-y-0.5">
+              <Row label="minAiConfidence" value="이 값 미만 confidence면 매수 스킵 (0=비활성)" />
+              <Row label="requireGoodFinancials" value="ON: financialScore < 60 종목 제외" />
+              <Row label="requireHighLiquidity" value="ON: liquidityScore < 40 종목 제외" />
+            </div>
+          </div>
+          <div>
+            <p className="text-sm font-semibold mb-2">전역 AI 설정 (설정 메뉴)</p>
+            <div className="space-y-0.5">
+              <Row label="GPT 모델" value="GPT 분석에 사용할 OpenAI 모델 선택" />
+            </div>
+          </div>
+        </div>
+      </SectionCard>
+
+      {/* ── 12. 계좌 ── */}
+      <SectionCard {...sections[11]}>
+        <div className="space-y-2">
+          <p className="text-sm font-semibold">등록 계좌</p>
+          <div className="space-y-0.5">
+            <Row label="실계좌 1 (id=17)" value="59190647" mono />
+            <Row label="실계좌 2 (id=18)" value="51342627" mono />
+            <Row label="실계좌 3 (id=19)" value="39083177" mono />
+            <Row label="모의계좌 (id=20)" value="81208166" mono />
+          </div>
+        </div>
+        <div className="space-y-2">
+          <p className="text-sm font-semibold">배치잡 제어 방법</p>
+          <Code>{`자동매매 메뉴 > Job 제어 패널
+  [스캔잡 시작]    → 30분 주기 조건검색 시작
+  [매매잡 시작]    → 1분 주기 매매 사이클 시작
+  [학습잡 시작]    → 매일 16:00 학습 시작
+  [즉시 실행]      → 지금 당장 1회 실행
+
+※ 서버 재시작 시 잡은 자동으로 켜지지 않음 — 수동 시작 필요`}</Code>
+        </div>
+        <Warn>키움 에이전트(PC 프로그램)가 실행 중이어야 실제 시세 조회·주문이 작동합니다. 에이전트 없이 잡을 시작하면 AgentTimeoutError가 연속 3회 이후 해당 모델 자동 비활성화됩니다.</Warn>
+      </SectionCard>
+
     </div>
   );
 }

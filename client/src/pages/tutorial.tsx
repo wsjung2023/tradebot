@@ -1,427 +1,428 @@
 import { useState } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Link } from "wouter";
-import { 
-  ChevronLeft,
-  ChevronRight,
-  UserPlus, 
-  Wallet, 
-  TrendingUp, 
-  Bot, 
-  BarChart3,
-  Settings,
-  Star,
-  History,
-  CheckCircle2,
-  ArrowRight,
-  Home,
-  Zap,
-  AlertTriangle
+import {
+  ChevronLeft, ChevronRight, Database, Brain, Filter, ShoppingCart,
+  TrendingDown, GraduationCap, Clock, AlertTriangle, CheckCircle2,
+  ArrowDown, Layers
 } from "lucide-react";
 
-interface TutorialStep {
+interface FlowStep {
   id: number;
+  phase: string;
   title: string;
-  subtitle: string;
   icon: any;
   color: string;
+  trigger: string;
   description: string;
-  steps: string[];
-  tips?: string;
-  warning?: string;
-  linkTo?: string;
-  linkText?: string;
+  process: { step: string; detail: string }[];
+  decision?: { condition: string; yes: string; no: string };
+  output: string;
+  code?: string;
+  notes?: string[];
 }
 
-const tutorialSteps: TutorialStep[] = [
+const flowSteps: FlowStep[] = [
   {
     id: 1,
-    title: "회원가입 & 로그인",
-    subtitle: "플랫폼 시작하기",
-    icon: UserPlus,
+    phase: "스캔",
+    title: "조건검색 & 후보 수집",
+    icon: Database,
     color: "neon-cyan",
-    description: "키움 AI 자동매매 플랫폼을 사용하려면 먼저 계정을 만들어야 해요.",
-    steps: [
-      "앱을 열면 로그인 화면이 나와요",
-      "'회원가입' 버튼을 눌러요",
-      "이름, 이메일, 비밀번호를 입력해요 (비밀번호는 8자 이상)",
-      "'회원가입' 버튼을 눌러요",
-      "완료! 자동으로 로그인돼요"
+    trigger: "매 30분 (cron: */30 * * * *)",
+    description: "키움증권 API를 통해 '뒷차기2' 조건을 만족하는 종목을 수집하고, DART 위험공시를 필터링한 후 DB에 저장합니다.",
+    process: [
+      { step: "활성 모델 조회", detail: "DB에서 status='active'인 AI 모델 전체를 가져옵니다" },
+      { step: "키움 에이전트 확인", detail: "각 모델의 계좌로 키움 에이전트 연결 상태를 확인합니다" },
+      { step: "뒷차기2 조건검색 실행", detail: "키움 Open API 조건검색 실행 → 조건 만족 종목 목록 수신" },
+      { step: "DART 위험공시 조회", detail: "각 종목의 최근 공시를 DART API로 조회합니다" },
+      { step: "위험 키워드 필터링", detail: "유상증자·전환사채·횡령·배임·관리종목 등 13종 키워드 포함 시 제외" },
+      { step: "candidate_stocks 저장", detail: "통과한 종목을 DB에 upsert (source='뒷차기2')" },
     ],
-    tips: "Google 계정이 있다면 'Google 로그인' 버튼으로 더 빠르게 가입할 수 있어요!",
-    linkTo: "/login",
-    linkText: "로그인 페이지로 가기"
+    decision: {
+      condition: "조건검색 결과가 0건인가?",
+      yes: "기존 candidate_stocks 전체 삭제 (초기화)",
+      no: "정상 저장 완료"
+    },
+    output: "candidate_stocks 테이블에 유효 후보 종목 목록 갱신",
+    notes: [
+      "스캔잡은 키움 에이전트가 실행 중이어야 작동합니다",
+      "DART 필터는 스캔 단계와 매수 단계 두 번 적용됩니다",
+    ]
   },
   {
     id: 2,
-    title: "계좌 연결하기",
-    subtitle: "증권 계좌 등록",
-    icon: Wallet,
+    phase: "매매",
+    title: "매매 사이클 시작 & 사전 검증",
+    icon: Clock,
     color: "neon-purple",
-    description: "주식을 사고 팔려면 키움증권 계좌를 연결해야 해요.",
-    steps: [
-      "왼쪽 메뉴에서 '설정'을 눌러요",
-      "'계좌 관리' 부분을 찾아요",
-      "'계좌 추가' 버튼을 눌러요",
-      "계좌 이름, 번호를 입력해요",
-      "계좌 유형을 선택해요 (모의투자 추천!)",
-      "'저장' 버튼을 눌러요"
+    trigger: "매 1분 (cron: * * * * *)",
+    description: "1분마다 실행되지만, 한국 주식 시장이 열려 있는 평일 09:00~15:30에만 실제 매매 판단을 수행합니다.",
+    process: [
+      { step: "한국장 개장 확인", detail: "isKoreanMarketOpen() → 평일 09:00~15:30 외에는 사이클 종료" },
+      { step: "활성 모델 순회 시작", detail: "status='active' 모델 전체를 차례로 처리" },
+      { step: "autoTradingEnabled 확인", detail: "모델별 사용자 설정 조회 → false이면 해당 모델 건너뜀" },
+      { step: "키움 서비스 초기화", detail: "해당 모델의 계좌 정보로 KiwoomService 인스턴스 획득" },
+      { step: "에이전트 타임아웃 체크", detail: "10분 이내 연속 3회 타임아웃 시 모델 자동 비활성화" },
     ],
-    tips: "처음에는 '모의투자' 계좌로 연습하세요. 진짜 돈이 들지 않아요!",
-    warning: "실전 계좌는 진짜 돈이 들어가요. 모의투자로 충분히 연습한 후 사용하세요.",
-    linkTo: "/settings",
-    linkText: "설정 페이지로 가기"
+    output: "각 모델별로 청산 판단 → 신규 매수 판단 → 추가매수 판단 순서로 진행",
+    notes: [
+      "모든 모델이 같은 1분 사이클에서 처리됩니다",
+      "에이전트 응답 없음이 10분 내 3회 누적되면 자동 비활성화됩니다",
+    ]
   },
   {
     id: 3,
-    title: "대시보드 살펴보기",
-    subtitle: "내 자산 확인",
-    icon: BarChart3,
+    phase: "청산",
+    title: "보유 포지션 청산 판단",
+    icon: TrendingDown,
     color: "neon-green",
-    description: "대시보드에서 내 자산 현황을 한눈에 볼 수 있어요.",
-    steps: [
-      "로그인하면 대시보드가 자동으로 나와요",
-      "'총 자산'에서 내가 가진 돈을 확인해요",
-      "'오늘 수익'에서 당일 수익률을 봐요",
-      "'보유 종목'에서 내가 가진 주식을 확인해요",
-      "차트에서 30일 자산 변화를 봐요"
+    trigger: "매매 사이클 내 — 신규 매수보다 먼저 실행",
+    description: "보유 중인 모든 포지션을 점검하고, 익절·손절·급등청산·장기보유청산 조건을 순서대로 확인합니다.",
+    process: [
+      { step: "보유 포지션 전체 조회", detail: "해당 모델의 auto_trading_positions에서 보유 종목 가져오기" },
+      { step: "현재가 조회", detail: "키움 에이전트를 통해 각 종목의 실시간 현재가 수신" },
+      { step: "수익률 계산", detail: "profitRate = (현재가 - 평균매수가) / 평균매수가 × 100" },
+      { step: "익절 조건 확인", detail: "profitRate ≥ takeProfitPercent% → 전량 시장가 매도" },
+      { step: "손절 조건 확인", detail: "|profitRate| ≥ stopLoss.percent% (손실 중일 때) → 전량 매도" },
+      { step: "급등 청산 확인", detail: "profitRate ≥ surgeThreshold% → 조기 익절 매도" },
+      { step: "장기보유 청산 확인", detail: "보유일수 ≥ stalePeriodDays 이고 손실 중 → 청산" },
     ],
-    tips: "대시보드는 실시간으로 업데이트돼요!",
-    linkTo: "/",
-    linkText: "대시보드로 가기"
+    code: `청산 우선순위:
+1순위. 익절 (takeProfitPercent)
+2순위. 손절 (stopLoss)
+3순위. 급등 청산 (surgeThreshold)
+4순위. 장기보유 청산 (stalePeriodDays + 손실)`,
+    output: "매도 주문 실행 → auto_trading_positions 업데이트 → 거래 로그 기록",
   },
   {
     id: 4,
-    title: "주식 거래하기",
-    subtitle: "직접 사고 팔기",
-    icon: TrendingUp,
+    phase: "분석",
+    title: "GPT 종합 분석 (comprehensiveAiAnalysis)",
+    icon: Brain,
     color: "neon-cyan",
-    description: "원하는 주식을 직접 사고 팔 수 있어요.",
-    steps: [
-      "왼쪽 메뉴에서 '거래'를 눌러요",
-      "검색창에 주식 이름을 입력해요 (예: 삼성전자)",
-      "차트와 현재가를 확인해요",
-      "'매수' 또는 '매도' 탭을 선택해요",
-      "주문 유형을 선택해요 (지정가 또는 시장가)",
-      "가격과 수량을 입력해요",
-      "'매수' 또는 '매도' 버튼을 눌러요"
+    trigger: "신규 매수 후보 종목 1개당 실행",
+    description: "GPT 호출 2개(analyzeStock, integratedAnalysis)가 병렬로 실행되고, 거래량 기반 점수 2개를 규칙으로 계산합니다.",
+    process: [
+      { step: "candidate_stocks 조회", detail: "현재 DB에 저장된 후보 종목 목록 가져오기 (이미 보유 중인 종목 제외)" },
+      { step: "[병렬] analyzeStock() 호출", detail: "GPT에게 테마/모멘텀/기술적 신호 분석 요청 → themeScore (0~100) 반환" },
+      { step: "[병렬] integratedAnalysis() 호출", detail: "GPT에게 뉴스·DART·PER/PBR/ROE 분석 요청 → newsScore, financialScore (0~100) 반환" },
+      { step: "liquidityScore 계산", detail: "거래량 기준 규칙: ≥500K→80, ≥100K→65, ≥50K→45, 기타→25" },
+      { step: "institutionalScore 계산", detail: "기관거래량 기준: ≥1M→75, ≥500K→65, ≥100K→55, ≥50K→45, 기타→35" },
+      { step: "가중합산 → confidence", detail: "5개 점수 × 각 슬라이더 가중치(%) → 합산 = confidence (0~100)" },
+      { step: "DART 위험공시 이중확인", detail: "dartDangerKeyword 있으면 이 단계에서도 차단" },
     ],
-    tips: "'시장가'로 주문하면 바로 거래돼요. '지정가'는 내가 원하는 가격에 거래돼요.",
-    linkTo: "/trading",
-    linkText: "거래 페이지로 가기"
+    code: `confidence =
+  themeScore        × themeWeight%        (기본 20)
++ newsScore         × newsWeight%         (기본 15)
++ financialScore    × financialsWeight%   (기본 25)
++ liquidityScore    × liquidityWeight%    (기본 20)
++ institutionalScore× institutionalWeight%(기본 20)
+
+hasGoodFinancials = financialScore ≥ 60
+hasHighLiquidity  = liquidityScore ≥ 40`,
+    output: "confidence, themeScore, newsScore, financialsScore, liquidityScore, institutionalScore, dartDangerKeyword",
+    notes: [
+      "GPT 모델은 설정 메뉴 → AI 설정에서 선택한 모델을 사용합니다",
+      "병렬 실행이므로 두 GPT 호출이 동시에 진행됩니다",
+    ]
   },
   {
     id: 5,
-    title: "AI 분석 활용하기",
-    subtitle: "GPT가 분석해줘요",
-    icon: Bot,
+    phase: "필터",
+    title: "매수 필터 순차 적용",
+    icon: Filter,
     color: "neon-purple",
-    description: "AI가 주식을 분석해서 추천해줘요.",
-    steps: [
-      "왼쪽 메뉴에서 'AI 분석'을 눌러요",
-      "분석하고 싶은 주식 코드를 입력해요 (예: 005930)",
-      "'분석 시작' 버튼을 눌러요",
-      "AI가 열심히 분석해요 (조금 기다려요)",
-      "결과를 확인해요 (강력매수, 매수, 중립, 매도, 강력매도)"
+    trigger: "GPT 분석 완료 직후",
+    description: "분석 결과를 받아 7가지 필터를 순서대로 적용합니다. 하나라도 탈락하면 해당 종목은 이번 사이클에서 스킵됩니다.",
+    process: [
+      { step: "① confidence 최소값 체크", detail: "confidence < minAiConfidence → 스킵 ('⚠️ AI confidence X% < threshold Y%')" },
+      { step: "② 재무건전성 필터", detail: "requireGoodFinancials=ON 이고 financialScore < 60 → 스킵" },
+      { step: "③ 유동성 필터", detail: "requireHighLiquidity=ON 이고 liquidityScore < 40 → 스킵" },
+      { step: "④ DART 위험공시 차단", detail: "dartDangerKeyword 존재 → 무조건 스킵 ('🚫 DART 위험공시 감지')" },
+      { step: "⑤ 최대 보유 종목 체크", detail: "현재 보유수 ≥ maxPositions → 신규 매수 건너뜀" },
+      { step: "⑥ 일일 거래 한도 체크", detail: "오늘 자동매매 건수 ≥ maxDailyTrades → 건너뜀" },
+      { step: "⑦ 레인보우 라인 체크", detail: "currentLine > 50 → 매수 조건 미충족 (고점권 판단)" },
     ],
-    tips: "AI의 '신뢰도' 점수도 함께 확인하세요. 높을수록 AI가 확신하는 거예요!",
-    linkTo: "/ai-analysis",
-    linkText: "AI 분석 페이지로 가기"
+    decision: {
+      condition: "모든 필터 통과?",
+      yes: "매수 주문 실행 단계로 진행",
+      no: "해당 종목 스킵, 다음 후보 종목으로"
+    },
+    output: "통과 시: 매수 실행. 탈락 시: 로그에 사유 기록 후 스킵",
   },
   {
     id: 6,
-    title: "자동매매 설정하기",
-    subtitle: "AI가 알아서 투자",
-    icon: Zap,
+    phase: "매수",
+    title: "신규 매수 주문 실행",
+    icon: ShoppingCart,
     color: "neon-green",
-    description: "설정해두면 AI가 알아서 주식을 사고 팔아요!",
-    steps: [
-      "왼쪽 메뉴에서 '자동매매'를 눌러요",
-      "'자동매매 활성화' 스위치를 켜요 (초록색이 되면 켜진 거예요)",
-      "AI 모델을 선택해요 (gpt-5.1 추천)",
-      "1회 최대 투자금을 설정해요",
-      "총 투자 한도를 설정해요",
-      "끝! 이제 AI가 알아서 투자해요"
+    trigger: "모든 필터 통과 + 레인보우 currentLine ≤ 50",
+    description: "유닛 기반으로 주문 수량을 계산하고 시장가 매수 주문을 실행합니다.",
+    process: [
+      { step: "레인보우 라인 확정", detail: "현재가로 currentLine 계산 (10~50% 중 하나)" },
+      { step: "유닛 수 조회", detail: "lineUnits[currentLine] → 해당 라인 유닛 수 (설정에서 지정)" },
+      { step: "주문 수량 계산", detail: "qty = floor(unitSize × unitCount ÷ 현재가)" },
+      { step: "매수 주문 발행", detail: "키움 에이전트를 통해 시장가 매수 주문 전송" },
+      { step: "포지션 DB 기록", detail: "auto_trading_positions에 entryPrice, entryRainbowLine, entryAiConfidence 저장" },
+      { step: "거래 로그 기록", detail: "themeScore·newsScore·financialsScore·liquidityScore·confidence 전체 기록" },
     ],
-    tips: "자동매매는 서버에서 돌아가요. 컴퓨터를 꺼도 계속 작동해요!",
-    warning: "자동매매는 평일 오전 9시 ~ 오후 3시 30분에만 작동해요.",
-    linkTo: "/auto-trading",
-    linkText: "자동매매 페이지로 가기"
+    code: `주문 수량 계산 예시:
+  unitSize = 500,000원
+  lineUnits[30] = 2   (30% 라인 → 2유닛 설정)
+  현재가 = 25,000원
+
+  qty = floor(500,000 × 2 ÷ 25,000) = 40주`,
+    output: "매수 주문 체결 → auto_trading_positions 생성 → auto_trading_logs 기록",
+    notes: [
+      "unitCount가 0이면 해당 라인에서 매수하지 않습니다",
+      "주문 수량이 0이 되는 경우(unitSize < 주가)에도 매수하지 않습니다",
+    ]
   },
   {
     id: 7,
-    title: "관심종목 등록하기",
-    subtitle: "자주 보는 종목 저장",
-    icon: Star,
+    phase: "추가매수",
+    title: "추가매수 판단 & 실행",
+    icon: ArrowDown,
     color: "neon-cyan",
-    description: "자주 보고 싶은 주식을 저장해둘 수 있어요.",
-    steps: [
-      "왼쪽 메뉴에서 '관심종목'을 눌러요",
-      "'종목 추가' 버튼을 눌러요",
-      "주식 코드를 입력해요 (예: 005930)",
-      "'추가' 버튼을 눌러요",
-      "이제 목록에서 빠르게 볼 수 있어요!"
+    trigger: "기존 보유 종목 대상 — 매매 사이클 내 마지막 단계",
+    description: "이미 보유 중인 종목이 진입 가격보다 더 하락했을 때 추가 매수합니다.",
+    process: [
+      { step: "보유 포지션 조회", detail: "auto_trading_positions에서 현재 보유 종목 목록 가져오기" },
+      { step: "현재 레인보우 라인 계산", detail: "실시간 현재가로 currentLine 재계산" },
+      { step: "추가매수 조건 확인", detail: "currentLine ≤ entryRainbowLine - 10% 이면 추가매수 조건 충족" },
+      { step: "일일 한도 재확인", detail: "maxDailyTrades 초과 여부 재검사" },
+      { step: "유닛 수 조회", detail: "해당 currentLine에 대한 lineUnits 조회" },
+      { step: "주문 수량 계산 & 실행", detail: "동일 유닛 공식으로 수량 계산 후 시장가 매수 주문" },
     ],
-    tips: "가격 알림도 설정할 수 있어요. 원하는 가격이 되면 알려줘요!",
-    linkTo: "/watchlist",
-    linkText: "관심종목 페이지로 가기"
+    code: `추가매수 예시:
+  30% 라인에서 최초 매수 (entryRainbowLine = 30)
+  → 현재 레인보우 라인이 20% 이하가 되면 추가매수
+  → 20% 라인의 lineUnits 수량으로 추가 주문`,
+    output: "추가매수 체결 → auto_trading_positions 업데이트 → 로그 기록",
+    notes: [
+      "같은 라인에 이미 추가매수가 체결된 경우 중복 매수를 방지합니다",
+    ]
   },
   {
     id: 8,
-    title: "거래 내역 확인하기",
-    subtitle: "기록 보기",
-    icon: History,
+    phase: "학습",
+    title: "야간 학습 최적화",
+    icon: GraduationCap,
     color: "neon-purple",
-    description: "내가 사고판 기록을 볼 수 있어요.",
-    steps: [
-      "왼쪽 메뉴에서 '거래 내역'을 눌러요",
-      "모든 거래 기록이 나와요",
-      "날짜, 종목, 유형, 가격, 수량을 확인해요",
-      "상태를 확인해요 (체결, 대기, 취소)"
+    trigger: "매일 16:00 (cron: 0 16 * * *)",
+    description: "하루 거래 결과를 분석하고, 성과가 낮은 모델은 파라미터를 자동 조정합니다.",
+    process: [
+      { step: "활성 모델 전체 조회", detail: "status='active'인 모든 AI 모델 순회" },
+      { step: "성과 데이터 집계", detail: "totalTrades, winRate(%), totalReturn(%) 계산" },
+      { step: "파라미터 최적화 분석", detail: "LearningService.optimizeModel() 실행 → 권장 파라미터 산출" },
+      { step: "자동 적용", detail: "appliedChanges=true이면 DB에 최적화된 파라미터 자동 업데이트" },
+      { step: "권장사항 출력", detail: "콘솔에 recommendations 배열 출력" },
     ],
-    tips: "'체결'은 거래가 완료됐다는 뜻이에요. '대기'는 아직 거래 중이에요.",
-    linkTo: "/trade-history",
-    linkText: "거래 내역 페이지로 가기"
+    output: "AI 모델 파라미터 자동 조정 완료 (또는 현재 설정 유지 권장)",
+    notes: [
+      "학습 결과는 다음 매매 사이클부터 자동 반영됩니다",
+      "appliedChanges=false이면 변경 없이 권장사항만 출력됩니다",
+    ]
   },
-  {
-    id: 9,
-    title: "설정 변경하기",
-    subtitle: "나에게 맞게 조정",
-    icon: Settings,
-    color: "neon-green",
-    description: "여러 가지를 바꿀 수 있어요.",
-    steps: [
-      "왼쪽 메뉴에서 '설정'을 눌러요",
-      "계좌 관리: 계좌 추가/삭제/수정",
-      "AI 설정: 사용할 AI 모델 선택",
-      "알림 설정: 알림 켜기/끄기",
-      "자동매매 설정: 투자금, 손절/익절 기준 설정"
-    ],
-    tips: "처음에는 기본 설정 그대로 사용해도 좋아요!",
-    linkTo: "/settings",
-    linkText: "설정 페이지로 가기"
-  }
 ];
+
+function CodeBlock({ children }: { children: string }) {
+  return (
+    <pre className="bg-muted/40 rounded-md p-3 text-xs font-mono overflow-x-auto whitespace-pre-wrap border border-border/30 mt-2">
+      {children}
+    </pre>
+  );
+}
 
 export default function Tutorial() {
   const [currentStep, setCurrentStep] = useState(0);
-  const step = tutorialSteps[currentStep];
-  const IconComponent = step.icon;
-
-  const goToNext = () => {
-    if (currentStep < tutorialSteps.length - 1) {
-      setCurrentStep(currentStep + 1);
-    }
-  };
-
-  const goToPrev = () => {
-    if (currentStep > 0) {
-      setCurrentStep(currentStep - 1);
-    }
-  };
+  const step = flowSteps[currentStep];
+  const Icon = step.icon;
 
   return (
-    <div className="relative min-h-screen">
-      <div className="fixed inset-0 bg-gradient-to-br from-[hsl(var(--background))] via-[hsl(var(--neon-cyan))]/5 to-[hsl(var(--neon-purple))]/5 animate-gradient-flow -z-10" />
-      
-      <div className="p-4 md:p-6 space-y-6 relative z-0 max-w-4xl mx-auto">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <h1 className="text-3xl md:text-4xl font-bold text-gradient-cyber mb-2" data-testid="text-tutorial-title">
-            사용법 튜토리얼
-          </h1>
-          <p className="text-muted-foreground">
-            처음부터 끝까지 쉽게 따라해보세요
-          </p>
-        </div>
+    <div className="p-4 md:p-6 max-w-4xl mx-auto space-y-4" data-testid="text-tutorial-title">
 
-        {/* Progress indicator */}
-        <div className="flex justify-center gap-2 mb-6">
-          {tutorialSteps.map((_, index) => (
-            <button
-              key={index}
-              onClick={() => setCurrentStep(index)}
-              className={`w-3 h-3 rounded-full transition-all ${
-                index === currentStep 
-                  ? `bg-[hsl(var(--${step.color}))] scale-125` 
-                  : index < currentStep 
-                    ? 'bg-[hsl(var(--neon-green))]' 
-                    : 'bg-muted'
-              }`}
-              data-testid={`button-step-${index + 1}`}
-            />
-          ))}
-        </div>
+      <div className="mb-4">
+        <h1 className="text-3xl font-bold mb-1">거래 흐름 튜토리얼</h1>
+        <p className="text-muted-foreground text-sm">한 번의 자동매매가 이루어지는 전체 과정 — 스캔부터 청산까지</p>
+      </div>
 
-        {/* Step counter */}
-        <div className="text-center">
-          <Badge variant="outline" className="text-lg px-4 py-1">
-            {currentStep + 1} / {tutorialSteps.length}
-          </Badge>
-        </div>
+      {/* 전체 플로우 요약 */}
+      <Card className="border-border/40">
+        <CardContent className="py-4">
+          <div className="flex flex-wrap items-center gap-1.5 text-xs">
+            {flowSteps.map((s, i) => {
+              const SI = s.icon;
+              return (
+                <div key={s.id} className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => setCurrentStep(i)}
+                    data-testid={`button-quick-step-${i + 1}`}
+                    className={`flex items-center gap-1 px-2 py-1 rounded-md border transition-colors ${
+                      i === currentStep
+                        ? `bg-[hsl(var(--${s.color}))]/20 border-[hsl(var(--${s.color}))]/50 text-[hsl(var(--${s.color}))]`
+                        : i < currentStep
+                          ? 'bg-muted/50 border-border/30 text-muted-foreground'
+                          : 'border-border/30 text-muted-foreground hover:bg-muted/30'
+                    }`}
+                  >
+                    <SI className="w-3 h-3" />
+                    <span>{s.phase}</span>
+                  </button>
+                  {i < flowSteps.length - 1 && <ChevronRight className="w-3 h-3 text-muted-foreground" />}
+                </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
 
-        {/* Main content card */}
-        <Card className={`border-[hsl(var(--${step.color}))]/30 shadow-lg`}>
-          <CardHeader className="text-center pb-4">
-            <div className={`w-20 h-20 mx-auto rounded-full bg-[hsl(var(--${step.color}))]/20 flex items-center justify-center mb-4`}>
-              <IconComponent className={`w-10 h-10 text-[hsl(var(--${step.color}))]`} />
+      {/* Progress dots */}
+      <div className="flex justify-center gap-2">
+        {flowSteps.map((s, i) => (
+          <button
+            key={i}
+            onClick={() => setCurrentStep(i)}
+            data-testid={`button-step-${i + 1}`}
+            className={`w-2.5 h-2.5 rounded-full transition-all ${
+              i === currentStep
+                ? `bg-[hsl(var(--${s.color}))] scale-125`
+                : i < currentStep
+                  ? 'bg-muted-foreground/50'
+                  : 'bg-muted'
+            }`}
+          />
+        ))}
+      </div>
+
+      {/* Main card */}
+      <Card className={`border-[hsl(var(--${step.color}))]/30`}>
+        <CardHeader className="pb-3">
+          <div className="flex items-start gap-4 flex-wrap">
+            <div className={`w-12 h-12 rounded-full bg-[hsl(var(--${step.color}))]/15 flex items-center justify-center shrink-0`}>
+              <Icon className={`w-6 h-6 text-[hsl(var(--${step.color}))]`} />
             </div>
-            <CardTitle className="text-2xl md:text-3xl flex items-center justify-center gap-3">
-              <span className={`text-[hsl(var(--${step.color}))]`}>Step {step.id}.</span>
-              {step.title}
-            </CardTitle>
-            <CardDescription className="text-base">
-              {step.subtitle}
-            </CardDescription>
-          </CardHeader>
-          
-          <CardContent className="space-y-6">
-            {/* Description */}
-            <p className="text-center text-lg">
-              {step.description}
-            </p>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap mb-1">
+                <Badge className={`bg-[hsl(var(--${step.color}))]/20 text-[hsl(var(--${step.color}))] border-[hsl(var(--${step.color}))]/30 text-xs`}>
+                  Step {step.id} / {flowSteps.length}
+                </Badge>
+                <Badge variant="outline" className="text-xs">{step.phase}</Badge>
+              </div>
+              <CardTitle className="text-xl">{step.title}</CardTitle>
+              <div className="flex items-center gap-1.5 mt-1">
+                <Clock className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                <span className="text-xs text-muted-foreground font-mono">{step.trigger}</span>
+              </div>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <p className="text-sm text-muted-foreground">{step.description}</p>
 
-            {/* Steps list */}
-            <div className="space-y-3 bg-muted/30 rounded-lg p-4">
-              <h3 className="font-semibold text-lg mb-3">따라하기:</h3>
-              {step.steps.map((text, index) => (
-                <div key={index} className="flex items-start gap-3">
-                  <div className={`w-7 h-7 rounded-full bg-[hsl(var(--${step.color}))]/20 flex items-center justify-center flex-shrink-0`}>
-                    <span className={`text-sm font-bold text-[hsl(var(--${step.color}))]`}>{index + 1}</span>
+          {/* Process steps */}
+          <div className="space-y-2">
+            <p className="text-sm font-semibold">실행 순서</p>
+            <div className="space-y-2">
+              {step.process.map((p, i) => (
+                <div key={i} className="flex items-start gap-3">
+                  <div className={`w-6 h-6 rounded-full bg-[hsl(var(--${step.color}))]/15 flex items-center justify-center shrink-0 mt-0.5`}>
+                    <span className={`text-xs font-bold text-[hsl(var(--${step.color}))]`}>{i + 1}</span>
                   </div>
-                  <p className="text-base pt-0.5">{text}</p>
+                  <div className="flex-1 min-w-0">
+                    <span className="text-sm font-medium">{p.step}</span>
+                    <p className="text-xs text-muted-foreground mt-0.5">{p.detail}</p>
+                  </div>
                 </div>
               ))}
             </div>
+          </div>
 
-            {/* Tips */}
-            {step.tips && (
-              <div className="bg-[hsl(var(--neon-cyan))]/10 border border-[hsl(var(--neon-cyan))]/20 rounded-lg p-4">
-                <div className="flex items-start gap-3">
-                  <CheckCircle2 className="w-5 h-5 text-[hsl(var(--neon-cyan))] mt-0.5 flex-shrink-0" />
-                  <div>
-                    <p className="font-medium text-[hsl(var(--neon-cyan))]">팁!</p>
-                    <p className="text-sm">{step.tips}</p>
-                  </div>
+          {/* Decision point */}
+          {step.decision && (
+            <div className="p-3 border border-border/40 rounded-md bg-muted/20">
+              <p className="text-xs font-semibold text-muted-foreground mb-2">판단 분기</p>
+              <p className="text-sm font-medium mb-2">{step.decision.condition}</p>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="p-2 bg-green-500/10 border border-green-500/20 rounded-md">
+                  <p className="text-xs text-green-400 font-semibold mb-0.5">YES</p>
+                  <p className="text-xs">{step.decision.yes}</p>
+                </div>
+                <div className="p-2 bg-red-500/10 border border-red-500/20 rounded-md">
+                  <p className="text-xs text-red-400 font-semibold mb-0.5">NO</p>
+                  <p className="text-xs">{step.decision.no}</p>
                 </div>
               </div>
-            )}
-
-            {/* Warning */}
-            {step.warning && (
-              <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-4">
-                <div className="flex items-start gap-3">
-                  <AlertTriangle className="w-5 h-5 text-yellow-500 mt-0.5 flex-shrink-0" />
-                  <div>
-                    <p className="font-medium text-yellow-500">주의!</p>
-                    <p className="text-sm">{step.warning}</p>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Link to page */}
-            {step.linkTo && (
-              <div className="text-center pt-2">
-                <Link href={step.linkTo}>
-                  <Button 
-                    variant="outline" 
-                    className={`border-[hsl(var(--${step.color}))]/50 hover:bg-[hsl(var(--${step.color}))]/10`}
-                    data-testid={`button-goto-${step.linkTo.replace('/', '') || 'home'}`}
-                  >
-                    <ArrowRight className="w-4 h-4 mr-2" />
-                    {step.linkText}
-                  </Button>
-                </Link>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Navigation buttons */}
-        <div className="flex justify-between items-center pt-4">
-          <Button
-            variant="outline"
-            onClick={goToPrev}
-            disabled={currentStep === 0}
-            className="gap-2"
-            data-testid="button-prev-step"
-          >
-            <ChevronLeft className="w-4 h-4" />
-            이전
-          </Button>
-
-          <Link href="/">
-            <Button variant="ghost" className="gap-2" data-testid="button-goto-dashboard">
-              <Home className="w-4 h-4" />
-              대시보드
-            </Button>
-          </Link>
-
-          <Button
-            onClick={goToNext}
-            disabled={currentStep === tutorialSteps.length - 1}
-            className={`gap-2 bg-[hsl(var(--${step.color}))] hover:bg-[hsl(var(--${step.color}))]/80`}
-            data-testid="button-next-step"
-          >
-            다음
-            <ChevronRight className="w-4 h-4" />
-          </Button>
-        </div>
-
-        {/* Completion message */}
-        {currentStep === tutorialSteps.length - 1 && (
-          <Card className="mt-8 border-[hsl(var(--neon-green))]/30 bg-[hsl(var(--neon-green))]/5">
-            <CardContent className="py-8 text-center">
-              <CheckCircle2 className="w-16 h-16 mx-auto mb-4 text-[hsl(var(--neon-green))]" />
-              <h3 className="text-2xl font-bold mb-2 text-[hsl(var(--neon-green))]">
-                축하합니다! 튜토리얼 완료!
-              </h3>
-              <p className="text-muted-foreground mb-6">
-                이제 키움 AI 자동매매 플랫폼을 자유롭게 사용할 수 있어요!
-              </p>
-              <Link href="/">
-                <Button 
-                  size="lg" 
-                  className="bg-gradient-to-r from-[hsl(var(--neon-cyan))] to-[hsl(var(--neon-purple))]"
-                  data-testid="button-start-trading"
-                >
-                  지금 시작하기
-                </Button>
-              </Link>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Quick step navigation */}
-        <Card className="mt-8">
-          <CardHeader>
-            <CardTitle className="text-lg">빠른 이동</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-3 md:grid-cols-5 gap-2">
-              {tutorialSteps.map((s, index) => {
-                const StepIcon = s.icon;
-                return (
-                  <Button
-                    key={index}
-                    variant={index === currentStep ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setCurrentStep(index)}
-                    className={`flex-col h-auto py-3 ${index === currentStep ? `bg-[hsl(var(--${s.color}))]` : ''}`}
-                    data-testid={`button-quick-step-${index + 1}`}
-                  >
-                    <StepIcon className="w-5 h-5 mb-1" />
-                    <span className="text-xs">{index + 1}단계</span>
-                  </Button>
-                );
-              })}
             </div>
+          )}
+
+          {/* Code block */}
+          {step.code && <CodeBlock>{step.code}</CodeBlock>}
+
+          {/* Output */}
+          <div className="flex items-start gap-2 p-3 bg-[hsl(var(--neon-green))]/10 border border-[hsl(var(--neon-green))]/20 rounded-md">
+            <CheckCircle2 className="w-4 h-4 text-[hsl(var(--neon-green))] mt-0.5 shrink-0" />
+            <div>
+              <p className="text-xs font-semibold text-[hsl(var(--neon-green))] mb-0.5">출력 결과</p>
+              <p className="text-xs">{step.output}</p>
+            </div>
+          </div>
+
+          {/* Notes */}
+          {step.notes && step.notes.length > 0 && (
+            <div className="space-y-1.5">
+              {step.notes.map((n, i) => (
+                <div key={i} className="flex items-start gap-2 p-2.5 bg-yellow-500/10 border border-yellow-500/20 rounded-md">
+                  <AlertTriangle className="w-3.5 h-3.5 text-yellow-500 mt-0.5 shrink-0" />
+                  <p className="text-xs">{n}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Navigation */}
+      <div className="flex justify-between items-center">
+        <Button
+          variant="outline"
+          onClick={() => setCurrentStep(s => Math.max(0, s - 1))}
+          disabled={currentStep === 0}
+          className="gap-2"
+          data-testid="button-prev-step"
+        >
+          <ChevronLeft className="w-4 h-4" />
+          이전
+        </Button>
+
+        <span className="text-xs text-muted-foreground">{currentStep + 1} / {flowSteps.length}</span>
+
+        <Button
+          onClick={() => setCurrentStep(s => Math.min(flowSteps.length - 1, s + 1))}
+          disabled={currentStep === flowSteps.length - 1}
+          className={`gap-2`}
+          data-testid="button-next-step"
+        >
+          다음
+          <ChevronRight className="w-4 h-4" />
+        </Button>
+      </div>
+
+      {/* Completion */}
+      {currentStep === flowSteps.length - 1 && (
+        <Card className="border-[hsl(var(--neon-green))]/30 bg-[hsl(var(--neon-green))]/5">
+          <CardContent className="py-6 text-center">
+            <Layers className="w-10 h-10 mx-auto mb-3 text-[hsl(var(--neon-green))]" />
+            <h3 className="text-lg font-bold mb-1">전체 사이클 파악 완료</h3>
+            <p className="text-sm text-muted-foreground">
+              스캔(30분) → GPT분석(1분) → 필터 → 매수 → 청산 → 학습(16시)<br />
+              이 루프가 반복되며 자동매매가 운영됩니다
+            </p>
           </CardContent>
         </Card>
-      </div>
+      )}
     </div>
   );
 }

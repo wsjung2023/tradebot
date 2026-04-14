@@ -31,7 +31,7 @@ export async function registerRoutes(app: Express, httpServer: Server, sessionMi
   registerKiwoomAgentRoutes(app as any);
 
   balanceRefreshService.start();
-  autoTradingWorker.start();
+  // 배치잡은 서버 시작 시 자동 실행하지 않음 — UI에서 명시적으로 시작해야 함
 
   app.use("/api/rainbow", rainbowRouter);
 
