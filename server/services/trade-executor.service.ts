@@ -79,6 +79,7 @@ export class TradeExecutorService {
         const hasTodayIssue = issues.some(i => i.issueDate === today);
         if (!hasTodayIssue) {
           console.log(`    ⚠️  시장 이슈 관련 종목 아님 (${stock.code}, ${today}) - 스킵`);
+          storage.createEngineNotification({ userId: model.userId, severity: 'info', type: 'SKIP', message: `[스킵] ${stock.name} — 시장이슈 미등록`, payload: { stockCode: stock.code, stockName: stock.name, skipReason: '시장이슈 미등록' } }).catch(e => console.error('[Notification]', e));
           return;
         }
         console.log(`    ✅ 시장 이슈 확인됨: ${stock.code}`);
@@ -87,19 +88,23 @@ export class TradeExecutorService {
       const aiAnalysis = await this.comprehensiveAiAnalysis(stock, settings, kiwoomService, aiService);
       if (aiAnalysis.confidence < parseFloat(settings.minAiConfidence.toString())) {
         console.log(`    ⚠️  AI confidence ${aiAnalysis.confidence}% < threshold ${settings.minAiConfidence}% - skipping`);
+        storage.createEngineNotification({ userId: model.userId, severity: 'info', type: 'SKIP', message: `[스킵] ${stock.name} — AI신뢰도 미달 (${aiAnalysis.confidence.toFixed(1)}% < ${settings.minAiConfidence}%)`, payload: { stockCode: stock.code, stockName: stock.name, skipReason: 'minAiConf미달', confidence: aiAnalysis.confidence, themeScore: aiAnalysis.themeScore, newsScore: aiAnalysis.newsScore, financialsScore: aiAnalysis.financialsScore, liquidityScore: aiAnalysis.liquidityScore, institutionalScore: aiAnalysis.institutionalScore } }).catch(e => console.error('[Notification]', e));
         return;
       }
       if (settings.requireGoodFinancials && !aiAnalysis.hasGoodFinancials) {
         console.log(`    ⚠️  Failed financials check (score < 60) - skipping`);
+        storage.createEngineNotification({ userId: model.userId, severity: 'info', type: 'SKIP', message: `[스킵] ${stock.name} — 재무건전성 미충족 (${aiAnalysis.financialsScore})`, payload: { stockCode: stock.code, stockName: stock.name, skipReason: '재무필터', financialsScore: aiAnalysis.financialsScore } }).catch(e => console.error('[Notification]', e));
         return;
       }
       if (settings.requireHighLiquidity && !aiAnalysis.hasHighLiquidity) {
         console.log(`    ⚠️  Failed liquidity check (score < 40) - skipping`);
+        storage.createEngineNotification({ userId: model.userId, severity: 'info', type: 'SKIP', message: `[스킵] ${stock.name} — 유동성 미충족 (${aiAnalysis.liquidityScore})`, payload: { stockCode: stock.code, stockName: stock.name, skipReason: '유동성필터', liquidityScore: aiAnalysis.liquidityScore } }).catch(e => console.error('[Notification]', e));
         return;
       }
       // DART 위험 공시 감지 → 무조건 매수 차단 (설정 무관)
       if (aiAnalysis.dartDangerKeyword) {
         console.log(`    🚫 DART 위험공시 감지 [${aiAnalysis.dartDangerKeyword}] - 매수 차단`);
+        storage.createEngineNotification({ userId: model.userId, severity: 'warn', type: 'SKIP', message: `[차단] ${stock.name} — DART 위험공시 [${aiAnalysis.dartDangerKeyword}]`, payload: { stockCode: stock.code, stockName: stock.name, skipReason: 'DART위험', dartDangerKeyword: aiAnalysis.dartDangerKeyword } }).catch(e => console.error('[Notification]', e));
         return;
       }
       const rainbowEval = await this.evaluate10LineRainbow(stock, settings, kiwoomService);
@@ -293,6 +298,7 @@ export class TradeExecutorService {
         });
       }
       console.log(`    ✅ Exit sell placed: ${quantity}주 @ ${currentPrice} (${exitReason})`);
+      storage.createEngineNotification({ userId: model.userId, severity: 'info', type: 'SELL', message: `[청산] ${holding.stockName || holding.stockCode} ${quantity}주 @ ${currentPrice.toLocaleString()}원 (${profitLoss > 0 ? '+' : ''}${profitLoss.toFixed(0)}원)`, payload: { stockCode: holding.stockCode, stockName: holding.stockName || holding.stockCode, price: currentPrice, quantity, profitLoss, profitLossRate, sellReason: exitReason } }).catch(e => console.error('[Notification]', e));
     } catch (error) {
       console.error(`    ❌ Error executing exit sell for ${holding.stockCode}:`, error);
     }
@@ -559,6 +565,7 @@ export class TradeExecutorService {
       });
 
       console.log(`    ✅ BUY order placed: ${quantity} shares @ ${stock.price}`);
+      storage.createEngineNotification({ userId: model.userId, severity: 'info', type: 'BUY', message: `[매수] ${stock.name} ${quantity}주 @ ${stock.price.toLocaleString()}원`, payload: { stockCode: stock.code, stockName: stock.name, price: stock.price, quantity, rainbowLine: rainbow.currentLine, confidence: aiAnalysis?.confidence ?? 0, themeScore: aiAnalysis?.themeScore ?? 0, newsScore: aiAnalysis?.newsScore ?? 0, financialsScore: aiAnalysis?.financialsScore ?? 0, liquidityScore: aiAnalysis?.liquidityScore ?? 0, institutionalScore: aiAnalysis?.institutionalScore ?? 0 } }).catch(e => console.error('[Notification]', e));
     } catch (error) {
       console.error(`    ❌ Error executing buy:`, error);
     }
@@ -620,6 +627,7 @@ export class TradeExecutorService {
           isWin: profitLoss > 0,
         });
         console.log(`    ✅ SELL order placed: ${sellQuantity} shares @ ${stock.price} (P/L: ${profitLoss.toFixed(0)})`);
+        storage.createEngineNotification({ userId: model.userId, severity: 'info', type: 'SELL', message: `[매도] ${stock.name} ${sellQuantity}주 @ ${stock.price.toLocaleString()}원 (${profitLoss > 0 ? '+' : ''}${profitLoss.toFixed(0)}원)`, payload: { stockCode: stock.code, stockName: stock.name, price: stock.price, quantity: sellQuantity, profitLoss, profitLossRate, sellReason: 'target', exitRainbowLine: rainbow.currentLine } }).catch(e => console.error('[Notification]', e));
       }
     } catch (error) {
       console.error(`    ❌ Error executing sell:`, error);
@@ -652,6 +660,7 @@ export class TradeExecutorService {
         const hasTodayIssue = issues.some(i => i.issueDate === today);
         if (!hasTodayIssue) {
           console.log(`    ⚠️  시장 이슈 관련 종목 아님 (${stock.code}, ${today}) - 스킵`);
+          storage.createEngineNotification({ userId: model.userId, severity: 'info', type: 'SKIP', message: `[스킵] ${candidate.stockName} — 시장이슈 미등록`, payload: { stockCode: candidate.stockCode, stockName: candidate.stockName, skipReason: '시장이슈 미등록' } }).catch(e => console.error('[Notification]', e));
           return;
         }
         console.log(`    ✅ 시장 이슈 확인됨: ${stock.code}`);
@@ -665,21 +674,25 @@ export class TradeExecutorService {
       const minConf = parseFloat(settings.minAiConfidence?.toString() ?? '0');
       if (minConf > 0 && marketAnalysis.confidence < minConf) {
         console.log(`    ⚠️  종합 점수 ${marketAnalysis.confidence.toFixed(1)}% < 최솟값 ${minConf}% - 스킵`);
+        storage.createEngineNotification({ userId: model.userId, severity: 'info', type: 'SKIP', message: `[스킵] ${candidate.stockName} — AI신뢰도 미달 (${marketAnalysis.confidence.toFixed(1)}% < ${minConf}%)`, payload: { stockCode: candidate.stockCode, stockName: candidate.stockName, skipReason: 'minAiConf미달', confidence: marketAnalysis.confidence, themeScore: marketAnalysis.themeScore, newsScore: marketAnalysis.newsScore, financialsScore: marketAnalysis.financialsScore, liquidityScore: marketAnalysis.liquidityScore, institutionalScore: marketAnalysis.institutionalScore } }).catch(e => console.error('[Notification]', e));
         return;
       }
       // ── 재무건전성 필터 ──────────────────────────────────────────────────
       if (settings.requireGoodFinancials && !marketAnalysis.hasGoodFinancials) {
         console.log(`    ⚠️  재무건전성 미충족 (financialsScore=${marketAnalysis.financialsScore} < 60) - 스킵`);
+        storage.createEngineNotification({ userId: model.userId, severity: 'info', type: 'SKIP', message: `[스킵] ${candidate.stockName} — 재무건전성 미충족 (${marketAnalysis.financialsScore})`, payload: { stockCode: candidate.stockCode, stockName: candidate.stockName, skipReason: '재무필터', financialsScore: marketAnalysis.financialsScore } }).catch(e => console.error('[Notification]', e));
         return;
       }
       // ── 유동성 필터 ─────────────────────────────────────────────────────
       if (settings.requireHighLiquidity && !marketAnalysis.hasHighLiquidity) {
         console.log(`    ⚠️  유동성 미충족 (liquidityScore=${marketAnalysis.liquidityScore} < 40) - 스킵`);
+        storage.createEngineNotification({ userId: model.userId, severity: 'info', type: 'SKIP', message: `[스킵] ${candidate.stockName} — 유동성 미충족 (${marketAnalysis.liquidityScore})`, payload: { stockCode: candidate.stockCode, stockName: candidate.stockName, skipReason: '유동성필터', liquidityScore: marketAnalysis.liquidityScore } }).catch(e => console.error('[Notification]', e));
         return;
       }
       // ── DART 위험공시 — 설정 무관하게 무조건 차단 ────────────────────────
       if (marketAnalysis.dartDangerKeyword) {
         console.log(`    🚫 DART 위험공시 감지 [${marketAnalysis.dartDangerKeyword}] - 매수 차단`);
+        storage.createEngineNotification({ userId: model.userId, severity: 'warn', type: 'SKIP', message: `[차단] ${candidate.stockName} — DART 위험공시 [${marketAnalysis.dartDangerKeyword}]`, payload: { stockCode: candidate.stockCode, stockName: candidate.stockName, skipReason: 'DART위험', dartDangerKeyword: marketAnalysis.dartDangerKeyword } }).catch(e => console.error('[Notification]', e));
         return;
       }
 
@@ -782,6 +795,7 @@ export class TradeExecutorService {
       }
 
       console.log(`    ✅ 추가매수 완료: ${stock.name} ${quantity}주 @ ${stock.price}원 (${rainbow.currentLine}% 라인, ${unitCount}유닛)`);
+      storage.createEngineNotification({ userId: model.userId, severity: 'info', type: 'BUY', message: `[추가매수] ${stock.name} ${quantity}주 @ ${stock.price.toLocaleString()}원 (${rainbow.currentLine}% 라인, ${unitCount}유닛)`, payload: { stockCode: stock.code, stockName: stock.name, price: stock.price, quantity, rainbowLine: rainbow.currentLine, unitCount } }).catch(e => console.error('[Notification]', e));
     } catch (err) {
       console.error(`    ❌ 추가매수 실패 ${stock.code}:`, err);
     }
