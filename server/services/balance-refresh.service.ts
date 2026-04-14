@@ -140,7 +140,34 @@ export class BalanceRefreshService {
       else await storage.createHolding({ accountId, stockCode, ...updates });
     }
 
-    console.log(`[BalanceRefresh] 계좌 ${accountId} 갱신 완료 — 보유종목 ${output2.length}개, 총자산 ${(totalAssets + depositAmount).toLocaleString()}원`);
+    const totalAssetsWithDeposit = totalAssets + depositAmount;
+    const todayProfit = parseNum(
+      raw.tot_evlt_pl, raw.tot_evlu_pfls,
+      output1.tot_evlt_pl, output1.evlu_pfls_smtl_amt, output1.tot_evlu_pfls,
+      result?.todayProfit,
+    );
+    const todayProfitRate = totalAssetsWithDeposit > 0 ? (todayProfit / totalAssetsWithDeposit) * 100 : 0;
+
+    await storage.updateKiwoomAccount(accountId, {
+      lastTotalAssets: String(totalAssetsWithDeposit),
+      lastDepositAmount: String(depositAmount),
+      lastTodayProfit: String(todayProfit),
+      lastTodayProfitRate: String(todayProfitRate),
+      lastBalanceFetchedAt: new Date(),
+    });
+
+    try {
+      await storage.createAssetSnapshot({
+        accountId,
+        totalAssets: String(totalAssetsWithDeposit),
+        totalProfitLoss: String(todayProfit),
+        totalProfitRate: String(todayProfitRate),
+      });
+    } catch (e) {
+      console.error('[BalanceRefresh] 스냅샷 저장 실패 (잔고 갱신은 정상):', e);
+    }
+
+    console.log(`[BalanceRefresh] 계좌 ${accountId} 갱신 완료 — 보유종목 ${output2.length}개, 총자산 ${totalAssetsWithDeposit.toLocaleString()}원`);
   }
 }
 

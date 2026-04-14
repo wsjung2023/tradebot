@@ -212,9 +212,9 @@ export default function Dashboard() {
   const balance = isSuccess ? kiwoom.data : null;
 
   const assetHistory = assetSnapshots?.map((s: any) => ({
-    date: s.date,
-    totalAssets: s.totalAssets,
-    profit: s.profit,
+    date: s.snapshotAt ? new Date(s.snapshotAt).toLocaleDateString("ko-KR", { month: "short", day: "numeric" }) : s.date,
+    totalAssets: parseFloat(s.totalAssets || "0"),
+    profit: parseFloat(s.totalProfitLoss || s.profit || "0"),
   })) ?? [];
 
   return (
