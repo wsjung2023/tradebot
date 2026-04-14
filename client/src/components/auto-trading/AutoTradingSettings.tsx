@@ -94,15 +94,6 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
   const [defaultPositionSize, setDefaultPositionSize] = useState("1000000");
   const [maxPositionSize, setMaxPositionSize] = useState("10000000");
   const [maxDailyTrades, setMaxDailyTrades] = useState("5");
-  const [minAiConfidence, setMinAiConfidence] = useState(70);
-  const [themeWeight, setThemeWeight] = useState(20);
-  const [newsWeight, setNewsWeight] = useState(15);
-  const [financialsWeight, setFinancialsWeight] = useState(25);
-  const [liquidityWeight, setLiquidityWeight] = useState(20);
-  const [institutionalWeight, setInstitutionalWeight] = useState(20);
-  const [requireGoodFinancials, setRequireGoodFinancials] = useState(true);
-  const [requireHighLiquidity, setRequireHighLiquidity] = useState(true);
-  const [requireMarketIssue, setRequireMarketIssue] = useState(false);
   const [enableDynamicExit, setEnableDynamicExit] = useState(true);
   const [stalePeriodDays, setStalePeriodDays] = useState("5");
   const [surgeThreshold, setSurgeThreshold] = useState("10");
@@ -121,15 +112,6 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
       setDefaultPositionSize(settings.defaultPositionSize?.toString() || "1000000");
       setMaxPositionSize(settings.maxPositionSize?.toString() || "10000000");
       setMaxDailyTrades(settings.maxDailyTrades?.toString() || "5");
-      setMinAiConfidence(parseFloat(settings.minAiConfidence?.toString() || "70"));
-      setThemeWeight(parseFloat(settings.themeWeight?.toString() || "20"));
-      setNewsWeight(parseFloat(settings.newsWeight?.toString() || "15"));
-      setFinancialsWeight(parseFloat(settings.financialsWeight?.toString() || "25"));
-      setLiquidityWeight(parseFloat(settings.liquidityWeight?.toString() || "20"));
-      setInstitutionalWeight(parseFloat(settings.institutionalWeight?.toString() || "20"));
-      setRequireGoodFinancials(settings.requireGoodFinancials ?? true);
-      setRequireHighLiquidity(settings.requireHighLiquidity ?? true);
-      setRequireMarketIssue(settings.requireMarketIssue ?? false);
       setEnableDynamicExit(settings.enableDynamicExit ?? true);
       setStalePeriodDays(settings.stalePeriodDays?.toString() || "5");
       setSurgeThreshold(settings.surgeThreshold?.toString() || "10");
@@ -146,8 +128,6 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
     }
   }, [modelConfig]);
 
-  const weightSum = themeWeight + newsWeight + financialsWeight + liquidityWeight + institutionalWeight;
-
   const saveMutation = useMutation({
     mutationFn: async (data: any) => {
       const resp = await apiRequest("PUT", `/api/ai/models/${modelId}/trading-settings`, data);
@@ -161,11 +141,6 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
   });
 
   const handleSave = () => {
-    if (Math.abs(weightSum - 100) > 0.01) {
-      toast({ variant: "destructive", title: "가중치 합계 오류", description: `AI 분석 가중치 합계가 100%여야 합니다. (현재: ${weightSum}%)` });
-      return;
-    }
-
     if (selectedAccountId && selectedAccountId !== (modelConfig?.accountId?.toString() || "")) {
       onAccountChange(parseInt(selectedAccountId));
     }
@@ -174,15 +149,6 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
       defaultPositionSize,
       maxPositionSize,
       maxDailyTrades: parseInt(maxDailyTrades),
-      minAiConfidence: minAiConfidence.toString(),
-      themeWeight: themeWeight.toString(),
-      newsWeight: newsWeight.toString(),
-      financialsWeight: financialsWeight.toString(),
-      liquidityWeight: liquidityWeight.toString(),
-      institutionalWeight: institutionalWeight.toString(),
-      requireGoodFinancials,
-      requireHighLiquidity,
-      requireMarketIssue,
       enableDynamicExit,
       stalePeriodDays: parseInt(stalePeriodDays),
       surgeThreshold,
@@ -403,81 +369,6 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
               onChange={(e) => setMaxDailyTrades(e.target.value)}
               data-testid="input-max-daily-trades"
             />
-          </div>
-        </div>
-
-        <div className="border-t pt-4 space-y-3">
-          <Label className="text-sm font-semibold">AI 최소 신뢰도</Label>
-          <div className="flex items-center gap-3">
-            <Slider
-              min={0}
-              max={100}
-              step={5}
-              value={[minAiConfidence]}
-              onValueChange={([v]) => setMinAiConfidence(v)}
-              data-testid="slider-min-ai-confidence"
-            />
-            <span className="text-sm font-mono w-12 text-right">{minAiConfidence}%</span>
-          </div>
-        </div>
-
-        <div className="border-t pt-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <Label className="text-sm font-semibold">AI 분석 가중치</Label>
-            <span className={`text-xs font-mono ${Math.abs(weightSum - 100) > 0.01 ? 'text-destructive font-bold' : 'text-muted-foreground'}`}>
-              합계: {weightSum}%
-            </span>
-          </div>
-
-          {[
-            { label: "테마", value: themeWeight, setter: setThemeWeight, testId: "slider-theme-weight" },
-            { label: "뉴스", value: newsWeight, setter: setNewsWeight, testId: "slider-news-weight" },
-            { label: "재무", value: financialsWeight, setter: setFinancialsWeight, testId: "slider-financials-weight" },
-            { label: "유동성", value: liquidityWeight, setter: setLiquidityWeight, testId: "slider-liquidity-weight" },
-            { label: "기관", value: institutionalWeight, setter: setInstitutionalWeight, testId: "slider-institutional-weight" },
-          ].map(({ label, value, setter, testId }) => (
-            <div key={testId} className="flex items-center gap-3">
-              <span className="text-xs text-muted-foreground w-10">{label}</span>
-              <Slider
-                min={0}
-                max={100}
-                step={5}
-                value={[value]}
-                onValueChange={([v]) => setter(v)}
-                data-testid={testId}
-              />
-              <span className="text-xs font-mono w-10 text-right">{value}%</span>
-            </div>
-          ))}
-        </div>
-
-        <div className="border-t pt-4 space-y-3">
-          <Label className="text-sm font-semibold">진입 조건 필터</Label>
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label className="text-xs">재무건전성 필수</Label>
-              <Switch
-                checked={requireGoodFinancials}
-                onCheckedChange={setRequireGoodFinancials}
-                data-testid="switch-require-financials"
-              />
-            </div>
-            <div className="flex items-center justify-between">
-              <Label className="text-xs">높은 유동성 필수</Label>
-              <Switch
-                checked={requireHighLiquidity}
-                onCheckedChange={setRequireHighLiquidity}
-                data-testid="switch-require-liquidity"
-              />
-            </div>
-            <div className="flex items-center justify-between">
-              <Label className="text-xs">시장 이슈 관련 종목만</Label>
-              <Switch
-                checked={requireMarketIssue}
-                onCheckedChange={setRequireMarketIssue}
-                data-testid="switch-require-market-issue"
-              />
-            </div>
           </div>
         </div>
 

@@ -5,7 +5,6 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { SettingsKiwoom } from "@/components/settings/SettingsKiwoom";
 import { SettingsTrading } from "@/components/settings/SettingsTrading";
-import { SettingsAI } from "@/components/settings/SettingsAI";
 import { SettingsNotifications } from "@/components/settings/SettingsNotifications";
 import { SettingsStockAlerts } from "@/components/settings/SettingsStockAlerts";
 import { SettingsAgentMonitor } from "@/components/settings/SettingsAgentMonitor";
@@ -94,11 +93,6 @@ export default function Settings() {
       <SettingsTrading
         tradingMode={s?.tradingMode}
         onToggle={() => updateSettingsMutation.mutate({ tradingMode: s?.tradingMode === "real" ? "mock" : "real" })}
-      />
-
-      <SettingsAI
-        aiModel={s?.aiModel} isPending={updateSettingsMutation.isPending}
-        onModelChange={(v) => updateSettingsMutation.mutate({ aiModel: v })}
       />
 
       <SettingsNotifications
