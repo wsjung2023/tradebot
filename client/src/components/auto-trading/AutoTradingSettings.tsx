@@ -100,6 +100,17 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
   const [volumeSpikeMultiplier, setVolumeSpikeMultiplier] = useState("3");
   const [selectedAccountId, setSelectedAccountId] = useState<string>("");
 
+  // AI 설정
+  const [minAiConfidence, setMinAiConfidence] = useState(70);
+  const [themeWeight, setThemeWeight] = useState(20);
+  const [newsWeight, setNewsWeight] = useState(15);
+  const [financialsWeight, setFinancialsWeight] = useState(25);
+  const [liquidityWeight, setLiquidityWeight] = useState(20);
+  const [institutionalWeight, setInstitutionalWeight] = useState(20);
+  const [requireGoodFinancials, setRequireGoodFinancials] = useState(true);
+  const [requireHighLiquidity, setRequireHighLiquidity] = useState(true);
+  const [requireMarketIssue, setRequireMarketIssue] = useState(false);
+
   const defaultRainbowLines = Array.from({ length: 10 }, (_, i) => ({
     line: (i + 1) * 10,
     buyWeight: i < 5 ? 20 - i * 4 : 0,
@@ -119,6 +130,16 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
       if (settings.rainbowLineSettings && Array.isArray(settings.rainbowLineSettings) && (settings.rainbowLineSettings as any[]).length === 10) {
         setRainbowLineSettings(settings.rainbowLineSettings as any[]);
       }
+      // AI 설정 로드
+      setMinAiConfidence(parseFloat(settings.minAiConfidence?.toString() || "70"));
+      setThemeWeight(parseFloat(settings.themeWeight?.toString() || "20"));
+      setNewsWeight(parseFloat(settings.newsWeight?.toString() || "15"));
+      setFinancialsWeight(parseFloat(settings.financialsWeight?.toString() || "25"));
+      setLiquidityWeight(parseFloat(settings.liquidityWeight?.toString() || "20"));
+      setInstitutionalWeight(parseFloat(settings.institutionalWeight?.toString() || "20"));
+      setRequireGoodFinancials(settings.requireGoodFinancials ?? true);
+      setRequireHighLiquidity(settings.requireHighLiquidity ?? true);
+      setRequireMarketIssue(settings.requireMarketIssue ?? false);
     }
   }, [settings]);
 
@@ -141,6 +162,12 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
   });
 
   const handleSave = () => {
+    const totalWeight = themeWeight + newsWeight + financialsWeight + liquidityWeight + institutionalWeight;
+    if (Math.abs(totalWeight - 100) > 0.01) {
+      toast({ variant: "destructive", title: "AI 분석 가중치 합계가 100%여야 합니다", description: `현재 합계: ${totalWeight}%` });
+      return;
+    }
+
     if (selectedAccountId && selectedAccountId !== (modelConfig?.accountId?.toString() || "")) {
       onAccountChange(parseInt(selectedAccountId));
     }
@@ -154,6 +181,15 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
       surgeThreshold,
       volumeSpikeMultiplier,
       rainbowLineSettings,
+      minAiConfidence,
+      themeWeight,
+      newsWeight,
+      financialsWeight,
+      liquidityWeight,
+      institutionalWeight,
+      requireGoodFinancials,
+      requireHighLiquidity,
+      requireMarketIssue,
     });
   };
 
@@ -412,6 +448,90 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
               </div>
             </div>
           )}
+        </div>
+
+        {/* AI 설정 */}
+        <div className="border-t pt-4 space-y-4">
+          <Label className="text-sm font-semibold">AI 설정</Label>
+
+          {/* AI 최소 신뢰도 */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs text-muted-foreground">AI 최소 신뢰도</Label>
+              <span className="text-xs font-mono">{minAiConfidence}%</span>
+            </div>
+            <Slider
+              min={0}
+              max={100}
+              step={1}
+              value={[minAiConfidence]}
+              onValueChange={([v]) => setMinAiConfidence(v)}
+              data-testid="slider-min-ai-confidence"
+            />
+            <p className="text-xs text-muted-foreground">이 신뢰도 이상일 때만 매매 신호를 발생시킵니다</p>
+          </div>
+
+          {/* AI 분석 가중치 */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs text-muted-foreground">AI 분석 가중치</Label>
+              <span className={`text-xs font-mono ${Math.abs(themeWeight + newsWeight + financialsWeight + liquidityWeight + institutionalWeight - 100) > 0.01 ? 'text-destructive' : 'text-green-600 dark:text-green-400'}`}>
+                합계: {themeWeight + newsWeight + financialsWeight + liquidityWeight + institutionalWeight}%
+              </span>
+            </div>
+            {[
+              { label: "테마", value: themeWeight, setter: setThemeWeight, testId: "slider-weight-theme" },
+              { label: "뉴스", value: newsWeight, setter: setNewsWeight, testId: "slider-weight-news" },
+              { label: "재무", value: financialsWeight, setter: setFinancialsWeight, testId: "slider-weight-financials" },
+              { label: "유동성", value: liquidityWeight, setter: setLiquidityWeight, testId: "slider-weight-liquidity" },
+              { label: "기관", value: institutionalWeight, setter: setInstitutionalWeight, testId: "slider-weight-institutional" },
+            ].map(({ label, value, setter, testId }) => (
+              <div key={label} className="flex items-center gap-3">
+                <span className="text-xs text-muted-foreground w-12 shrink-0">{label}</span>
+                <Slider
+                  min={0}
+                  max={100}
+                  step={5}
+                  value={[value]}
+                  onValueChange={([v]) => setter(v)}
+                  className="flex-1"
+                  data-testid={testId}
+                />
+                <span className="text-xs font-mono w-8 text-right">{value}%</span>
+              </div>
+            ))}
+          </div>
+
+          {/* 진입 조건 필터 */}
+          <div className="space-y-2">
+            <Label className="text-xs text-muted-foreground">진입 조건 필터</Label>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs">재무건전성 필수</Label>
+                <Switch
+                  checked={requireGoodFinancials}
+                  onCheckedChange={setRequireGoodFinancials}
+                  data-testid="switch-require-good-financials"
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <Label className="text-xs">높은 유동성 필수</Label>
+                <Switch
+                  checked={requireHighLiquidity}
+                  onCheckedChange={setRequireHighLiquidity}
+                  data-testid="switch-require-high-liquidity"
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <Label className="text-xs">이슈 종목만 거래 (시장 이슈 종목 필수)</Label>
+                <Switch
+                  checked={requireMarketIssue}
+                  onCheckedChange={setRequireMarketIssue}
+                  data-testid="switch-require-market-issue"
+                />
+              </div>
+            </div>
+          </div>
         </div>
 
         <div className="border-t pt-4 space-y-3">

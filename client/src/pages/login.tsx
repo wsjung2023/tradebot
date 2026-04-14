@@ -80,7 +80,7 @@ export default function Login() {
             AI가 자동으로 시장을 분석하고 투자합니다
           </p>
           <p className="text-sm text-white/70 mt-2">
-            레인보우 차트 기반 실시간 자동매매 플랫폼
+            GPT-4 기반 실시간 자동매매 플랫폼
           </p>
         </div>
 
