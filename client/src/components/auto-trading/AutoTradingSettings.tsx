@@ -450,86 +450,79 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
           )}
         </div>
 
-        {/* 분석 설정 */}
-        <div className="border-t pt-4 space-y-4">
-          <Label className="text-sm font-semibold">분석 설정</Label>
-
-          {/* 종합 점수 최소값 */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label className="text-xs text-muted-foreground">종합 점수 최소값</Label>
-              <span className="text-xs font-mono">{minAiConfidence}%</span>
-            </div>
+        {/* AI 최소 신뢰도 */}
+        <div className="border-t pt-4 space-y-3">
+          <Label className="text-sm font-semibold">AI 최소 신뢰도</Label>
+          <div className="flex items-center gap-3">
             <Slider
               min={0}
               max={100}
-              step={1}
+              step={5}
               value={[minAiConfidence]}
               onValueChange={([v]) => setMinAiConfidence(v)}
               data-testid="slider-min-ai-confidence"
             />
-            <p className="text-xs text-muted-foreground">이 점수 이상일 때만 매매 신호를 발생시킵니다 (테마·뉴스·재무·유동성·기관 가중 합산)</p>
+            <span className="text-sm font-mono w-12 text-right">{minAiConfidence}%</span>
           </div>
+        </div>
 
-          {/* 분석 가중치 */}
+        {/* AI 분석 가중치 */}
+        <div className="border-t pt-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <Label className="text-sm font-semibold">AI 분석 가중치</Label>
+            <span className={`text-xs font-mono ${Math.abs(themeWeight + newsWeight + financialsWeight + liquidityWeight + institutionalWeight - 100) > 0.01 ? 'text-destructive font-bold' : 'text-muted-foreground'}`}>
+              합계: {themeWeight + newsWeight + financialsWeight + liquidityWeight + institutionalWeight}%
+            </span>
+          </div>
+          {[
+            { label: "테마", value: themeWeight, setter: setThemeWeight, testId: "slider-theme-weight" },
+            { label: "뉴스", value: newsWeight, setter: setNewsWeight, testId: "slider-news-weight" },
+            { label: "재무", value: financialsWeight, setter: setFinancialsWeight, testId: "slider-financials-weight" },
+            { label: "유동성", value: liquidityWeight, setter: setLiquidityWeight, testId: "slider-liquidity-weight" },
+            { label: "기관", value: institutionalWeight, setter: setInstitutionalWeight, testId: "slider-institutional-weight" },
+          ].map(({ label, value, setter, testId }) => (
+            <div key={testId} className="flex items-center gap-3">
+              <span className="text-xs text-muted-foreground w-10">{label}</span>
+              <Slider
+                min={0}
+                max={100}
+                step={5}
+                value={[value]}
+                onValueChange={([v]) => setter(v)}
+                data-testid={testId}
+              />
+              <span className="text-xs font-mono w-10 text-right">{value}%</span>
+            </div>
+          ))}
+        </div>
+
+        {/* 진입 조건 필터 */}
+        <div className="border-t pt-4 space-y-3">
+          <Label className="text-sm font-semibold">진입 조건 필터</Label>
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <Label className="text-xs text-muted-foreground">분석 가중치</Label>
-              <span className={`text-xs font-mono ${Math.abs(themeWeight + newsWeight + financialsWeight + liquidityWeight + institutionalWeight - 100) > 0.01 ? 'text-destructive' : 'text-green-600 dark:text-green-400'}`}>
-                합계: {themeWeight + newsWeight + financialsWeight + liquidityWeight + institutionalWeight}%
-              </span>
+              <Label className="text-xs">재무건전성 필수</Label>
+              <Switch
+                checked={requireGoodFinancials}
+                onCheckedChange={setRequireGoodFinancials}
+                data-testid="switch-require-financials"
+              />
             </div>
-            {[
-              { label: "테마", value: themeWeight, setter: setThemeWeight, testId: "slider-weight-theme" },
-              { label: "뉴스", value: newsWeight, setter: setNewsWeight, testId: "slider-weight-news" },
-              { label: "재무", value: financialsWeight, setter: setFinancialsWeight, testId: "slider-weight-financials" },
-              { label: "유동성", value: liquidityWeight, setter: setLiquidityWeight, testId: "slider-weight-liquidity" },
-              { label: "기관", value: institutionalWeight, setter: setInstitutionalWeight, testId: "slider-weight-institutional" },
-            ].map(({ label, value, setter, testId }) => (
-              <div key={label} className="flex items-center gap-3">
-                <span className="text-xs text-muted-foreground w-12 shrink-0">{label}</span>
-                <Slider
-                  min={0}
-                  max={100}
-                  step={5}
-                  value={[value]}
-                  onValueChange={([v]) => setter(v)}
-                  className="flex-1"
-                  data-testid={testId}
-                />
-                <span className="text-xs font-mono w-8 text-right">{value}%</span>
-              </div>
-            ))}
-          </div>
-
-          {/* 진입 조건 필터 */}
-          <div className="space-y-2">
-            <Label className="text-xs text-muted-foreground">진입 조건 필터</Label>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label className="text-xs">재무건전성 필수</Label>
-                <Switch
-                  checked={requireGoodFinancials}
-                  onCheckedChange={setRequireGoodFinancials}
-                  data-testid="switch-require-good-financials"
-                />
-              </div>
-              <div className="flex items-center justify-between">
-                <Label className="text-xs">높은 유동성 필수</Label>
-                <Switch
-                  checked={requireHighLiquidity}
-                  onCheckedChange={setRequireHighLiquidity}
-                  data-testid="switch-require-high-liquidity"
-                />
-              </div>
-              <div className="flex items-center justify-between">
-                <Label className="text-xs">이슈 종목만 거래 (시장 이슈 종목 필수)</Label>
-                <Switch
-                  checked={requireMarketIssue}
-                  onCheckedChange={setRequireMarketIssue}
-                  data-testid="switch-require-market-issue"
-                />
-              </div>
+            <div className="flex items-center justify-between">
+              <Label className="text-xs">높은 유동성 필수</Label>
+              <Switch
+                checked={requireHighLiquidity}
+                onCheckedChange={setRequireHighLiquidity}
+                data-testid="switch-require-liquidity"
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <Label className="text-xs">시장 이슈 관련 종목만</Label>
+              <Switch
+                checked={requireMarketIssue}
+                onCheckedChange={setRequireMarketIssue}
+                data-testid="switch-require-market-issue"
+              />
             </div>
           </div>
         </div>

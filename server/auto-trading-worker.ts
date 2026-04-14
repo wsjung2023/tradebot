@@ -6,6 +6,7 @@ import { KiwoomService } from './services/kiwoom';
 import { getUserKiwoomService } from './services/user-kiwoom.service';
 import { LearningService } from './services/learning.service';
 import { TradeExecutorService } from './services/trade-executor.service';
+import { getAIService } from './services/ai.service';
 import { getOrderSyncService } from './services/order-sync.service';
 import { AgentTimeoutError } from './services/agent-proxy.service';
 import { getDartService } from './services/dart.service';
@@ -28,6 +29,7 @@ class AutoTradingWorker {
   private isScanRunning = false;
   private learningService = new LearningService();
   private executor = new TradeExecutorService();
+  private aiService = getAIService();
   private userKiwoomService = getUserKiwoomService();
   private readonly agentTimeoutWindowMs = 10 * 60 * 1000;
   private readonly agentTimeoutThreshold = 3;
@@ -396,7 +398,7 @@ class AutoTradingWorker {
       } else {
         console.log(`  📊 후보 종목 ${candidates.length}개 평가 시작`);
         for (const candidate of candidates) {
-          await this.executor.evaluateCandidateStock(model, settings, candidate, kiwoomService);
+          await this.executor.evaluateCandidateStock(model, settings, candidate, kiwoomService, this.aiService);
         }
       }
       this.clearAgentTimeoutCounter(model.userId);

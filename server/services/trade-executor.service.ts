@@ -1,6 +1,7 @@
-// trade-executor.service.ts — 레인보우 차트 + 규칙기반 분석 기반 개별 종목 평가 및 매수/매도 주문 실행 서비스
+// trade-executor.service.ts — 레인보우 차트 + GPT 분석 기반 개별 종목 평가 및 매수/매도 주문 실행 서비스
 import { storage } from '../storage';
 import { KiwoomService } from './kiwoom';
+import { AIService } from './ai.service';
 import { AiModel, AutoTradingSettings, CandidateStock } from '@shared/schema';
 import { RainbowChartAnalyzer } from '../formula/rainbow-chart';
 import { normalizeChartDataAsc } from '../utils/chart-normalization';
@@ -66,7 +67,8 @@ export class TradeExecutorService {
     model: AiModel,
     settings: AutoTradingSettings,
     stock: { code: string; name: string; price: number; volume: number },
-    kiwoomService: KiwoomService
+    kiwoomService: KiwoomService,
+    aiService: AIService
   ): Promise<void> {
     console.log(`    📈 Evaluating: ${stock.name} (${stock.code})`);
     try {
@@ -82,7 +84,7 @@ export class TradeExecutorService {
         console.log(`    ✅ 시장 이슈 확인됨: ${stock.code}`);
       }
 
-      const aiAnalysis = await this.comprehensiveMarketAnalysis(stock, settings, kiwoomService);
+      const aiAnalysis = await this.comprehensiveAiAnalysis(stock, settings, kiwoomService, aiService);
       if (aiAnalysis.confidence < parseFloat(settings.minAiConfidence.toString())) {
         console.log(`    ⚠️  AI confidence ${aiAnalysis.confidence}% < threshold ${settings.minAiConfidence}% - skipping`);
         return;
@@ -296,63 +298,14 @@ export class TradeExecutorService {
     }
   }
 
-  // ── 규칙 기반 뉴스 감성 점수 계산 (GPT 없이 키워드 카운팅) ────────────
-  private calcNewsScore(news: any): number {
-    const POSITIVE_KW = ['상승', '급등', '호실적', '목표주가 상향', '매수', '신고가', '흑자', '성장', '수주', '호재', '상향', '최고가', '턴어라운드'];
-    const NEGATIVE_KW = ['하락', '급락', '부진', '목표주가 하향', '매도', '적자', '손실', '하한가', '불성실', '하향', '충당금', '손상'];
-    if (!news?.articles?.length) return 50;
-    let pos = 0, neg = 0;
-    for (const article of news.articles) {
-      const text = `${article.title ?? ''} ${article.description ?? ''}`;
-      for (const kw of POSITIVE_KW) if (text.includes(kw)) pos++;
-      for (const kw of NEGATIVE_KW) if (text.includes(kw)) neg++;
-    }
-    return Math.min(100, Math.max(0, 50 + (pos - neg) * 6));
-  }
-
-  // ── 규칙 기반 재무 점수 계산 (PER / PBR / ROE 임계값) ─────────────────
-  private calcFinancialsScore(ratios: { per: string; pbr: string; roe: string } | undefined): number {
-    if (!ratios) return 50;
-    const per = parseFloat(ratios.per) || 0;
-    const pbr = parseFloat(ratios.pbr) || 0;
-    const roe = parseFloat(ratios.roe) || 0;
-
-    let score = 0;
-    // PER 점수 (최대 30점)
-    if (per > 0 && per <= 15)       score += 30;
-    else if (per > 15 && per <= 25) score += 20;
-    else if (per > 25 && per <= 40) score += 10;
-    // per ≤ 0 (적자) 또는 per > 40 → 0점
-
-    // PBR 점수 (최대 25점)
-    if (pbr > 0 && pbr <= 1)       score += 25;
-    else if (pbr > 1 && pbr <= 2)  score += 15;
-    else if (pbr > 2 && pbr <= 4)  score += 5;
-
-    // ROE 점수 (최대 25점)
-    if (roe > 20)       score += 25;
-    else if (roe > 10)  score += 15;
-    else if (roe > 0)   score += 5;
-
-    return Math.min(80, score); // 최대 80 (데이터 없으면 50)
-  }
-
-  // ── 레인보우 차트 위치 기반 테마 점수 계산 ──────────────────────────
-  private calcThemeScore(currentPosition: number): number {
-    if (currentPosition <= 20) return 85;
-    if (currentPosition <= 30) return 72;
-    if (currentPosition <= 40) return 58;
-    if (currentPosition <= 50) return 45;
-    return 30;
-  }
-
-  // ── GPT 없이 규칙 기반 종합 시장 분석 (데이터: 키움 + 네이버뉴스 + DART) ──
-  async comprehensiveMarketAnalysis(
+  // ── GPT + 가중치 기반 종합 분석 (레인보우+모멘텀+뉴스+DART+재무) ──────
+  async comprehensiveAiAnalysis(
     stock: { code: string; name: string; price: number },
     settings: AutoTradingSettings,
-    kiwoomService: KiwoomService
+    kiwoomService: KiwoomService,
+    aiService: AIService
   ): Promise<AiAnalysisResult> {
-    // ── 1단계: 데이터 수집 (모두 병렬) ─────────────────────────────────
+    // ── 1단계: 5개 데이터 병렬 수집 ─────────────────────────────────────
     const [priceResult, chartResult, ratiosResult, newsResult, dartResult] = await Promise.allSettled([
       kiwoomService.getStockPrice(stock.code),
       kiwoomService.getStockChart(stock.code, 'D'),
@@ -365,33 +318,58 @@ export class TradeExecutorService {
     const priceOutput = priceResult.status === 'fulfilled' ? priceResult.value.output : null;
     const volume = parseFloat(priceOutput?.acml_vol ?? '0') || 0;
 
-    // ── 3단계: 레인보우 차트 계산 → themeScore ──────────────────────────
+    // ── 3단계: 레인보우 차트 계산 ────────────────────────────────────────
     const chartRaw = chartResult.status === 'fulfilled' ? (chartResult.value.output || chartResult.value) : [];
     const ohlcv = normalizeChartDataAsc(chartRaw);
     const rainbowChart = RainbowChartAnalyzer.analyze(stock.code, ohlcv);
-    const themeScore = this.calcThemeScore(rainbowChart.currentPosition);
 
-    // ── 4단계: PER/PBR/ROE → financialsScore ────────────────────────────
+    // ── 4단계: PER/PBR/ROE/EPS/BPS 추출 → GPT 재무 분석 인풋 ───────────
     const ratiosRaw = ratiosResult.status === 'fulfilled' ? ratiosResult.value.output : null;
-    const financialRatios = ratiosRaw
-      ? { per: ratiosRaw.per || '0', pbr: ratiosRaw.pbr || '0', roe: ratiosRaw.roe || '0' }
-      : undefined;
-    const financialsScore = this.calcFinancialsScore(financialRatios);
+    const financialRatios = ratiosRaw ? {
+      per: ratiosRaw.per || '0',
+      pbr: ratiosRaw.pbr || '0',
+      eps: ratiosRaw.eps || '0',
+      bps: ratiosRaw.bps || '0',
+      roe: ratiosRaw.roe || '0',
+    } : undefined;
 
-    // ── 5단계: 네이버 뉴스 키워드 → newsScore ───────────────────────────
+    // ── 5단계: 뉴스 감성 데이터 ──────────────────────────────────────────
     const news = newsResult.status === 'fulfilled' ? newsResult.value : undefined;
-    const newsScore = this.calcNewsScore(news);
 
-    // ── 6단계: DART 위험공시 감지 ────────────────────────────────────────
+    // ── 5-2단계: DART 공시 추출 ──────────────────────────────────────────
     const dartFilings = dartResult.status === 'fulfilled'
       ? dartResult.value.map(f => ({ reportNm: f.reportNm, rceptDt: f.rceptDt }))
       : [];
-    const dartDangerFiling = dartFilings.find(f =>
-      DART_DANGER_KEYWORDS.some(kw => f.reportNm.includes(kw))
-    );
-    const dartDangerKeyword = dartDangerFiling?.reportNm ?? null;
 
-    // ── 7단계: 거래량 기반 점수 ─────────────────────────────────────────
+    // ── 6단계: 가격 이력 (최근 20일) ────────────────────────────────────
+    const priceHistory = ohlcv.slice(-20).map(d => ({
+      date: d.date,
+      price: d.close,
+      volume: d.volume,
+    }));
+
+    // ── 7단계: GPT 2개 병렬 호출 ─────────────────────────────────────────
+    //  · analyzeStock     : 레인보우 차트 + 모멘텀 → themeScore
+    //  · integratedAnalysis: 뉴스 + DART + PER/PBR/ROE + 가격이력 → newsScore, financialScore
+    const [stockAnalysis, integrated] = await Promise.all([
+      aiService.analyzeStock({
+        stockCode: stock.code,
+        stockName: stock.name,
+        currentPrice: stock.price,
+        rainbowChart,
+      }),
+      aiService.integratedAnalysis({
+        stockCode: stock.code,
+        stockName: stock.name,
+        currentPrice: stock.price,
+        financialRatios,
+        priceHistory,
+        news,
+        dartFilings,
+      }),
+    ]);
+
+    // ── 8단계: 거래량 기반 점수 (규칙, GPT 불필요) ──────────────────────
     const liquidityScore =
       volume >= 500_000 ? 80 :
       volume >= 100_000 ? 65 :
@@ -403,29 +381,44 @@ export class TradeExecutorService {
       volume >= 100_000   ? 55 :
       volume >= 50_000    ? 45 : 35;
 
-    // ── 8단계: 가중치 및 신뢰도 계산 ────────────────────────────────────
+    // ── 9단계: 가중치 곱하기 → 최종 confidence ──────────────────────────
     const weights = {
       theme:         parseFloat(settings.themeWeight?.toString() ?? '20'),
-      news:          parseFloat(settings.newsWeight?.toString() ?? '20'),
-      financials:    parseFloat(settings.financialsWeight?.toString() ?? '20'),
+      news:          parseFloat(settings.newsWeight?.toString() ?? '15'),
+      financials:    parseFloat(settings.financialsWeight?.toString() ?? '25'),
       liquidity:     parseFloat(settings.liquidityWeight?.toString() ?? '20'),
       institutional: parseFloat(settings.institutionalWeight?.toString() ?? '20'),
     };
     const totalWeight = weights.theme + weights.news + weights.financials + weights.liquidity + weights.institutional;
     const denominator = totalWeight > 0 ? totalWeight : 100;
     const confidence = Math.min(100, Math.max(0, (
-      themeScore         * weights.theme +
-      newsScore          * weights.news +
-      financialsScore    * weights.financials +
-      liquidityScore     * weights.liquidity +
-      institutionalScore * weights.institutional
+      stockAnalysis.themeScore   * weights.theme +
+      integrated.newsScore       * weights.news +
+      integrated.financialScore  * weights.financials +
+      liquidityScore             * weights.liquidity +
+      institutionalScore         * weights.institutional
     ) / denominator));
 
-    const hasGoodFinancials = financialsScore >= 60;
+    // ── DART 위험공시 감지 ────────────────────────────────────────────────
+    const dartDangerFiling = dartFilings.find(f =>
+      DART_DANGER_KEYWORDS.some(kw => f.reportNm.includes(kw))
+    );
+    const dartDangerKeyword = dartDangerFiling?.reportNm ?? null;
+
+    const hasGoodFinancials = integrated.financialScore >= 60;
     const hasHighLiquidity  = liquidityScore >= 40;
 
-    return { confidence, hasGoodFinancials, hasHighLiquidity, dartDangerKeyword,
-             themeScore, newsScore, financialsScore, liquidityScore, institutionalScore };
+    return {
+      confidence,
+      hasGoodFinancials,
+      hasHighLiquidity,
+      dartDangerKeyword,
+      themeScore:        stockAnalysis.themeScore,
+      newsScore:         integrated.newsScore,
+      financialsScore:   integrated.financialScore,
+      liquidityScore,
+      institutionalScore,
+    };
   }
 
   async evaluate10LineRainbow(
@@ -637,7 +630,8 @@ export class TradeExecutorService {
     model: AiModel,
     settings: AutoTradingSettings,
     candidate: CandidateStock,
-    kiwoomService: KiwoomService
+    kiwoomService: KiwoomService,
+    aiService: AIService
   ): Promise<void> {
     try {
       const priceData = await kiwoomService.getStockPrice(candidate.stockCode);
@@ -663,9 +657,9 @@ export class TradeExecutorService {
         console.log(`    ✅ 시장 이슈 확인됨: ${stock.code}`);
       }
 
-      // ── 종합 시장 분석 (규칙 기반 — GPT 없음) ───────────────────────────
-      const marketAnalysis = await this.comprehensiveMarketAnalysis(stock, settings, kiwoomService);
-      console.log(`    📊 시장분석 신뢰도: ${marketAnalysis.confidence.toFixed(1)}% (테마:${marketAnalysis.themeScore} 뉴스:${marketAnalysis.newsScore} 재무:${marketAnalysis.financialsScore} 유동성:${marketAnalysis.liquidityScore})`);
+      // ── GPT + 가중치 기반 종합 분석 ──────────────────────────────────────
+      const marketAnalysis = await this.comprehensiveAiAnalysis(stock, settings, kiwoomService, aiService);
+      console.log(`    📊 AI분석 신뢰도: ${marketAnalysis.confidence.toFixed(1)}% (테마:${marketAnalysis.themeScore} 뉴스:${marketAnalysis.newsScore} 재무:${marketAnalysis.financialsScore} 유동성:${marketAnalysis.liquidityScore})`);
 
       // ── 최소 신뢰도 필터 ─────────────────────────────────────────────────
       const minConf = parseFloat(settings.minAiConfidence?.toString() ?? '0');
