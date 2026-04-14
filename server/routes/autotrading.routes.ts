@@ -127,6 +127,16 @@ export function registerAutoTradingRoutes(app: Router) {
     }
   });
 
+  app.get("/api/auto-trading/candidates", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const candidates = await storage.getAllCandidateStocksForUser(user!.id);
+      res.json({ candidates });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   /**
    * POST /api/auto-trading/backattack-scan
    * 뒷차기2 조건식으로 종목 조회 → 레인보우 차트 분석

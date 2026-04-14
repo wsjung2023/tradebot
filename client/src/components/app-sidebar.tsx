@@ -106,6 +106,11 @@ const menuItems = [
     icon: Rainbow,
   },
   {
+    title: "실시간 모니터",
+    url: "/monitoring",
+    icon: Activity,
+  },
+  {
     title: "설정",
     url: "/settings",
     icon: Settings,

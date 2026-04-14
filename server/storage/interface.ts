@@ -214,6 +214,7 @@ export interface IStorage {
   }>;
 
   // 후보 종목 (candidate_stocks)
+  getAllCandidateStocksForUser(userId: string): Promise<CandidateStock[]>;
   upsertCandidateStock(data: InsertCandidateStock): Promise<CandidateStock>;
   getCandidateStocks(userId: string, modelId: number): Promise<CandidateStock[]>;
   clearCandidateStocks(userId: string, modelId: number): Promise<void>;

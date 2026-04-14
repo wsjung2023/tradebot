@@ -761,6 +761,12 @@ export class PostgreSQLCoreStorage {
     return result[0];
   }
 
+  async getAllCandidateStocksForUser(userId: string): Promise<CandidateStock[]> {
+    return db.select().from(schema.candidateStocks)
+      .where(eq(schema.candidateStocks.userId, userId))
+      .orderBy(desc(schema.candidateStocks.scannedAt));
+  }
+
   async getCandidateStocks(userId: string, modelId: number): Promise<CandidateStock[]> {
     return db.select().from(schema.candidateStocks)
       .where(and(
