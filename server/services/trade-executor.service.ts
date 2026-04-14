@@ -614,10 +614,12 @@ export class TradeExecutorService {
         orderMethod: 'market',
       });
 
+      let profitLoss = 0;
+      let profitLossRate = 0;
       const perfEntry = await storage.getTradingPerformanceByStock(model.id, stock.code);
       if (perfEntry) {
-        const profitLoss = (stock.price - parseFloat(perfEntry.entryPrice.toString())) * sellQuantity;
-        const profitLossRate = ((stock.price / parseFloat(perfEntry.entryPrice.toString())) - 1) * 100;
+        profitLoss = (stock.price - parseFloat(perfEntry.entryPrice.toString())) * sellQuantity;
+        profitLossRate = ((stock.price / parseFloat(perfEntry.entryPrice.toString())) - 1) * 100;
         await storage.updateTradingPerformance(perfEntry.id, {
           exitPrice: stock.price.toFixed(2),
           exitRainbowLine: rainbow.currentLine,
@@ -626,9 +628,9 @@ export class TradeExecutorService {
           profitLossRate: profitLossRate.toFixed(4),
           isWin: profitLoss > 0,
         });
-        console.log(`    ✅ SELL order placed: ${sellQuantity} shares @ ${stock.price} (P/L: ${profitLoss.toFixed(0)})`);
-        storage.createEngineNotification({ userId: model.userId, severity: 'info', type: 'SELL', message: `[매도] ${stock.name} ${sellQuantity}주 @ ${stock.price.toLocaleString()}원 (${profitLoss > 0 ? '+' : ''}${profitLoss.toFixed(0)}원)`, payload: { stockCode: stock.code, stockName: stock.name, price: stock.price, quantity: sellQuantity, profitLoss, profitLossRate, sellReason: 'target', exitRainbowLine: rainbow.currentLine } }).catch(e => console.error('[Notification]', e));
       }
+      console.log(`    ✅ SELL order placed: ${sellQuantity} shares @ ${stock.price} (P/L: ${profitLoss.toFixed(0)})`);
+      storage.createEngineNotification({ userId: model.userId, severity: 'info', type: 'SELL', message: `[매도] ${stock.name} ${sellQuantity}주 @ ${stock.price.toLocaleString()}원 (${profitLoss > 0 ? '+' : ''}${profitLoss.toFixed(0)}원)`, payload: { stockCode: stock.code, stockName: stock.name, price: stock.price, quantity: sellQuantity, profitLoss, profitLossRate, sellReason: 'target', exitRainbowLine: rainbow.currentLine } }).catch(e => console.error('[Notification]', e));
     } catch (error) {
       console.error(`    ❌ Error executing sell:`, error);
     }
