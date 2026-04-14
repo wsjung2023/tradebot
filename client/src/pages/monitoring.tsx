@@ -175,7 +175,8 @@ export default function Monitoring() {
   const jobs = jobsData ?? [];
   const engineRun = engineData?.run;
   const candidates = candidatesData?.candidates ?? [];
-  const notifications = notifData?.notifications ?? [];
+  const decisionTypes = new Set(["BUY", "SELL", "SKIP", "ADDITIONAL_BUY", "EXIT_SELL"]);
+  const notifications = (notifData?.notifications ?? []).filter((n) => decisionTypes.has(n.type));
   const summary = summaryData?.summary;
 
   return (
