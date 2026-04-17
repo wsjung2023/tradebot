@@ -21,6 +21,23 @@ function touchAgentSeen() {
   _agentPollCount++;
 }
 
+/**
+ * 에이전트가 최근 maxAgeSec 초 안에 폴링했는지 여부.
+ * 자동 cron(잔고/스캔/매매)에서 에이전트 미연결 시 사이클 skip 용도로 사용.
+ * NOTE: autoscale 환경에선 인스턴스별로 메모리가 다르므로 false라도 다른 인스턴스에 polling이 있을 수 있다.
+ *       다만 이 프로젝트의 cron은 단일 인스턴스에서만 도는 구조이므로 충분.
+ */
+export function isAgentConnected(maxAgeSec: number = 60): boolean {
+  if (!_agentLastSeen) return false;
+  const ageSec = (Date.now() - _agentLastSeen.getTime()) / 1000;
+  return ageSec < maxAgeSec;
+}
+
+export function getAgentLastSeenSecondsAgo(): number | null {
+  if (!_agentLastSeen) return null;
+  return Math.round((Date.now() - _agentLastSeen.getTime()) / 1000);
+}
+
 // ─── 폴링 ON/OFF 스위치 (서버 인스턴스별 독립 메모리) ────────────────────
 // AGENT_POLLING_DEFAULT=false 환경변수로 시작값 제어 가능
 // 개발 서버: 기본 ON / 운영 서버: AGENT_POLLING_DEFAULT=false 로 기본 OFF

@@ -2,6 +2,7 @@ import { WebSocket } from "ws";
 import { AgentTimeoutError } from "./services/agent-proxy.service";
 import { getUserKiwoomService } from "./services/user-kiwoom.service";
 import { isKoreanMarketOpen } from "./utils/market-hours";
+import { isAgentConnected } from "./routes/kiwoom-agent.routes";
 
 export interface MarketDataMessage {
   type: "subscribe" | "unsubscribe" | "price" | "orderbook" | "trade" | "ping" | "pong";
@@ -162,6 +163,8 @@ export class MarketDataHub {
     if (this.isUpdating) return;
     if (this.clients.size === 0) return;
     if (!isKoreanMarketOpen()) return;
+    // 에이전트 미연결 시 2초 시세 폴링 자체를 skip — getPrice/getOrderbook 모두 에이전트 경유
+    if (!isAgentConnected(30)) return;
 
     this.isUpdating = true;
     try {

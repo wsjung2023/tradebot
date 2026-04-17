@@ -4,6 +4,7 @@ import * as cron from 'node-cron';
 import { storage } from '../storage';
 import { callViaAgent } from './agent-proxy.service';
 import { parseHoldingItem } from '../utils/balance-parser';
+import { isAgentConnected, getAgentLastSeenSecondsAgo } from '../routes/kiwoom-agent.routes';
 
 /**
  * KST 현재 시각 기준으로 장중(08:30~18:00, 월~금)인지 확인.
@@ -50,6 +51,14 @@ export class BalanceRefreshService {
 
   async refreshAllRealAccounts(): Promise<void> {
     if (!isKstMarketHours()) return;
+
+    // 에이전트 미연결 시 사이클 자체를 skip — DB/리소스/로그 낭비 방지
+    if (!isAgentConnected(60)) {
+      const ago = getAgentLastSeenSecondsAgo();
+      const agoLabel = ago === null ? '한 번도 폴링 없음' : `마지막 폴링 ${ago}초 전`;
+      console.log(`[BalanceRefresh] ⏭️  에이전트 미연결 — 사이클 스킵 (${agoLabel})`);
+      return;
+    }
 
     let accounts: Awaited<ReturnType<typeof storage.getAllRealKiwoomAccounts>>;
     try {
