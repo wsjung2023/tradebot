@@ -395,6 +395,26 @@ class AutoTradingWorker {
         return;
       }
 
+      // ── 거래 모드 안전장치: trading_mode='mock'이면 실계좌 거래 차단 ──
+      const tradingMode = userSettings?.tradingMode ?? 'mock';
+      if (tradingMode === 'mock' && targetAccount.accountType === 'real') {
+        await this.setRunState(model.userId, 'paused', model.id, 'trading_mode_mismatch', undefined, {
+          cycleId,
+          durationMs: Date.now() - startedAt,
+          tradingMode,
+          accountType: targetAccount.accountType,
+        });
+        console.log(`🛡️  거래 모드 불일치 — 설정: 모의투자, 계좌: 실계좌 → 실계좌 거래 차단`);
+        await this.notifyEngineEvent(
+          model.userId,
+          'warn',
+          'trading_mode_blocked',
+          `[안전장치] 거래 모드가 "모의투자"로 설정되어 실계좌(${targetAccount.accountNumber}) 자동매매가 차단되었습니다. 실전투자로 전환 후 이용하세요.`,
+          { modelId: model.id, accountId: targetAccount.id, accountNumber: targetAccount.accountNumber },
+        );
+        return;
+      }
+
       const acctNum = targetAccount.accountNumber.replace(/\D/g, '').slice(0, 8);
       let appKey = process.env[`KIWOOM_KEY_${acctNum}`];
       let appSecret = process.env[`KIWOOM_SECRET_${acctNum}`];
