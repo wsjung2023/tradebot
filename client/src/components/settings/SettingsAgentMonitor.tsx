@@ -120,6 +120,16 @@ export function SettingsAgentMonitor() {
       toast({ variant: "destructive", title: "스위치 변경 실패", description: e.message }),
   });
 
+  const deleteHistoryMutation = useMutation({
+    mutationFn: async (id: number) =>
+      (await apiRequest("DELETE", `/api/kiwoom-agent/update-history/${id}`)).json(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/kiwoom-agent/update-history"] });
+    },
+    onError: (e: Error) =>
+      toast({ variant: "destructive", title: "삭제 실패", description: e.message }),
+  });
+
   const selfUpdateMutation = useMutation({
     mutationFn: async (): Promise<SelfUpdateResponse> =>
       (await apiRequest("POST", "/api/kiwoom-agent/self-update")).json(),
@@ -488,6 +498,20 @@ export function SettingsAgentMonitor() {
                           <p className="text-destructive truncate">{record.errorMessage}</p>
                         )}
                       </div>
+                      <Button
+                        data-testid={`button-delete-history-${record.id}`}
+                        variant="ghost"
+                        size="icon"
+                        className="shrink-0 text-muted-foreground"
+                        onClick={() => deleteHistoryMutation.mutate(record.id)}
+                        disabled={deleteHistoryMutation.isPending}
+                      >
+                        {deleteHistoryMutation.isPending ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-3 w-3" />
+                        )}
+                      </Button>
                     </div>
                   ))}
                 </div>
