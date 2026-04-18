@@ -854,3 +854,19 @@ export const agentUpdateLogs = pgTable("agent_update_logs", {
 export const insertAgentUpdateLogSchema = createInsertSchema(agentUpdateLogs).omit({ id: true, timestamp: true });
 export type AgentUpdateLog = typeof agentUpdateLogs.$inferSelect;
 export type InsertAgentUpdateLog = z.infer<typeof insertAgentUpdateLogSchema>;
+
+// ==================== Agent Alert Logs ====================
+
+export const agentAlertLogs = pgTable("agent_alert_logs", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  sentAt: timestamp("sent_at").notNull().defaultNow(),
+  toEmail: text("to_email"),
+  alertType: text("alert_type").notNull(), // 'disconnect', 'recovery', 'test'
+  success: boolean("success").notNull(),
+  errorMessage: text("error_message"),
+});
+
+export const insertAgentAlertLogSchema = createInsertSchema(agentAlertLogs).omit({ id: true, sentAt: true });
+export type AgentAlertLog = typeof agentAlertLogs.$inferSelect;
+export type InsertAgentAlertLog = z.infer<typeof insertAgentAlertLogSchema>;

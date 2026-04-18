@@ -32,6 +32,7 @@ import {
   type CandidateStock, type InsertCandidateStock,
   type AssetSnapshot, type InsertAssetSnapshot,
   type AgentUpdateLog, type InsertAgentUpdateLog,
+  type AgentAlertLog, type InsertAgentAlertLog,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -244,4 +245,8 @@ export interface IStorage {
   getAgentUpdateLogs(limit?: number): Promise<AgentUpdateLog[]>;
   deleteAgentUpdateLog(id: number): Promise<void>;
   deleteAllAgentUpdateLogs(): Promise<void>;
+
+  // 에이전트 알림 이력
+  createAgentAlertLog(log: InsertAgentAlertLog): Promise<AgentAlertLog>;
+  getAgentAlertLogs(userId: string, limit?: number): Promise<AgentAlertLog[]>;
 }

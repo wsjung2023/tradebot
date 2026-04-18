@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { Bell, BellOff, Mail, Globe, SendHorizonal, AlertTriangle, CheckCircle2, Info } from "lucide-react";
+import { Bell, BellOff, Mail, Globe, SendHorizonal, AlertTriangle, CheckCircle2, Info, XCircle, Clock } from "lucide-react";
 import { Label } from "@/components/ui/label";
 
 interface AgentAlertConfig {
@@ -37,11 +37,41 @@ interface TestAlertResponse {
   error?: string;
 }
 
+interface AgentAlertLog {
+  id: number;
+  userId: string;
+  sentAt: string;
+  toEmail: string | null;
+  alertType: string;
+  success: boolean;
+  errorMessage: string | null;
+}
+
+interface AlertLogsResponse {
+  logs: AgentAlertLog[];
+}
+
+function alertTypeLabel(type: string): string {
+  if (type === "disconnect") return "연결 끊김";
+  if (type === "recovery") return "복구";
+  if (type === "test") return "테스트";
+  return type;
+}
+
+function formatSentAt(sentAt: string): string {
+  const d = new Date(sentAt);
+  return d.toLocaleString("ko-KR", { timeZone: "Asia/Seoul", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
 export function SettingsAgentAlerts() {
   const { toast } = useToast();
 
   const { data, isLoading } = useQuery<AlertSettingsResponse>({
     queryKey: ["/api/kiwoom-agent/alert-settings"],
+  });
+
+  const { data: logsData, isLoading: logsLoading } = useQuery<AlertLogsResponse>({
+    queryKey: ["/api/kiwoom-agent/alert-logs"],
   });
 
   const [email, setEmail] = useState("");
@@ -73,10 +103,13 @@ export function SettingsAgentAlerts() {
     mutationFn: async () =>
       (await apiRequest("POST", "/api/kiwoom-agent/alert-settings/test", {})).json() as Promise<TestAlertResponse>,
     onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/kiwoom-agent/alert-logs"] });
       toast({ title: "테스트 알림 발송됨", description: result.message ?? "발송 완료" });
     },
-    onError: (e: Error) =>
-      toast({ variant: "destructive", title: "발송 실패", description: e.message }),
+    onError: (e: Error) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/kiwoom-agent/alert-logs"] });
+      toast({ variant: "destructive", title: "발송 실패", description: e.message });
+    },
   });
 
   const handleToggle = (enabled: boolean) => {
@@ -98,6 +131,7 @@ export function SettingsAgentAlerts() {
   const enabled = data?.agentAlert?.enabled ?? false;
   const smtpConfigured = data?.smtpConfigured ?? false;
   const hasChannel = !!(email.trim() || webhookUrl.trim() || data?.agentAlert?.email || data?.agentAlert?.webhookUrl);
+  const logs = logsData?.logs ?? [];
 
   return (
     <Card>
@@ -237,6 +271,54 @@ export function SettingsAgentAlerts() {
               테스트 발송
             </Button>
           </div>
+        </div>
+
+        <Separator />
+
+        {/* 알림 이력 */}
+        <div className="space-y-2" data-testid="section-alert-logs">
+          <p className="text-sm font-medium">최근 알림 이력</p>
+          {logsLoading ? (
+            <div className="text-xs text-muted-foreground py-2">불러오는 중...</div>
+          ) : logs.length === 0 ? (
+            <div
+              data-testid="text-alert-logs-empty"
+              className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/40 rounded-md px-3 py-2.5"
+            >
+              <Clock className="h-3.5 w-3.5 shrink-0" />
+              <span>아직 발송된 알림이 없습니다</span>
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              {logs.map((log) => (
+                <div
+                  key={log.id}
+                  data-testid={`row-alert-log-${log.id}`}
+                  className="flex items-start gap-2.5 rounded-md bg-muted/40 px-3 py-2"
+                >
+                  {log.success ? (
+                    <CheckCircle2 className="h-3.5 w-3.5 mt-0.5 shrink-0 text-green-600 dark:text-green-400" />
+                  ) : (
+                    <XCircle className="h-3.5 w-3.5 mt-0.5 shrink-0 text-destructive" />
+                  )}
+                  <div className="flex-1 min-w-0 space-y-0.5">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Badge variant="secondary" className="text-xs font-normal">
+                        {alertTypeLabel(log.alertType)}
+                      </Badge>
+                      {log.toEmail && (
+                        <span className="text-xs text-muted-foreground truncate">{log.toEmail}</span>
+                      )}
+                      <span className="text-xs text-muted-foreground ml-auto">{formatSentAt(log.sentAt)}</span>
+                    </div>
+                    {!log.success && log.errorMessage && (
+                      <p className="text-xs text-destructive truncate">{log.errorMessage}</p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <Separator />

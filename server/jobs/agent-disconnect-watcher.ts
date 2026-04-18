@@ -5,6 +5,7 @@ import { db } from "../db";
 import * as schema from "@shared/schema";
 import { getAgentLastSeenSecondsAgo } from "../routes/kiwoom-agent.routes";
 import { sendAgentDisconnectAlert, sendAgentRecoveryAlert } from "../services/agent-alert.service";
+import { storage } from "../storage";
 
 export interface AgentAlertSettings {
   enabled: boolean;
@@ -66,6 +67,33 @@ function sendSucceeded(result: {
   return (result.email?.ok === true) || (result.webhook?.ok === true);
 }
 
+function getFirstError(result: {
+  email?: { ok: boolean; error?: string } | null;
+  webhook?: { ok: boolean; error?: string } | null;
+}): string | null {
+  return result.email?.error || result.webhook?.error || null;
+}
+
+async function saveAlertLog(params: {
+  userId: string;
+  toEmail: string | undefined;
+  alertType: string;
+  success: boolean;
+  errorMessage: string | null;
+}) {
+  try {
+    await storage.createAgentAlertLog({
+      userId: params.userId,
+      toEmail: params.toEmail ?? null,
+      alertType: params.alertType,
+      success: params.success,
+      errorMessage: params.errorMessage,
+    });
+  } catch (err) {
+    console.error("[AgentWatcher] 알림 이력 저장 실패:", err);
+  }
+}
+
 async function runCheck() {
   const lastSeenSec = getAgentLastSeenSecondsAgo();
   const users = await getUsersWithAlertSettings();
@@ -89,7 +117,15 @@ async function runCheck() {
         thresholdMinutes: settings.disconnectThresholdMinutes,
         lastSeenSecondsAgo: lastSeenSec,
       });
-      if (sendSucceeded(result)) {
+      const succeeded = sendSucceeded(result);
+      await saveAlertLog({
+        userId,
+        toEmail: settings.email || undefined,
+        alertType: "disconnect",
+        success: succeeded,
+        errorMessage: succeeded ? null : getFirstError(result),
+      });
+      if (succeeded) {
         state.alertedAt = new Date();
       }
     } else if (!isDisconnected && wasAlerted) {
@@ -101,7 +137,15 @@ async function runCheck() {
         webhookUrl: settings.webhookUrl,
         disconnectedDurationMinutes: disconnectedMinutes,
       });
-      if (sendSucceeded(result)) {
+      const succeeded = sendSucceeded(result);
+      await saveAlertLog({
+        userId,
+        toEmail: settings.email || undefined,
+        alertType: "recovery",
+        success: succeeded,
+        errorMessage: succeeded ? null : getFirstError(result),
+      });
+      if (succeeded) {
         state.alertedAt = null;
       }
     }

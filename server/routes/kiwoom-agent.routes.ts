@@ -841,12 +841,38 @@ export function registerKiwoomAgentRoutes(app: Express): void {
       const messages: string[] = [];
       if (result.email?.ok) messages.push(`이메일 → ${alertCfg.email}`);
       if (result.webhook?.ok) messages.push("웹훅 발송 완료");
-      if (messages.length > 0) {
+
+      const succeeded = messages.length > 0;
+      const errorMsg = [result.email?.error, result.webhook?.error].filter(Boolean).join(", ");
+
+      // 이력 저장
+      storage.createAgentAlertLog({
+        userId,
+        toEmail: alertCfg.email || null,
+        alertType: "test",
+        success: succeeded,
+        errorMessage: succeeded ? null : (errorMsg || "발송 실패"),
+      }).catch((e) => console.error("[kiwoom-agent] 알림 이력 저장 실패:", e));
+
+      if (succeeded) {
         res.json({ ok: true, message: `테스트 알림 발송됨: ${messages.join(", ")}` });
       } else {
-        const errors = [result.email?.error, result.webhook?.error].filter(Boolean).join(", ");
-        res.status(500).json({ ok: false, error: errors || "발송 실패" });
+        res.status(500).json({ ok: false, error: errorMsg || "발송 실패" });
       }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: msg });
+    }
+  });
+
+  // ─── 에이전트 알림 이력 조회 ──────────────────────────────────────────
+  app.get("/api/kiwoom-agent/alert-logs", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getAuthUserId(req);
+      if (!userId) return res.status(401).json({ error: "로그인 필요" });
+      const limit = Math.min(parseInt(req.query.limit as string) || 5, 50);
+      const logs = await storage.getAgentAlertLogs(userId, limit);
+      res.json({ logs });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       res.status(500).json({ error: msg });
