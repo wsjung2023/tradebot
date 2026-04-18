@@ -130,8 +130,13 @@ app.use(sessionMiddleware);
 setupAuth(app);
 
 // 경량 헬스체크 엔드포인트
+const SERVER_START_TIME = new Date().toISOString();
 app.get('/api/healthz', (_req, res) => {
-  res.status(200).json({ ok: true });
+  res.status(200).json({
+    ok: true,
+    buildVersion: process.env.BUILD_VERSION || null,
+    startedAt: SERVER_START_TIME,
+  });
 });
 
 app.use((req, res, next) => {
