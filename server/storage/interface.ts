@@ -243,4 +243,5 @@ export interface IStorage {
   createAgentUpdateLog(log: InsertAgentUpdateLog): Promise<AgentUpdateLog>;
   getAgentUpdateLogs(limit?: number): Promise<AgentUpdateLog[]>;
   deleteAgentUpdateLog(id: number): Promise<void>;
+  deleteAllAgentUpdateLogs(): Promise<void>;
 }

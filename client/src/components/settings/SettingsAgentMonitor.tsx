@@ -456,7 +456,7 @@ export function SettingsAgentMonitor() {
                   ) : (
                     <Trash2 className="h-3.5 w-3.5" />
                   )}
-                  이력 초기화
+                  전체 삭제
                 </Button>
               </div>
               {!historyData || historyData.history.length === 0 ? (

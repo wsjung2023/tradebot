@@ -848,4 +848,8 @@ export class PostgreSQLCoreStorage {
   async deleteAgentUpdateLog(id: number): Promise<void> {
     await db.delete(schema.agentUpdateLogs).where(eq(schema.agentUpdateLogs.id, id));
   }
+
+  async deleteAllAgentUpdateLogs(): Promise<void> {
+    await db.delete(schema.agentUpdateLogs);
+  }
 }
