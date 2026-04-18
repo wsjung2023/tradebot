@@ -8,6 +8,7 @@ import { SettingsTrading } from "@/components/settings/SettingsTrading";
 import { SettingsNotifications } from "@/components/settings/SettingsNotifications";
 import { SettingsStockAlerts } from "@/components/settings/SettingsStockAlerts";
 import { SettingsAgentMonitor } from "@/components/settings/SettingsAgentMonitor";
+import { SettingsAgentAlerts } from "@/components/settings/SettingsAgentAlerts";
 import { SettingsAI } from "@/components/settings/SettingsAI";
 import { SettingsAppInfo } from "@/components/settings/SettingsAppInfo";
 import type { Alert } from "@shared/schema";
@@ -86,6 +87,8 @@ export default function Settings() {
       <SettingsAppInfo />
 
       <SettingsAgentMonitor />
+
+      <SettingsAgentAlerts />
 
       <SettingsKiwoom
         appKey={appKey} appSecret={appSecret} showSecret={showSecret}

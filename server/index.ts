@@ -12,6 +12,7 @@ import { registerRoutes } from "./routes";
 import { setupVite, log } from "./vite";
 import { setupAuth } from "./auth";
 import { balanceRefreshService } from "./services/balance-refresh.service";
+import { startAgentDisconnectWatcher } from "./jobs/agent-disconnect-watcher";
 
 // 전역 에러 핸들러
 process.on('uncaughtException', (err) => {
@@ -214,6 +215,7 @@ httpServer.listen({ port, host: "0.0.0.0" }, () => {
     }
 
     balanceRefreshService.start();
+    startAgentDisconnectWatcher();
     console.log('[STARTUP] Ready ✓');
   } catch (err: any) {
     console.error('[STARTUP] FATAL:', err.message, err.stack);

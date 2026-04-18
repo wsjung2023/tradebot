@@ -9,6 +9,8 @@ import { storage } from "../storage";
 import { insertKiwoomJobSchema } from "@shared/schema";
 import type { KiwoomJob } from "@shared/schema";
 import { isAuthenticated } from "../auth";
+import { sendTestAlert, isSmtpConfigured, validateWebhookUrl } from "../services/agent-alert.service";
+import { resetUserAlertState } from "../jobs/agent-disconnect-watcher";
 
 const AGENT_KEY = process.env.AGENT_KEY || "";
 const AGENT_ID = "home-pc-agent"; // 안전한 식별자만 DB에 저장 (실제 키 아님)
@@ -697,6 +699,131 @@ export function registerKiwoomAgentRoutes(app: Express): void {
     } catch (err) {
       console.error("[kiwoom-agent] 목록 조회 실패:", err);
       res.status(500).json({ error: "목록 조회 실패" });
+    }
+  });
+
+  // ─── 에이전트 알림 설정 타입 정의 ───────────────────────────────────
+  interface AgentAlertConfig {
+    enabled: boolean;
+    email: string;
+    webhookUrl?: string;
+    disconnectThresholdMinutes: number;
+  }
+
+  interface NotificationSettingsRecord {
+    agentAlert?: AgentAlertConfig;
+    [key: string]: unknown;
+  }
+
+  function parseNotificationSettings(raw: unknown): NotificationSettingsRecord {
+    if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+      return raw as NotificationSettingsRecord;
+    }
+    return {};
+  }
+
+  // ─── 에이전트 알림 설정 조회 ─────────────────────────────────────────
+  app.get("/api/kiwoom-agent/alert-settings", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getAuthUserId(req);
+      if (!userId) return res.status(401).json({ error: "로그인 필요" });
+      const settings = await storage.getUserSettings(userId);
+      const ns = parseNotificationSettings(settings?.notificationSettings);
+      const agentAlert: AgentAlertConfig = ns.agentAlert ?? {
+        enabled: false,
+        email: "",
+        webhookUrl: "",
+        disconnectThresholdMinutes: 3,
+      };
+      res.json({ agentAlert, smtpConfigured: isSmtpConfigured() });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: msg });
+    }
+  });
+
+  // ─── 에이전트 알림 설정 수정 ─────────────────────────────────────────
+  app.patch("/api/kiwoom-agent/alert-settings", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getAuthUserId(req);
+      if (!userId) return res.status(401).json({ error: "로그인 필요" });
+
+      const { enabled, email, webhookUrl, disconnectThresholdMinutes } = req.body as {
+        enabled?: unknown;
+        email?: unknown;
+        webhookUrl?: unknown;
+        disconnectThresholdMinutes?: unknown;
+      };
+
+      // 웹훅 URL 저장 전 유효성 검증
+      if (typeof webhookUrl === "string" && webhookUrl.trim() !== "") {
+        const urlValidation = validateWebhookUrl(webhookUrl.trim());
+        if (!urlValidation.valid) {
+          return res.status(400).json({ error: `웹훅 URL 오류: ${urlValidation.error}` });
+        }
+      }
+
+      const currentSettings = await storage.getUserSettings(userId);
+      const currentNs = parseNotificationSettings(currentSettings?.notificationSettings);
+      const currentAlert: AgentAlertConfig = currentNs.agentAlert ?? {
+        enabled: false, email: "", webhookUrl: "", disconnectThresholdMinutes: 3,
+      };
+
+      const updatedAlert: AgentAlertConfig = {
+        ...currentAlert,
+        ...(typeof enabled === "boolean" ? { enabled } : {}),
+        ...(typeof email === "string" ? { email: email.trim() } : {}),
+        ...(typeof webhookUrl === "string" ? { webhookUrl: webhookUrl.trim() } : {}),
+        ...(typeof disconnectThresholdMinutes === "number"
+          ? { disconnectThresholdMinutes: Math.max(1, Math.min(60, disconnectThresholdMinutes)) }
+          : {}),
+      };
+
+      // enabled=true일 때 최소 1개 채널 필수
+      if (updatedAlert.enabled && !updatedAlert.email && !updatedAlert.webhookUrl) {
+        return res.status(400).json({ error: "알림 활성화 시 이메일 또는 웹훅 URL 중 하나를 설정해야 합니다" });
+      }
+
+      const updatedNs: NotificationSettingsRecord = { ...currentNs, agentAlert: updatedAlert };
+      await storage.updateUserSettings(userId, { notificationSettings: updatedNs });
+
+      // 설정 변경 시 알림 상태 초기화 (오래된 alertedAt 방지)
+      resetUserAlertState(userId);
+
+      res.json({ agentAlert: updatedAlert, smtpConfigured: isSmtpConfigured() });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: msg });
+    }
+  });
+
+  // ─── 에이전트 알림 테스트 발송 ────────────────────────────────────────
+  app.post("/api/kiwoom-agent/alert-settings/test", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getAuthUserId(req);
+      if (!userId) return res.status(401).json({ error: "로그인 필요" });
+
+      const settings = await storage.getUserSettings(userId);
+      const ns = parseNotificationSettings(settings?.notificationSettings);
+      const alertCfg = ns.agentAlert;
+
+      if (!alertCfg?.email && !alertCfg?.webhookUrl) {
+        return res.status(400).json({ error: "알림 채널(이메일 또는 웹훅)이 설정되어 있지 않습니다" });
+      }
+
+      const result = await sendTestAlert(alertCfg.email || undefined, alertCfg.webhookUrl || undefined);
+      const messages: string[] = [];
+      if (result.email?.ok) messages.push(`이메일 → ${alertCfg.email}`);
+      if (result.webhook?.ok) messages.push("웹훅 발송 완료");
+      if (messages.length > 0) {
+        res.json({ ok: true, message: `테스트 알림 발송됨: ${messages.join(", ")}` });
+      } else {
+        const errors = [result.email?.error, result.webhook?.error].filter(Boolean).join(", ");
+        res.status(500).json({ ok: false, error: errors || "발송 실패" });
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: msg });
     }
   });
 
