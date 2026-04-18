@@ -169,6 +169,16 @@ export function SettingsAgentMonitor() {
       toast({ variant: "destructive", title: "이력 초기화 실패", description: e.message }),
   });
 
+  const deleteHistoryItemMutation = useMutation({
+    mutationFn: async (id: number) =>
+      (await apiRequest("DELETE", `/api/kiwoom-agent/update-history/${id}`)).json(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/kiwoom-agent/update-history"] });
+    },
+    onError: (e: Error) =>
+      toast({ variant: "destructive", title: "항목 삭제 실패", description: e.message }),
+  });
+
   const handleCheckUpdate = async () => {
     setUpdateCheckResult(null);
     setSelfUpdateResult(null);
@@ -503,10 +513,10 @@ export function SettingsAgentMonitor() {
                         variant="ghost"
                         size="icon"
                         className="shrink-0 text-muted-foreground"
-                        onClick={() => deleteHistoryMutation.mutate(record.id)}
-                        disabled={deleteHistoryMutation.isPending}
+                        onClick={() => deleteHistoryItemMutation.mutate(record.id)}
+                        disabled={deleteHistoryItemMutation.isPending}
                       >
-                        {deleteHistoryMutation.isPending ? (
+                        {deleteHistoryItemMutation.isPending ? (
                           <Loader2 className="h-3 w-3 animate-spin" />
                         ) : (
                           <Trash2 className="h-3 w-3" />

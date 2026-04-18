@@ -475,7 +475,19 @@ export function registerKiwoomAgentRoutes(app: Express): void {
     }
   });
 
-  // ─── 에이전트 업데이트 이력 항목 삭제 ─────────────────────────────────────
+  // ─── 업데이트 이력 전체 삭제 ─────────────────────────────────────────────
+  app.delete("/api/kiwoom-agent/update-history", isAuthenticated, async (_req: Request, res: Response) => {
+    try {
+      const history = await storage.getAgentUpdateLogs(1000);
+      await Promise.all(history.map((r) => storage.deleteAgentUpdateLog(r.id)));
+      console.log("[kiwoom-agent] 업데이트 이력 초기화 완료");
+      res.json({ ok: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ─── 업데이트 이력 개별 삭제 ─────────────────────────────────────────────
   app.delete("/api/kiwoom-agent/update-history/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
