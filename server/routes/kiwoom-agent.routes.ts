@@ -506,10 +506,15 @@ export function registerKiwoomAgentRoutes(app: Express): void {
   });
 
   // ─── 에이전트 업데이트 이력 조회 ──────────────────────────────────────────
-  app.get("/api/kiwoom-agent/update-history", isAuthenticated, async (_req: Request, res: Response) => {
+  app.get("/api/kiwoom-agent/update-history", isAuthenticated, async (req: Request, res: Response) => {
     try {
-      const history = await storage.getAgentUpdateLogs(50);
-      res.json({ history });
+      const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 20, 1), 200);
+      const offset = Math.max(parseInt(req.query.offset as string) || 0, 0);
+      const [history, total] = await Promise.all([
+        storage.getAgentUpdateLogs(limit, offset),
+        storage.countAgentUpdateLogs(),
+      ]);
+      res.json({ history, total });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }

@@ -54,6 +54,7 @@ interface AgentUpdateRecord {
 
 interface UpdateHistoryResponse {
   history: AgentUpdateRecord[];
+  total: number;
 }
 
 const STEP_LABELS: Record<string, string> = {
@@ -153,6 +154,7 @@ export function SettingsAgentMonitor() {
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
   const [updateSteps, setUpdateSteps] = useState<UpdateStep[]>([]);
+  const [historyLimit, setHistoryLimit] = useState(20);
 
   const { data: status, isLoading } = useQuery<PollingStatus>({
     queryKey: ["/api/kiwoom-agent/polling-status"],
@@ -168,7 +170,12 @@ export function SettingsAgentMonitor() {
   });
 
   const { data: historyData, refetch: refetchHistory } = useQuery<UpdateHistoryResponse>({
-    queryKey: ["/api/kiwoom-agent/update-history"],
+    queryKey: ["/api/kiwoom-agent/update-history", historyLimit],
+    queryFn: async () => {
+      const res = await fetch(`/api/kiwoom-agent/update-history?limit=${historyLimit}`, { credentials: "include" });
+      if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+      return res.json();
+    },
     staleTime: 0,
   });
 
@@ -309,6 +316,7 @@ export function SettingsAgentMonitor() {
     mutationFn: async () =>
       (await apiRequest("DELETE", "/api/kiwoom-agent/update-history")).json(),
     onSuccess: () => {
+      setHistoryLimit(20);
       queryClient.invalidateQueries({ queryKey: ["/api/kiwoom-agent/update-history"] });
       toast({ title: "이력 초기화", description: "업데이트 이력이 모두 삭제되었습니다." });
     },
@@ -631,64 +639,86 @@ export function SettingsAgentMonitor() {
                   업데이트 이력이 없습니다.
                 </p>
               ) : (
-                <div className="space-y-1.5" data-testid="list-update-history">
-                  {historyData.history.map((record) => (
-                    <div
-                      key={record.id}
-                      data-testid={`row-update-history-${record.id}`}
-                      className="flex items-start gap-2 text-xs bg-muted/40 rounded-md px-3 py-2"
-                    >
-                      <div className="mt-0.5 shrink-0">
-                        {record.success ? (
-                          <CheckCircle2 className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
-                        ) : (
-                          <AlertCircle className="h-3.5 w-3.5 text-destructive" />
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0 space-y-0.5">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-medium">
-                            {record.success ? "성공" : "실패"}
-                          </span>
-                          <span className="text-muted-foreground">
-                            {new Date(record.timestamp).toLocaleString("ko-KR", {
-                              month: "2-digit",
-                              day: "2-digit",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                              second: "2-digit",
-                            })}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-3 flex-wrap text-muted-foreground font-mono">
-                          {record.agentHashBefore && (
-                            <span>이전: {record.agentHashBefore}</span>
-                          )}
-                          {record.serverHash && (
-                            <span>서버: {record.serverHash}</span>
-                          )}
-                        </div>
-                        {!record.success && record.errorMessage && (
-                          <p className="text-destructive truncate">{record.errorMessage}</p>
-                        )}
-                      </div>
-                      <Button
-                        data-testid={`button-delete-history-${record.id}`}
-                        variant="ghost"
-                        size="icon"
-                        className="shrink-0 text-muted-foreground"
-                        onClick={() => setDeleteConfirmId(record.id)}
-                        disabled={deleteHistoryMutation.isPending}
+                <>
+                  <div className="space-y-1.5" data-testid="list-update-history">
+                    {historyData.history.map((record) => (
+                      <div
+                        key={record.id}
+                        data-testid={`row-update-history-${record.id}`}
+                        className="flex items-start gap-2 text-xs bg-muted/40 rounded-md px-3 py-2"
                       >
-                        {deleteHistoryMutation.isPending ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <Trash2 className="h-3.5 w-3.5" />
-                        )}
+                        <div className="mt-0.5 shrink-0">
+                          {record.success ? (
+                            <CheckCircle2 className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
+                          ) : (
+                            <AlertCircle className="h-3.5 w-3.5 text-destructive" />
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0 space-y-0.5">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-medium">
+                              {record.success ? "성공" : "실패"}
+                            </span>
+                            <span className="text-muted-foreground">
+                              {new Date(record.timestamp).toLocaleString("ko-KR", {
+                                month: "2-digit",
+                                day: "2-digit",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                                second: "2-digit",
+                              })}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-3 flex-wrap text-muted-foreground font-mono">
+                            {record.agentHashBefore && (
+                              <span>이전: {record.agentHashBefore}</span>
+                            )}
+                            {record.serverHash && (
+                              <span>서버: {record.serverHash}</span>
+                            )}
+                          </div>
+                          {!record.success && record.errorMessage && (
+                            <p className="text-destructive truncate">{record.errorMessage}</p>
+                          )}
+                        </div>
+                        <Button
+                          data-testid={`button-delete-history-${record.id}`}
+                          variant="ghost"
+                          size="icon"
+                          className="shrink-0 text-muted-foreground"
+                          onClick={() => setDeleteConfirmId(record.id)}
+                          disabled={deleteHistoryMutation.isPending}
+                        >
+                          {deleteHistoryMutation.isPending ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-3.5 w-3.5" />
+                          )}
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                  {historyData.total > historyLimit && (
+                    <div className="flex items-center justify-between pt-1">
+                      <span className="text-xs text-muted-foreground">
+                        {historyLimit}건 표시 중 / 전체 {historyData.total}건
+                      </span>
+                      <Button
+                        data-testid="button-load-more-history"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setHistoryLimit((prev) => prev + 20)}
+                      >
+                        더 보기
                       </Button>
                     </div>
-                  ))}
-                </div>
+                  )}
+                  {historyData.total <= historyLimit && historyData.total > 0 && (
+                    <p className="text-xs text-muted-foreground pt-1">
+                      전체 {historyData.total}건 모두 표시됨
+                    </p>
+                  )}
+                </>
               )}
             </div>
           </>

@@ -839,11 +839,17 @@ export class PostgreSQLCoreStorage {
     return result[0];
   }
 
-  async getAgentUpdateLogs(limit: number = 50): Promise<AgentUpdateLog[]> {
+  async getAgentUpdateLogs(limit: number = 20, offset: number = 0): Promise<AgentUpdateLog[]> {
     return db.select()
       .from(schema.agentUpdateLogs)
       .orderBy(desc(schema.agentUpdateLogs.timestamp))
-      .limit(limit);
+      .limit(limit)
+      .offset(offset);
+  }
+
+  async countAgentUpdateLogs(): Promise<number> {
+    const result = await db.select({ count: sql<number>`count(*)` }).from(schema.agentUpdateLogs);
+    return Number(result[0]?.count ?? 0);
   }
 
   async deleteAgentUpdateLog(id: number): Promise<void> {

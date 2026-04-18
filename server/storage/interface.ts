@@ -242,7 +242,8 @@ export interface IStorage {
 
   // 에이전트 업데이트 이력
   createAgentUpdateLog(log: InsertAgentUpdateLog): Promise<AgentUpdateLog>;
-  getAgentUpdateLogs(limit?: number): Promise<AgentUpdateLog[]>;
+  getAgentUpdateLogs(limit?: number, offset?: number): Promise<AgentUpdateLog[]>;
+  countAgentUpdateLogs(): Promise<number>;
   deleteAgentUpdateLog(id: number): Promise<void>;
   deleteAllAgentUpdateLogs(): Promise<void>;
 
