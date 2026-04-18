@@ -149,7 +149,7 @@ export class TradeExecutorService {
       try {
         const priceData = await kiwoomService.getStockPrice(holding.stockCode);
         const currentPrice = parseFloat(priceData.output?.stck_prpr || '0');
-        const avgPrice = parseFloat((holding.averagePrice ?? holding as any).toString?.() || '0');
+        const avgPrice = parseFloat(holding.averagePrice?.toString() || '0');
         if (!avgPrice || !currentPrice) continue;
 
         const profitRate = ((currentPrice - avgPrice) / avgPrice) * 100;
@@ -512,7 +512,9 @@ export class TradeExecutorService {
       }
 
       let quantity: number;
-      if (!aiAnalysis) {
+      const hasLineUnits = config.lineUnits && Object.keys(config.lineUnits).length > 0;
+      if (!aiAnalysis || hasLineUnits) {
+        // 유닛 기반 수량: lineUnits 설정이 있으면 항상 유닛 우선
         const unitSize = config.unitSize
           ? parseFloat(String(config.unitSize))
           : parseFloat(settings.defaultPositionSize.toString());
@@ -520,6 +522,7 @@ export class TradeExecutorService {
         quantity = Math.floor((unitSize * unitCount) / stock.price);
         console.log(`    📐 유닛 매수: unitSize=${unitSize}, unitCount=${unitCount}, qty=${quantity}`);
       } else {
+        // lineUnits 미설정 시 weight 기반 수량 (레인보우 신호 강도 비례)
         const baseSize = parseFloat(settings.defaultPositionSize.toString());
         const positionSize = Math.min(baseSize * (rainbow.weight / 100), parseFloat(settings.maxPositionSize.toString()));
         quantity = Math.floor(positionSize / stock.price);
