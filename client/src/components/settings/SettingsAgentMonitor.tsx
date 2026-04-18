@@ -7,7 +7,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/com
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Wifi, WifiOff, Activity, Loader2, RefreshCw, Download, CheckCircle2, AlertCircle, UploadCloud, History } from "lucide-react";
+import { Wifi, WifiOff, Activity, Loader2, RefreshCw, Download, CheckCircle2, AlertCircle, UploadCloud, History, Trash2 } from "lucide-react";
 
 const POLL_INTERVAL_MS = 15_000;
 
@@ -52,6 +52,7 @@ function formatSecondsAgo(sec: number | null): string {
   const s = sec % 60;
   return `${m}분 ${s}초 전`;
 }
+
 
 export function SettingsAgentMonitor() {
   const { toast } = useToast();
@@ -130,18 +131,32 @@ export function SettingsAgentMonitor() {
         toast({ title: "업데이트 완료", description: "에이전트가 최신 버전으로 업데이트되고 재시작되었습니다." });
         setUpdateCheckResult(null);
         queryClient.invalidateQueries({ queryKey: ["/api/kiwoom-agent/polling-status"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/kiwoom-agent/update-history"] });
         refetchVersion();
       } else {
         setSelfUpdateResult("failure");
         const errMsg = data.error ?? data.result?.message ?? "에이전트가 응답하지 않습니다.";
         toast({ variant: "destructive", title: "업데이트 실패", description: errMsg });
+        queryClient.invalidateQueries({ queryKey: ["/api/kiwoom-agent/update-history"] });
       }
     },
     onError: (e: Error) => {
       setSelfUpdateResult("failure");
       refetchHistory();
       toast({ variant: "destructive", title: "업데이트 실패", description: e.message });
+      queryClient.invalidateQueries({ queryKey: ["/api/kiwoom-agent/update-history"] });
     },
+  });
+
+  const clearHistoryMutation = useMutation({
+    mutationFn: async () =>
+      (await apiRequest("DELETE", "/api/kiwoom-agent/update-history")).json(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/kiwoom-agent/update-history"] });
+      toast({ title: "이력 초기화", description: "업데이트 이력이 모두 삭제되었습니다." });
+    },
+    onError: (e: Error) =>
+      toast({ variant: "destructive", title: "이력 초기화 실패", description: e.message }),
   });
 
   const handleCheckUpdate = async () => {
@@ -404,9 +419,25 @@ export function SettingsAgentMonitor() {
 
             {/* 업데이트 이력 */}
             <div className="border-t pt-4 space-y-2">
-              <div className="flex items-center gap-2">
-                <History className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm font-medium">업데이트 이력</span>
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <History className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm font-medium">업데이트 이력</span>
+                </div>
+                <Button
+                  data-testid="button-clear-update-history"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => clearHistoryMutation.mutate()}
+                  disabled={clearHistoryMutation.isPending || !historyData?.history?.length}
+                >
+                  {clearHistoryMutation.isPending ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-3.5 w-3.5" />
+                  )}
+                  이력 초기화
+                </Button>
               </div>
               {!historyData || historyData.history.length === 0 ? (
                 <p

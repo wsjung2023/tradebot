@@ -430,6 +430,7 @@ export function registerKiwoomAgentRoutes(app: Express): void {
     try {
       const userId = getAuthUserId(req);
       if (!userId) return res.status(401).json({ error: "로그인 필요" });
+      const hashBefore = _agentVersionHash;
       const job = await storage.createKiwoomJob({
         userId,
         jobType: "agent.selfUpdate",
@@ -470,6 +471,14 @@ export function registerKiwoomAgentRoutes(app: Express): void {
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
+  });
+
+  // ─── 업데이트 이력 전체 삭제 ─────────────────────────────────────────────
+  app.delete("/api/kiwoom-agent/update-history", isAuthenticated, (_req: Request, res: Response) => {
+    AGENT_UPDATE_HISTORY.length = 0;
+    _updateRecordCounter = 0;
+    console.log("[kiwoom-agent] 업데이트 이력 초기화 완료");
+    res.json({ ok: true });
   });
 
   // ─── 에이전트 연결 정보 — 설정 페이지용 ──────────────────────────────────
