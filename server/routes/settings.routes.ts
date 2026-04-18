@@ -1,11 +1,52 @@
 // settings.routes.ts — 설정 및 시스템 정보 조회
 import type { Express } from "express";
 import axios from "axios";
+import fs from "fs";
+import path from "path";
+import { execSync } from "child_process";
 import { createHash } from "crypto";
 import { isAuthenticated, getCurrentUser } from "../auth";
 import { storage } from "../storage";
 
+const SERVER_START_TIME = new Date().toISOString();
+
+// 빌드 타임: 환경 변수 > 서버 번들 파일 수정시각 > null 순으로 폴백
+function detectBuildTime(): string | null {
+  if (process.env.BUILD_TIME) return process.env.BUILD_TIME;
+  try {
+    const bundlePath = path.resolve(process.cwd(), "dist/index.js");
+    const stat = fs.statSync(bundlePath);
+    return stat.mtime.toISOString();
+  } catch {
+    return null;
+  }
+}
+
+// 커밋 해시: 환경 변수 > git rev-parse > null 순으로 폴백
+function detectBuildCommit(): string | null {
+  if (process.env.BUILD_COMMIT) return process.env.BUILD_COMMIT;
+  try {
+    return execSync("git rev-parse --short HEAD", { encoding: "utf8", timeout: 3000 }).trim();
+  } catch {
+    return null;
+  }
+}
+
+const BUILD_TIME = detectBuildTime();
+const BUILD_COMMIT = detectBuildCommit();
+
 export function registerSettingsRoutes(app: Express): void {
+  // 헬스체크 및 배포 버전 정보
+  app.get("/api/health", (req, res) => {
+    res.json({
+      status: "ok",
+      buildTime: BUILD_TIME,
+      buildCommit: BUILD_COMMIT,
+      serverStartTime: SERVER_START_TIME,
+      nodeEnv: process.env.NODE_ENV || "development",
+    });
+  });
+
   // 서버 공인 IP 및 시스템 정보
   let cachedServerIP: string | null = null;
   let lastIPCheckTime = 0;
