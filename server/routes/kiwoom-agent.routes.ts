@@ -357,10 +357,12 @@ export function registerKiwoomAgentRoutes(app: Express): void {
       }
     }
 
-    // 기본 real 폴백: 하드코딩 없이 3개 계좌 중 첫 번째 키를 사용
-    const firstAccount = Object.values(accountKeys)[0];
-    const realKey = process.env.KIWOOM_APP_KEY_REAL || firstAccount?.appKey || process.env.KIWOOM_APP_KEY || "";
-    const realSecret = process.env.KIWOOM_APP_SECRET_REAL || firstAccount?.appSecret || process.env.KIWOOM_APP_SECRET || "";
+    // 기본 real 폴백: knownAccounts 순서대로 첫 번째 키 사용
+    // NOTE: Object.values()는 JS numeric key를 오름차순 정렬하므로 반드시 knownAccounts 순서로 선택해야 함
+    //       (Object.values 쓰면 "39083177"이 항상 첫 번째가 되어 3908-3177 계좌가 기본 실계좌로 잘못 설정됨)
+    const primaryAccount = knownAccounts.map(a => accountKeys[a]).find(a => a);
+    const realKey = process.env.KIWOOM_APP_KEY_REAL || primaryAccount?.appKey || process.env.KIWOOM_APP_KEY || "";
+    const realSecret = process.env.KIWOOM_APP_SECRET_REAL || primaryAccount?.appSecret || process.env.KIWOOM_APP_SECRET || "";
     const mockKey = process.env.KIWOOM_APP_KEY || "";
     const mockSecret = process.env.KIWOOM_APP_SECRET || "";
 

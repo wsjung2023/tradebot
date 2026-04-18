@@ -110,10 +110,28 @@ _account_tokens = {}
 _account_token_expires = {}
 
 
+def _resolve_account_key_name(account_number):
+    """
+    ACCOUNT_KEYS에서 account_number에 해당하는 key 이름을 반환.
+    키움 계좌번호는 10자리(예: 5919064711)이지만 ACCOUNT_KEYS는 8자리(59190647)로 저장됨.
+    정확히 일치 → 앞 8자리 short 순서로 시도.
+    """
+    if not account_number:
+        return None
+    if account_number in ACCOUNT_KEYS:
+        return account_number
+    # 10자리 → 앞 8자리 short 매핑 (키움 계좌번호 뒤 2자리는 종합/CMA 구분자)
+    short = account_number[:8]
+    if short in ACCOUNT_KEYS:
+        return short
+    return None
+
+
 def _get_account_appkey(account_number):
     """계좌번호에 맞는 앱키/시크릿 반환. 없으면 기본 실계좌 키 폴백."""
-    if account_number and account_number in ACCOUNT_KEYS:
-        ak = ACCOUNT_KEYS[account_number]
+    key_name = _resolve_account_key_name(account_number)
+    if key_name:
+        ak = ACCOUNT_KEYS[key_name]
         return ak["appKey"], ak["appSecret"]
     return KIWOOM_APP_KEY_REAL, KIWOOM_APP_SECRET_REAL
 
@@ -127,10 +145,11 @@ def refresh_kiwoom_token(is_mock=False, account_number=None):
         app_key = KIWOOM_APP_KEY_MOCK
         app_secret = KIWOOM_APP_SECRET_MOCK
         mode = "모의"
-    elif account_number and account_number in ACCOUNT_KEYS:
-        key = f"acnt:{account_number}"
+    elif account_number and _resolve_account_key_name(account_number):
+        key_name = _resolve_account_key_name(account_number)
+        key = f"acnt:{key_name}"
         app_key, app_secret = _get_account_appkey(account_number)
-        mode = f"실계좌({account_number})"
+        mode = f"실계좌({key_name})"
     else:
         key = "real"
         app_key = KIWOOM_APP_KEY_REAL
@@ -167,8 +186,10 @@ def refresh_kiwoom_token(is_mock=False, account_number=None):
         expires_in = int(data.get("expires_in", 86400))
         exp_time = time.time() + expires_in - 60
         if key.startswith("acnt:"):
-            _account_tokens[account_number] = token_val
-            _account_token_expires[account_number] = exp_time
+            # key = "acnt:{key_name}" (8자리 기준), 10자리 account_number와 분리
+            store_key = key[len("acnt:"):]  # "acnt:59190647" → "59190647"
+            _account_tokens[store_key] = token_val
+            _account_token_expires[store_key] = exp_time
         else:
             _tokens[key] = token_val
             _token_expires[key] = exp_time
@@ -187,10 +208,11 @@ def get_kiwoom_token(is_mock=False, account_number=None):
         if not _tokens[key] or time.time() >= _token_expires[key]:
             refresh_kiwoom_token(is_mock=True)
         token = _tokens[key]
-    elif account_number and account_number in ACCOUNT_KEYS:
-        if account_number not in _account_tokens or time.time() >= _account_token_expires.get(account_number, 0):
+    elif account_number and _resolve_account_key_name(account_number):
+        key_name = _resolve_account_key_name(account_number)
+        if key_name not in _account_tokens or time.time() >= _account_token_expires.get(key_name, 0):
             refresh_kiwoom_token(is_mock=False, account_number=account_number)
-        token = _account_tokens.get(account_number)
+        token = _account_tokens.get(key_name)
     else:
         key = "real"
         if not _tokens[key] or time.time() >= _token_expires[key]:
