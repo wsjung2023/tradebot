@@ -842,9 +842,11 @@ def handle_ping(_payload):
 def handle_agent_self_update(payload):
     """서버에서 최신 에이전트 파일을 다운로드하고 자기 재시작"""
     import sys, shutil
+    job_id = payload.get("_job_id")
     current_file = os.path.abspath(__file__)
     logger.info(f"[agent.selfUpdate] 자기 업데이트 시작: {current_file}")
     try:
+        submit_progress(job_id, "downloading", "서버에서 최신 파일 다운로드 중...")
         for base_url in REPLIT_URLS:
             try:
                 resp = requests.get(
@@ -853,11 +855,13 @@ def handle_agent_self_update(payload):
                     timeout=15,
                 )
                 if resp.status_code == 200 and len(resp.text) > 1000:
+                    submit_progress(job_id, "replacing", f"파일 교체 중... ({len(resp.text):,} bytes)")
                     backup = current_file + ".bak"
                     shutil.copy2(current_file, backup)
                     with open(current_file, "w", encoding="utf-8") as f:
                         f.write(resp.text)
                     logger.info(f"[agent.selfUpdate] 파일 업데이트 완료 ({len(resp.text):,}bytes) — 3초 후 재시작")
+                    submit_progress(job_id, "restarting", "업데이트 완료. 에이전트 재시작 중...")
                     # 별도 스레드에서 3초 후 재시작
                     def _restart():
                         time.sleep(3)
@@ -1293,6 +1297,24 @@ def submit_result(job_id, status, result=None, error_message=None):
     _job_source_url.pop(job_id, None)
 
 
+def submit_progress(job_id, step, message=""):
+    """업데이트 진행 단계를 서버에 전송 (SSE 브로드캐스트용)"""
+    if not job_id:
+        return
+    try:
+        base_url = _job_source_url.get(job_id, REPLIT_URL)
+        url = f"{base_url}/api/kiwoom-agent/jobs/{job_id}/progress"
+        requests.post(
+            url,
+            json={"step": step, "message": message},
+            headers={"x-agent-key": AGENT_KEY},
+            timeout=5,
+        )
+        logger.info(f"[agent.selfUpdate] 단계 보고: {step} — {message}")
+    except Exception as e:
+        logger.warning(f"[agent.selfUpdate] 진행 단계 전송 실패: {e}")
+
+
 # ===== 메인 루프 =====
 
 # WebSocket 블로킹이 있는 job 타입 — 별도 스레드로 실행해 메인 루프 폴링을 막지 않음
@@ -1343,6 +1365,9 @@ def process_job(job):
                 pass
 
     logger.info(f"작업 처리 시작: #{job_id} [{raw_job_type} → {job_type}]")
+
+    # 핸들러가 진행 단계를 보고할 수 있도록 _job_id 주입
+    payload["_job_id"] = job_id
 
     handler = JOB_HANDLERS.get(job_type)
     if not handler:

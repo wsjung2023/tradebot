@@ -91,6 +91,44 @@ function sanitizeJob(job: KiwoomJob) {
 const AGENT_LOG_BUFFER: Array<{ts: number; level: string; message: string; logger?: string}> = [];
 
 
+// ─── 자기 업데이트 진행 상황 SSE 브로드캐스트 ─────────────────────────────
+// jobId → 진행 단계 목록 (에이전트가 POST /jobs/:jobId/progress 로 전송)
+const _updateProgressStore = new Map<number, Array<{step: string; message: string; ts: number}>>();
+// jobId → 연결된 SSE 클라이언트 Response 배열
+const _updateSseClients = new Map<number, Response[]>();
+// jobId → 업데이트 시점 메타데이터 (이력 기록용)
+const _updateJobMeta = new Map<number, { agentHashBefore: string | null; serverHash: string | null }>();
+
+function broadcastUpdateProgress(jobId: number, data: object) {
+  const clients = _updateSseClients.get(jobId) ?? [];
+  const payload = `data: ${JSON.stringify(data)}\n\n`;
+  for (const client of clients) {
+    try { client.write(payload); } catch { /* 클라이언트 연결 끊김 */ }
+  }
+}
+
+async function recordUpdateForJob(jobId: number, success: boolean, errorMessage: string | null) {
+  const meta = _updateJobMeta.get(jobId);
+  try {
+    await storage.createAgentUpdateLog({
+      success,
+      agentHashBefore: meta?.agentHashBefore ?? null,
+      serverHash: meta?.serverHash ?? null,
+      errorMessage: errorMessage ?? null,
+    });
+  } catch (e) {
+    console.error("[update-history] DB 저장 실패:", e);
+  }
+}
+
+function cleanupUpdateJob(jobId: number) {
+  setTimeout(() => {
+    _updateProgressStore.delete(jobId);
+    _updateSseClients.delete(jobId);
+    _updateJobMeta.delete(jobId);
+  }, 60_000); // 1분 후 정리
+}
+
 // 키움 시스템 점검 상태 캐시
 let _sysStatusCache: { status: string; message: string; httpStatus?: number; location?: string | null; checkedAt: number } | null = null;
 const SYS_STATUS_TTL_MS = 10 * 60 * 1000;   // 정상/점검 결과: 10분
@@ -398,7 +436,22 @@ export function registerKiwoomAgentRoutes(app: Express): void {
     }
   });
 
-  // ─── 에이전트 원격 업데이트+재시작 (인증 사용자) ──────────────────────────
+  // ─── 에이전트 진행 단계 수신 (에이전트 → 서버) ─────────────────────────
+  // 에이전트가 업데이트 중 각 단계를 서버에 알리고, 서버가 SSE로 브로드캐스트
+  app.post("/api/kiwoom-agent/jobs/:jobId/progress", (req: Request, res: Response) => {
+    if (!requireAgentKey(req, res)) return;
+    const jobId = parseInt(req.params.jobId);
+    if (isNaN(jobId)) { res.status(400).json({ error: "잘못된 jobId" }); return; }
+    const { step = "", message = "" } = req.body || {};
+    const entry = { step: String(step), message: String(message), ts: Date.now() };
+    const existing = _updateProgressStore.get(jobId) ?? [];
+    existing.push(entry);
+    _updateProgressStore.set(jobId, existing);
+    broadcastUpdateProgress(jobId, { type: "step", ...entry });
+    res.json({ ok: true });
+  });
+
+  // ─── 에이전트 원격 업데이트 — job 생성 후 jobId 즉시 반환 ────────────────
   app.post("/api/kiwoom-agent/self-update", isAuthenticated, async (req: Request, res: Response) => {
     const agentHashBefore = _agentVersionHash;
 
@@ -416,23 +469,25 @@ export function registerKiwoomAgentRoutes(app: Express): void {
       }
     } catch (_) {}
 
-    const recordUpdate = async (success: boolean, errorMessage: string | null) => {
-      try {
-        await storage.createAgentUpdateLog({
-          success,
-          agentHashBefore: agentHashBefore ?? null,
-          serverHash: serverHashNow ?? null,
-          errorMessage: errorMessage ?? null,
-        });
-      } catch (e) {
-        console.error("[update-history] DB 저장 실패:", e);
-      }
-    };
-
     try {
       const userId = getAuthUserId(req);
       if (!userId) return res.status(401).json({ error: "로그인 필요" });
-      const hashBefore = _agentVersionHash;
+
+      // 업데이트 시작 시 현재 에이전트 해시 + 서버 파일 해시 캡처 (이력 기록용)
+      const agentHashBefore = _agentVersionHash;
+      let serverHashNow: string | null = null;
+      try {
+        const candidates = [
+          join(process.cwd(), "agent/kiwoom-agent.py"),
+          join(process.cwd(), "../agent/kiwoom-agent.py"),
+        ];
+        const scriptPath = candidates.find((p) => existsSync(p));
+        if (scriptPath) {
+          const content = readFileSync(scriptPath);
+          serverHashNow = createHash("md5").update(content).digest("hex").slice(0, 8);
+        }
+      } catch (_) {}
+
       const job = await storage.createKiwoomJob({
         userId,
         jobType: "agent.selfUpdate",
@@ -442,25 +497,10 @@ export function registerKiwoomAgentRoutes(app: Express): void {
         errorMessage: null,
         agentId: null,
       });
-      // 최대 20초 대기
-      const start = Date.now();
-      while (Date.now() - start < 20000) {
-        await new Promise((r) => setTimeout(r, 600));
-        const updated = await storage.getKiwoomJobByIdInternal(job.id);
-        if (!updated) break;
-        if (updated.status === "done") {
-          await recordUpdate(true, null);
-          return res.json({ success: true, result: updated.result });
-        }
-        if (updated.status === "error") {
-          await recordUpdate(false, updated.errorMessage ?? "에이전트 오류");
-          return res.json({ success: false, error: updated.errorMessage });
-        }
-      }
-      await recordUpdate(false, "타임아웃 — 에이전트가 응답하지 않습니다");
-      res.json({ success: false, error: "타임아웃 — 에이전트가 응답하지 않습니다" });
+      _updateProgressStore.set(job.id, []);
+      _updateJobMeta.set(job.id, { agentHashBefore, serverHash: serverHashNow });
+      res.json({ jobId: job.id });
     } catch (e: any) {
-      await recordUpdate(false, e.message);
       res.status(500).json({ error: e.message });
     }
   });
@@ -514,6 +554,89 @@ export function registerKiwoomAgentRoutes(app: Express): void {
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
+  });
+
+  // ─── 업데이트 진행 상황 SSE 스트리밍 (프론트엔드 → 서버) ─────────────────
+  // EventSource 로 연결하면 진행 단계 이벤트와 최종 결과를 실시간으로 수신
+  app.get("/api/kiwoom-agent/self-update-progress/:jobId", isAuthenticated, async (req: Request, res: Response) => {
+    const jobId = parseInt(req.params.jobId);
+    if (isNaN(jobId)) { res.status(400).json({ error: "잘못된 jobId" }); return; }
+
+    // SSE 헤더 설정
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.flushHeaders();
+
+    // 이미 저장된 진행 단계 즉시 전송 (재연결 시)
+    const existingSteps = _updateProgressStore.get(jobId) ?? [];
+    for (const step of existingSteps) {
+      res.write(`data: ${JSON.stringify({ type: "step", ...step })}\n\n`);
+    }
+
+    // SSE 클라이언트 등록
+    const clients = _updateSseClients.get(jobId) ?? [];
+    clients.push(res);
+    _updateSseClients.set(jobId, clients);
+
+    // 35초 타임아웃 내에서 job 완료 여부를 폴링
+    const TIMEOUT_MS = 35_000;
+    const startTime = Date.now();
+    let finished = false;
+
+    const checkInterval = setInterval(async () => {
+      if (finished) return;
+      try {
+        const job = await storage.getKiwoomJobByIdInternal(jobId);
+        if (!job) {
+          finished = true;
+          clearInterval(checkInterval);
+          recordUpdateForJob(jobId, false, "작업을 찾을 수 없습니다");
+          res.write(`data: ${JSON.stringify({ type: "error", error: "작업을 찾을 수 없습니다" })}\n\n`);
+          res.end();
+          cleanupUpdateJob(jobId);
+          return;
+        }
+        if (job.status === "done") {
+          finished = true;
+          clearInterval(checkInterval);
+          recordUpdateForJob(jobId, true, null);
+          res.write(`data: ${JSON.stringify({ type: "done", success: true, result: job.result })}\n\n`);
+          res.end();
+          cleanupUpdateJob(jobId);
+          return;
+        }
+        if (job.status === "error") {
+          finished = true;
+          clearInterval(checkInterval);
+          recordUpdateForJob(jobId, false, job.errorMessage ?? "에이전트 오류");
+          res.write(`data: ${JSON.stringify({ type: "done", success: false, error: job.errorMessage })}\n\n`);
+          res.end();
+          cleanupUpdateJob(jobId);
+          return;
+        }
+        if (Date.now() - startTime > TIMEOUT_MS) {
+          finished = true;
+          clearInterval(checkInterval);
+          recordUpdateForJob(jobId, false, "타임아웃 — 에이전트가 응답하지 않습니다");
+          res.write(`data: ${JSON.stringify({ type: "timeout", error: "타임아웃 — 에이전트가 응답하지 않습니다" })}\n\n`);
+          res.end();
+          cleanupUpdateJob(jobId);
+        }
+      } catch {
+        // 폴링 오류는 무시하고 계속
+      }
+    }, 800);
+
+    // 클라이언트 연결 끊김 처리
+    req.on("close", () => {
+      finished = true;
+      clearInterval(checkInterval);
+      const list = _updateSseClients.get(jobId) ?? [];
+      const idx = list.indexOf(res);
+      if (idx !== -1) list.splice(idx, 1);
+    });
   });
 
   // ─── 에이전트 연결 정보 — 설정 페이지용 ──────────────────────────────────

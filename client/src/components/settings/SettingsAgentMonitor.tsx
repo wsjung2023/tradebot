@@ -18,7 +18,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Wifi, WifiOff, Activity, Loader2, RefreshCw, Download, CheckCircle2, AlertCircle, UploadCloud, History, Trash2 } from "lucide-react";
+import { Wifi, WifiOff, Activity, Loader2, RefreshCw, Download, CheckCircle2, AlertCircle, UploadCloud, History, Trash2, Circle } from "lucide-react";
 
 const POLL_INTERVAL_MS = 15_000;
 
@@ -37,10 +37,10 @@ interface AgentVersion {
   scriptUrl: string;
 }
 
-interface SelfUpdateResponse {
-  success: boolean;
-  result?: { success: boolean; message: string };
-  error?: string;
+interface UpdateStep {
+  step: string;
+  message: string;
+  ts: number;
 }
 
 interface AgentUpdateRecord {
@@ -56,6 +56,14 @@ interface UpdateHistoryResponse {
   history: AgentUpdateRecord[];
 }
 
+const STEP_LABELS: Record<string, string> = {
+  downloading: "다운로드",
+  replacing: "파일 교체",
+  restarting: "재시작",
+};
+
+const STEP_ORDER = ["downloading", "replacing", "restarting"];
+
 function formatSecondsAgo(sec: number | null): string {
   if (sec === null) return "없음";
   if (sec < 60) return `${sec}초 전`;
@@ -64,14 +72,87 @@ function formatSecondsAgo(sec: number | null): string {
   return `${m}분 ${s}초 전`;
 }
 
+function UpdateProgressDisplay({ steps, isUpdating }: { steps: UpdateStep[]; isUpdating: boolean }) {
+  const completedSteps = new Set(steps.map((s) => s.step));
+  const lastStep = steps.length > 0 ? steps[steps.length - 1] : null;
+
+  return (
+    <div data-testid="update-progress-display" className="space-y-2 bg-muted/50 rounded-md px-3 py-3">
+      <div className="flex items-center gap-2 mb-3">
+        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground shrink-0" />
+        <span className="text-sm font-medium">
+          {lastStep ? lastStep.message : "에이전트에 업데이트 명령 전송 중..."}
+        </span>
+      </div>
+      <div className="flex items-center gap-0">
+        {STEP_ORDER.map((step, idx) => {
+          const isDone = completedSteps.has(step);
+          const isCurrent = isUpdating && lastStep?.step === step;
+          const isUpcoming = !isDone && !isCurrent;
+
+          return (
+            <div key={step} className="flex items-center">
+              <div className="flex flex-col items-center gap-1">
+                <div
+                  data-testid={`update-step-${step}`}
+                  className={[
+                    "flex items-center justify-center rounded-full transition-colors",
+                    "h-7 w-7 shrink-0",
+                    isDone
+                      ? "bg-green-600 dark:bg-green-500 text-white"
+                      : isCurrent
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-muted text-muted-foreground border border-border",
+                  ].join(" ")}
+                >
+                  {isDone ? (
+                    <CheckCircle2 className="h-4 w-4" />
+                  ) : isCurrent ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Circle className="h-3 w-3" />
+                  )}
+                </div>
+                <span
+                  className={[
+                    "text-xs whitespace-nowrap",
+                    isDone
+                      ? "text-green-700 dark:text-green-400 font-medium"
+                      : isCurrent
+                      ? "text-foreground font-medium"
+                      : "text-muted-foreground",
+                  ].join(" ")}
+                >
+                  {STEP_LABELS[step]}
+                </span>
+              </div>
+              {idx < STEP_ORDER.length - 1 && (
+                <div
+                  className={[
+                    "h-0.5 w-8 mx-1 mb-4 transition-colors",
+                    isDone ? "bg-green-500 dark:bg-green-400" : "bg-border",
+                  ].join(" ")}
+                />
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 export function SettingsAgentMonitor() {
   const { toast } = useToast();
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
+
   const [updateCheckResult, setUpdateCheckResult] = useState<"uptodate" | "outdated" | null>(null);
   const [selfUpdateResult, setSelfUpdateResult] = useState<"success" | "failure" | null>(null);
   const [scriptUrl, setScriptUrl] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [updateSteps, setUpdateSteps] = useState<UpdateStep[]>([]);
 
   const { data: status, isLoading } = useQuery<PollingStatus>({
     queryKey: ["/api/kiwoom-agent/polling-status"],
@@ -101,7 +182,6 @@ export function SettingsAgentMonitor() {
     };
   }, []);
 
-  // 버전 해시가 업데이트되면 updateCheckResult 재계산
   useEffect(() => {
     if (serverVersion) {
       setScriptUrl(serverVersion.scriptUrl);
@@ -112,6 +192,13 @@ export function SettingsAgentMonitor() {
       }
     }
   }, [serverVersion, status?.agentVersionHash]);
+
+  // 컴포넌트 언마운트 시 SSE 연결 정리
+  useEffect(() => {
+    return () => {
+      eventSourceRef.current?.close();
+    };
+  }, []);
 
   const switchMutation = useMutation({
     mutationFn: async (enabled: boolean) =>
@@ -143,33 +230,80 @@ export function SettingsAgentMonitor() {
       toast({ variant: "destructive", title: "이력 삭제 실패", description: e.message }),
   });
 
-  const selfUpdateMutation = useMutation({
-    mutationFn: async (): Promise<SelfUpdateResponse> =>
-      (await apiRequest("POST", "/api/kiwoom-agent/self-update")).json(),
-    onSuccess: (data: SelfUpdateResponse) => {
-      const agentSuccess = data.success && data.result?.success === true;
-      refetchHistory();
-      if (agentSuccess) {
-        setSelfUpdateResult("success");
-        toast({ title: "업데이트 완료", description: "에이전트가 최신 버전으로 업데이트되고 재시작되었습니다." });
-        setUpdateCheckResult(null);
-        queryClient.invalidateQueries({ queryKey: ["/api/kiwoom-agent/polling-status"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/kiwoom-agent/update-history"] });
-        refetchVersion();
-      } else {
-        setSelfUpdateResult("failure");
-        const errMsg = data.error ?? data.result?.message ?? "에이전트가 응답하지 않습니다.";
-        toast({ variant: "destructive", title: "업데이트 실패", description: errMsg });
-        queryClient.invalidateQueries({ queryKey: ["/api/kiwoom-agent/update-history"] });
+  function closeEventSource() {
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+  }
+
+  async function handleSelfUpdate() {
+    setIsUpdating(true);
+    setUpdateSteps([]);
+    setSelfUpdateResult(null);
+    closeEventSource();
+
+    try {
+      // 1. 업데이트 job 생성
+      const resp = await apiRequest("POST", "/api/kiwoom-agent/self-update");
+      const { jobId, error } = await resp.json();
+      if (!jobId || error) {
+        throw new Error(error ?? "업데이트 job 생성 실패");
       }
-    },
-    onError: (e: Error) => {
+
+      // 2. SSE 연결로 진행 상황 구독
+      const es = new EventSource(`/api/kiwoom-agent/self-update-progress/${jobId}`);
+      eventSourceRef.current = es;
+
+      es.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+
+          if (data.type === "step") {
+            setUpdateSteps((prev) => [...prev, { step: data.step, message: data.message, ts: data.ts }]);
+          } else if (data.type === "done") {
+            closeEventSource();
+            setIsUpdating(false);
+            refetchHistory();
+            if (data.success) {
+              setSelfUpdateResult("success");
+              setUpdateCheckResult(null);
+              toast({ title: "업데이트 완료", description: "에이전트가 최신 버전으로 업데이트되고 재시작되었습니다." });
+              queryClient.invalidateQueries({ queryKey: ["/api/kiwoom-agent/polling-status"] });
+              refetchVersion();
+            } else {
+              setSelfUpdateResult("failure");
+              const errMsg = data.error ?? "에이전트가 응답하지 않습니다.";
+              toast({ variant: "destructive", title: "업데이트 실패", description: errMsg });
+            }
+          } else if (data.type === "error" || data.type === "timeout") {
+            closeEventSource();
+            setIsUpdating(false);
+            setSelfUpdateResult("failure");
+            refetchHistory();
+            const errMsg = data.error ?? "업데이트 중 오류가 발생했습니다.";
+            toast({ variant: "destructive", title: "업데이트 실패", description: errMsg });
+          }
+        } catch {
+          // JSON 파싱 오류 무시
+        }
+      };
+
+      es.onerror = () => {
+        closeEventSource();
+        if (isUpdating) {
+          setIsUpdating(false);
+          setSelfUpdateResult("failure");
+          toast({ variant: "destructive", title: "연결 오류", description: "서버와의 연결이 끊겼습니다." });
+        }
+      };
+    } catch (e: any) {
+      setIsUpdating(false);
       setSelfUpdateResult("failure");
       refetchHistory();
       toast({ variant: "destructive", title: "업데이트 실패", description: e.message });
-      queryClient.invalidateQueries({ queryKey: ["/api/kiwoom-agent/update-history"] });
-    },
-  });
+    }
+  }
 
   const clearHistoryMutation = useMutation({
     mutationFn: async () =>
@@ -186,6 +320,7 @@ export function SettingsAgentMonitor() {
   const handleCheckUpdate = async () => {
     setUpdateCheckResult(null);
     setSelfUpdateResult(null);
+    setUpdateSteps([]);
     const result = await refetchVersion();
     if (result.error) {
       toast({ variant: "destructive", title: "버전 확인 실패", description: "서버에서 버전 정보를 가져오지 못했습니다" });
@@ -289,7 +424,7 @@ export function SettingsAgentMonitor() {
                   variant="outline"
                   size="sm"
                   onClick={handleCheckUpdate}
-                  disabled={isVersionLoading}
+                  disabled={isVersionLoading || isUpdating}
                 >
                   {isVersionLoading ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -316,7 +451,12 @@ export function SettingsAgentMonitor() {
                     </div>
                   </div>
 
-                  {updateCheckResult === "uptodate" && selfUpdateResult === null && (
+                  {/* 업데이트 진행 중 */}
+                  {isUpdating && (
+                    <UpdateProgressDisplay steps={updateSteps} isUpdating={isUpdating} />
+                  )}
+
+                  {updateCheckResult === "uptodate" && selfUpdateResult === null && !isUpdating && (
                     <div
                       data-testid="status-update-uptodate"
                       className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/50 rounded-md px-3 py-2"
@@ -326,7 +466,7 @@ export function SettingsAgentMonitor() {
                     </div>
                   )}
 
-                  {updateCheckResult === "outdated" && selfUpdateResult === null && (
+                  {updateCheckResult === "outdated" && selfUpdateResult === null && !isUpdating && (
                     <div
                       data-testid="status-update-outdated"
                       className="space-y-2"
@@ -345,15 +485,11 @@ export function SettingsAgentMonitor() {
                             data-testid="button-self-update-agent"
                             variant="default"
                             size="sm"
-                            onClick={() => selfUpdateMutation.mutate()}
-                            disabled={selfUpdateMutation.isPending}
+                            onClick={handleSelfUpdate}
+                            disabled={isUpdating}
                           >
-                            {selfUpdateMutation.isPending ? (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            ) : (
-                              <UploadCloud className="h-3.5 w-3.5" />
-                            )}
-                            {selfUpdateMutation.isPending ? "업데이트 중..." : "지금 업데이트"}
+                            <UploadCloud className="h-3.5 w-3.5" />
+                            지금 업데이트
                           </Button>
                         )}
                         <Button
@@ -379,21 +515,29 @@ export function SettingsAgentMonitor() {
                 </div>
               )}
 
-              {selfUpdateResult === "success" && (
+              {selfUpdateResult === "success" && !isUpdating && (
                 <div
                   data-testid="status-self-update-success"
-                  className="flex items-center gap-2 text-sm bg-muted/50 rounded-md px-3 py-2"
+                  className="space-y-2"
                 >
-                  <CheckCircle2 className="h-4 w-4 shrink-0 text-green-600 dark:text-green-400" />
-                  업데이트 완료. 에이전트가 재시작되었습니다.
+                  {updateSteps.length > 0 && (
+                    <UpdateProgressDisplay steps={updateSteps} isUpdating={false} />
+                  )}
+                  <div className="flex items-center gap-2 text-sm bg-muted/50 rounded-md px-3 py-2">
+                    <CheckCircle2 className="h-4 w-4 shrink-0 text-green-600 dark:text-green-400" />
+                    업데이트 완료. 에이전트가 재시작되었습니다.
+                  </div>
                 </div>
               )}
 
-              {selfUpdateResult === "failure" && (
+              {selfUpdateResult === "failure" && !isUpdating && (
                 <div
                   data-testid="status-self-update-failure"
                   className="space-y-2"
                 >
+                  {updateSteps.length > 0 && (
+                    <UpdateProgressDisplay steps={updateSteps} isUpdating={false} />
+                  )}
                   <div className="flex items-center gap-2 text-sm bg-muted/50 rounded-md px-3 py-2">
                     <AlertCircle className="h-4 w-4 shrink-0 text-destructive" />
                     업데이트에 실패했습니다. 다시 시도하거나 수동으로 파일을 교체해 주세요.
@@ -404,14 +548,10 @@ export function SettingsAgentMonitor() {
                         data-testid="button-retry-self-update"
                         variant="default"
                         size="sm"
-                        onClick={() => { setSelfUpdateResult(null); selfUpdateMutation.mutate(); }}
-                        disabled={selfUpdateMutation.isPending}
+                        onClick={() => { setSelfUpdateResult(null); handleSelfUpdate(); }}
+                        disabled={isUpdating}
                       >
-                        {selfUpdateMutation.isPending ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <UploadCloud className="h-3.5 w-3.5" />
-                        )}
+                        <UploadCloud className="h-3.5 w-3.5" />
                         다시 시도
                       </Button>
                     )}
