@@ -158,8 +158,10 @@ export function SettingsAgentMonitor() {
   const [isWaitingReconnect, setIsWaitingReconnect] = useState(false);
   const [reconnectTargetHash, setReconnectTargetHash] = useState<string | null>(null);
   const [reconnectResult, setReconnectResult] = useState<"confirmed" | "timeout" | null>(null);
+  const [reconnectCountdown, setReconnectCountdown] = useState(30);
   const reconnectPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const { data: status, isLoading } = useQuery<PollingStatus>({
     queryKey: ["/api/kiwoom-agent/polling-status"],
@@ -205,12 +207,13 @@ export function SettingsAgentMonitor() {
     }
   }, [serverVersion, status?.agentVersionHash]);
 
-  // 컴포넌트 언마운트 시 SSE 연결 및 재연결 폴링 정리
+  // 컴포넌트 언마운트 시 SSE 연결 및 재연결 타이머 정리
   useEffect(() => {
     return () => {
       eventSourceRef.current?.close();
       if (reconnectPollRef.current) clearInterval(reconnectPollRef.current);
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+      if (reconnectIntervalRef.current) clearInterval(reconnectIntervalRef.current);
     };
   }, []);
 
@@ -218,14 +221,16 @@ export function SettingsAgentMonitor() {
   useEffect(() => {
     if (!isWaitingReconnect || !reconnectTargetHash) return;
 
-    // 2초마다 polling-status 강제 갱신
     reconnectPollRef.current = setInterval(() => {
       queryClient.invalidateQueries({ queryKey: ["/api/kiwoom-agent/polling-status"] });
     }, 2_000);
 
-    // 30초 시간 초과 타이머
     reconnectTimeoutRef.current = setTimeout(() => {
       if (reconnectPollRef.current) clearInterval(reconnectPollRef.current);
+      if (reconnectIntervalRef.current) {
+        clearInterval(reconnectIntervalRef.current);
+        reconnectIntervalRef.current = null;
+      }
       setIsWaitingReconnect(false);
       setReconnectResult("timeout");
     }, 30_000);
@@ -236,16 +241,47 @@ export function SettingsAgentMonitor() {
     };
   }, [isWaitingReconnect, reconnectTargetHash]);
 
+  // 재연결 대기 카운트다운 타이머 (1초마다 감소)
+  useEffect(() => {
+    if (!isWaitingReconnect) return;
+
+    setReconnectCountdown(30);
+    reconnectIntervalRef.current = setInterval(() => {
+      setReconnectCountdown((prev) => {
+        if (prev <= 1) {
+          if (reconnectIntervalRef.current) {
+            clearInterval(reconnectIntervalRef.current);
+            reconnectIntervalRef.current = null;
+          }
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => {
+      if (reconnectIntervalRef.current) {
+        clearInterval(reconnectIntervalRef.current);
+        reconnectIntervalRef.current = null;
+      }
+    };
+  }, [isWaitingReconnect]);
+
   // polling-status 의 agentVersionHash 가 목표 해시로 바뀌면 재연결 확인
   useEffect(() => {
     if (!isWaitingReconnect || !reconnectTargetHash) return;
     if (status?.agentVersionHash === reconnectTargetHash) {
       if (reconnectPollRef.current) clearInterval(reconnectPollRef.current);
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+      if (reconnectIntervalRef.current) {
+        clearInterval(reconnectIntervalRef.current);
+        reconnectIntervalRef.current = null;
+      }
       setIsWaitingReconnect(false);
       setReconnectResult("confirmed");
       setSelfUpdateResult("success");
       setUpdateCheckResult(null);
+      toast({ title: "업데이트 완료", description: "에이전트가 최신 버전으로 업데이트되고 재연결되었습니다." });
       queryClient.invalidateQueries({ queryKey: ["/api/kiwoom-agent/polling-status"] });
       refetchVersion();
     }
@@ -288,6 +324,12 @@ export function SettingsAgentMonitor() {
     }
   }
 
+  function clearReconnectTimers() {
+    if (reconnectPollRef.current) { clearInterval(reconnectPollRef.current); reconnectPollRef.current = null; }
+    if (reconnectTimeoutRef.current) { clearTimeout(reconnectTimeoutRef.current); reconnectTimeoutRef.current = null; }
+    if (reconnectIntervalRef.current) { clearInterval(reconnectIntervalRef.current); reconnectIntervalRef.current = null; }
+  }
+
   async function handleSelfUpdate() {
     setIsUpdating(true);
     setUpdateSteps([]);
@@ -295,8 +337,7 @@ export function SettingsAgentMonitor() {
     setIsWaitingReconnect(false);
     setReconnectResult(null);
     setReconnectTargetHash(null);
-    if (reconnectPollRef.current) clearInterval(reconnectPollRef.current);
-    if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+    clearReconnectTimers();
     closeEventSource();
 
     try {
@@ -326,6 +367,7 @@ export function SettingsAgentMonitor() {
               const targetHash = serverVersion?.serverHash ?? null;
               setReconnectTargetHash(targetHash);
               setIsWaitingReconnect(true);
+              queryClient.invalidateQueries({ queryKey: ["/api/kiwoom-agent/polling-status"] });
               toast({ title: "재시작 완료", description: "에이전트가 재시작되었습니다. 재연결을 기다립니다..." });
             } else {
               setSelfUpdateResult("failure");
@@ -390,8 +432,7 @@ export function SettingsAgentMonitor() {
     setIsWaitingReconnect(false);
     setReconnectResult(null);
     setReconnectTargetHash(null);
-    if (reconnectPollRef.current) clearInterval(reconnectPollRef.current);
-    if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+    clearReconnectTimers();
     const result = await refetchVersion();
     if (result.error) {
       toast({ variant: "destructive", title: "버전 확인 실패", description: "서버에서 버전 정보를 가져오지 못했습니다" });
@@ -538,7 +579,15 @@ export function SettingsAgentMonitor() {
                       )}
                       <div className="flex items-center gap-2 text-sm bg-muted/50 rounded-md px-3 py-2">
                         <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
-                        <span>에이전트 재연결 대기 중... (최대 30초)</span>
+                        <span>
+                          에이전트 재연결 대기 중...{" "}
+                          <span
+                            data-testid="text-reconnect-countdown"
+                            className="tabular-nums font-medium"
+                          >
+                            ({reconnectCountdown}초 남음)
+                          </span>
+                        </span>
                       </div>
                     </div>
                   )}
