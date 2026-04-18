@@ -36,6 +36,15 @@ CREATE TABLE IF NOT EXISTS engine_notifications (
 
 CREATE INDEX IF NOT EXISTS idx_engine_notifications_user_created
   ON engine_notifications (user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS agent_update_logs (
+  id SERIAL PRIMARY KEY,
+  timestamp TIMESTAMP NOT NULL DEFAULT NOW(),
+  success BOOLEAN NOT NULL,
+  agent_hash_before TEXT,
+  server_hash TEXT,
+  error_message TEXT
+);
 `;
 
 const client = new Client({ connectionString: process.env.DATABASE_URL });
@@ -43,7 +52,7 @@ const client = new Client({ connectionString: process.env.DATABASE_URL });
 try {
   await client.connect();
   await client.query(sql);
-  console.log('✅ runtime schema applied (auto_trading_runs, engine_notifications)');
+  console.log('✅ runtime schema applied (auto_trading_runs, engine_notifications, agent_update_logs)');
 } catch (error) {
   console.error('❌ failed to apply runtime schema:', error?.message || error);
   process.exit(1);

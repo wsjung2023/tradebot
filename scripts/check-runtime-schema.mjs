@@ -16,6 +16,7 @@ if (!process.env.DATABASE_URL) {
 const requiredTables = [
   'auto_trading_runs',
   'engine_notifications',
+  'agent_update_logs',
 ];
 
 const client = new Client({ connectionString: process.env.DATABASE_URL });
