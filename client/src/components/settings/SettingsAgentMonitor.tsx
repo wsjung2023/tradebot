@@ -7,7 +7,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/com
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Wifi, WifiOff, Activity, Loader2, RefreshCw, Download, CheckCircle2, AlertCircle, UploadCloud } from "lucide-react";
+import { Wifi, WifiOff, Activity, Loader2, RefreshCw, Download, CheckCircle2, AlertCircle, UploadCloud, History } from "lucide-react";
 
 const POLL_INTERVAL_MS = 15_000;
 
@@ -30,6 +30,20 @@ interface SelfUpdateResponse {
   success: boolean;
   result?: { success: boolean; message: string };
   error?: string;
+}
+
+interface AgentUpdateRecord {
+  id: number;
+  timestamp: string;
+  success: boolean;
+  versionHash: string | null;
+  agentHashBefore: string | null;
+  serverHash: string | null;
+  errorMessage: string | null;
+}
+
+interface UpdateHistoryResponse {
+  history: AgentUpdateRecord[];
 }
 
 function formatSecondsAgo(sec: number | null): string {
@@ -58,6 +72,11 @@ export function SettingsAgentMonitor() {
     staleTime: 60_000,
     enabled: false,
     retry: false,
+  });
+
+  const { data: historyData, refetch: refetchHistory } = useQuery<UpdateHistoryResponse>({
+    queryKey: ["/api/kiwoom-agent/update-history"],
+    staleTime: 0,
   });
 
   // 15초마다 강제 refetch (화면이 포커스를 잃어도)
@@ -106,6 +125,7 @@ export function SettingsAgentMonitor() {
       (await apiRequest("POST", "/api/kiwoom-agent/self-update")).json(),
     onSuccess: (data: SelfUpdateResponse) => {
       const agentSuccess = data.success && data.result?.success === true;
+      refetchHistory();
       if (agentSuccess) {
         setSelfUpdateResult("success");
         toast({ title: "업데이트 완료", description: "에이전트가 최신 버전으로 업데이트되고 재시작되었습니다." });
@@ -120,6 +140,7 @@ export function SettingsAgentMonitor() {
     },
     onError: (e: Error) => {
       setSelfUpdateResult("failure");
+      refetchHistory();
       toast({ variant: "destructive", title: "업데이트 실패", description: e.message });
     },
   });
@@ -381,6 +402,70 @@ export function SettingsAgentMonitor() {
                 서버 재시작 시 자동으로 ON으로 돌아옵니다.
               </p>
             )}
+
+            {/* 업데이트 이력 */}
+            <div className="border-t pt-4 space-y-2">
+              <div className="flex items-center gap-2">
+                <History className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm font-medium">업데이트 이력</span>
+              </div>
+              {!historyData || historyData.history.length === 0 ? (
+                <p
+                  data-testid="text-update-history-empty"
+                  className="text-xs text-muted-foreground px-1"
+                >
+                  이번 서버 기동 이후 업데이트 이력이 없습니다.
+                </p>
+              ) : (
+                <div className="space-y-1.5" data-testid="list-update-history">
+                  {historyData.history.map((record) => (
+                    <div
+                      key={record.id}
+                      data-testid={`row-update-history-${record.id}`}
+                      className="flex items-start gap-2 text-xs bg-muted/40 rounded-md px-3 py-2"
+                    >
+                      <div className="mt-0.5 shrink-0">
+                        {record.success ? (
+                          <CheckCircle2 className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
+                        ) : (
+                          <AlertCircle className="h-3.5 w-3.5 text-destructive" />
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0 space-y-0.5">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-medium">
+                            {record.success ? "성공" : "실패"}
+                          </span>
+                          <span className="text-muted-foreground">
+                            {new Date(record.timestamp).toLocaleString("ko-KR", {
+                              month: "2-digit",
+                              day: "2-digit",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                              second: "2-digit",
+                            })}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-3 flex-wrap text-muted-foreground font-mono">
+                          {record.agentHashBefore && (
+                            <span>이전: {record.agentHashBefore}</span>
+                          )}
+                          {record.serverHash && (
+                            <span>서버: {record.serverHash}</span>
+                          )}
+                          {record.versionHash && record.versionHash !== record.agentHashBefore && (
+                            <span>갱신: {record.versionHash}</span>
+                          )}
+                        </div>
+                        {!record.success && record.errorMessage && (
+                          <p className="text-destructive truncate">{record.errorMessage}</p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </>
         )}
       </CardContent>
