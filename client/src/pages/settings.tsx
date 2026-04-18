@@ -9,25 +9,8 @@ import { SettingsNotifications } from "@/components/settings/SettingsNotificatio
 import { SettingsStockAlerts } from "@/components/settings/SettingsStockAlerts";
 import { SettingsAgentMonitor } from "@/components/settings/SettingsAgentMonitor";
 import { SettingsAI } from "@/components/settings/SettingsAI";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Info } from "lucide-react";
+import { SettingsAppInfo } from "@/components/settings/SettingsAppInfo";
 import type { Alert } from "@shared/schema";
-
-function formatKoreanDateTime(isoString: string | null | undefined): string {
-  if (!isoString) return "알 수 없음";
-  try {
-    return new Date(isoString).toLocaleString("ko-KR", {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    });
-  } catch {
-    return isoString;
-  }
-}
 
 export default function Settings() {
   const { toast } = useToast();
@@ -41,10 +24,6 @@ export default function Settings() {
 
   const { data: settings } = useQuery({ queryKey: ["/api/settings"] });
   const { data: alerts = [] } = useQuery<Alert[]>({ queryKey: ["/api/alerts"] });
-  const { data: health } = useQuery<{ status: string; buildTime: string | null; buildCommit: string | null; serverStartTime: string; nodeEnv: string }>({
-    queryKey: ["/api/health"],
-    staleTime: 60_000,
-  });
 
   const updateSettingsMutation = useMutation({
     mutationFn: async (data: any) => (await apiRequest("PATCH", "/api/settings", data)).json(),
@@ -104,6 +83,8 @@ export default function Settings() {
         <p className="text-muted-foreground mt-1">API 연결, 거래 모드, AI 모델, 알림을 관리하세요</p>
       </div>
 
+      <SettingsAppInfo />
+
       <SettingsAgentMonitor />
 
       <SettingsKiwoom
@@ -138,45 +119,6 @@ export default function Settings() {
         onAlertTypeChange={setAlertType} onTargetValueChange={setAlertTargetValue}
         onCreate={handleCreateAlert} onDelete={(id) => deleteAlertMutation.mutate(id)}
       />
-
-      <Card data-testid="card-app-info">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Info className="w-4 h-4" />
-            앱 정보
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <dl className="space-y-2 text-sm">
-            <div className="flex flex-wrap gap-x-4 justify-between">
-              <dt className="text-muted-foreground">서버 버전</dt>
-              <dd data-testid="text-server-version" className="font-mono">
-                {health
-                  ? `${formatKoreanDateTime(health.buildTime ?? health.serverStartTime)}${health.buildCommit ? ` (${health.buildCommit})` : ""}`
-                  : "불러오는 중…"}
-              </dd>
-            </div>
-            <div className="flex flex-wrap gap-x-4 justify-between">
-              <dt className="text-muted-foreground">서버 시작 시각</dt>
-              <dd data-testid="text-server-start-time" className="font-mono">
-                {health ? formatKoreanDateTime(health.serverStartTime) : "불러오는 중…"}
-              </dd>
-            </div>
-            <div className="flex flex-wrap gap-x-4 justify-between">
-              <dt className="text-muted-foreground">클라이언트 빌드</dt>
-              <dd data-testid="text-client-build-time" className="font-mono">
-                {formatKoreanDateTime(import.meta.env.VITE_BUILD_VERSION)}
-              </dd>
-            </div>
-            <div className="flex flex-wrap gap-x-4 justify-between">
-              <dt className="text-muted-foreground">실행 환경</dt>
-              <dd data-testid="text-node-env" className="font-mono">
-                {health?.nodeEnv ?? "—"}
-              </dd>
-            </div>
-          </dl>
-        </CardContent>
-      </Card>
     </div>
   );
 }
