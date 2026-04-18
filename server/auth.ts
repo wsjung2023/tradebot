@@ -8,7 +8,7 @@ import type { Express } from 'express';
 
 // ==================== Access Whitelist ====================
 // Only these emails are allowed to use the app
-const ALLOWED_EMAILS = ['mainstop3@gmail.com', 'test@test.com'];
+const ALLOWED_EMAILS = ['mainstop3@gmail.com', 'test@test.com', 'newuser@test.com'];
 
 function isAllowedEmail(email: string | undefined | null): boolean {
   if (!email) return false;

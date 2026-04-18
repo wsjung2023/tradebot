@@ -6,6 +6,7 @@ import { insertKiwoomAccountSchema } from "@shared/schema";
 import { z } from "zod";
 import { callViaAgent, AgentTimeoutError } from "../services/agent-proxy.service";
 import { parseHoldingItem } from "../utils/balance-parser";
+import { isAgentConnected, getAgentLastSeenSecondsAgo } from "./kiwoom-agent.routes";
 
 // NOTE: 과거 "에이전트 timeout 시 서버가 직접 키움 REST 호출" fallback이 있었으나
 //       Replit 서버 IP가 키움 OpenAPI 포털에 등록되어 있지 않아 항상 8050(IP 미등록)으로 실패.
@@ -118,6 +119,16 @@ export function registerAccountRoutes(app: Router) {
       const accountId = parseInt(req.params.accountId);
       const account = await getAuthorizedAccount(user!.id, accountId);
       if (!account) return res.status(404).json({ error: "Account not found" });
+
+      // ── 에이전트 미연결 조기 거절 (15초 기다릴 필요 없음) ──────────────────
+      if (!isAgentConnected(60)) {
+        const ago = getAgentLastSeenSecondsAgo();
+        const agoLabel = ago === null ? "한 번도 폴링 없음" : `마지막 폴링 ${ago}초 전`;
+        return res.status(503).json({
+          error: `집 PC 에이전트가 연결되어 있지 않습니다 (${agoLabel}). 에이전트를 실행하고 다시 시도해 주세요.`,
+          errorCode: "AGENT_OFFLINE",
+        });
+      }
 
       const balancePayload = {
         accountNumber: account.accountNumber,
