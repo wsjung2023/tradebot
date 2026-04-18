@@ -48,7 +48,7 @@ KIWOOM_APP_SECRET = _APP_SECRET_COMMON
 
 KIWOOM_IS_MOCK = os.getenv("KIWOOM_IS_MOCK", "false").lower() == "true"
 POLL_INTERVAL = int(os.getenv("POLL_INTERVAL", "15"))         # 장중 폴링 간격 (초)
-POLL_INTERVAL_IDLE = int(os.getenv("POLL_INTERVAL_IDLE", "300"))  # 장외 폴링 간격 (초, 기본 5분)
+POLL_INTERVAL_IDLE = int(os.getenv("POLL_INTERVAL_IDLE", "20"))   # 장외 폴링 간격 (초, 기본 20초 — 수동 잔고조회가 장외에도 45초 이내 동작)
 
 KST = datetime.timezone(datetime.timedelta(hours=9))
 

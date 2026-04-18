@@ -138,7 +138,9 @@ export function registerAccountRoutes(app: Router) {
       const dedupeKey = `balance.get:${accountId}`;
       let result: any;
       try {
-        result = await callViaAgent(user!.id, "balance.get", balancePayload, 15000, dedupeKey);
+        // 장외(주말/야간)에도 에이전트 폴링 대기를 감안해 45초 timeout 사용
+        // (에이전트 POLL_INTERVAL_IDLE=20초 + Kiwoom API 응답시간 여유)
+        result = await callViaAgent(user!.id, "balance.get", balancePayload, 45000, dedupeKey);
       } catch (firstErr: any) {
         const msg = String(firstErr?.message ?? "");
         // 빈 응답(JSONDecodeError) 또는 토큰 오류 → 토큰 강제 갱신 후 재시도
@@ -151,7 +153,7 @@ export function registerAccountRoutes(app: Router) {
             await callViaAgent(user!.id, "token.refresh", { accountType: balancePayload.accountType }, 8000);
           } catch (_) { /* 갱신 실패 무시 */ }
           // 재시도도 실패하면 그대로 throw — Replit IP는 키움 포털 미등록이라 직접 호출 불가
-          result = await callViaAgent(user!.id, "balance.get", balancePayload, 15000, dedupeKey);
+          result = await callViaAgent(user!.id, "balance.get", balancePayload, 45000, dedupeKey);
         } else {
           throw firstErr;
         }
