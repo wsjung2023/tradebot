@@ -16,6 +16,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
+  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Wifi, WifiOff, Activity, Loader2, RefreshCw, Download, CheckCircle2, AlertCircle, UploadCloud, History, Trash2 } from "lucide-react";
 
@@ -447,20 +448,40 @@ export function SettingsAgentMonitor() {
                   <History className="h-4 w-4 text-muted-foreground" />
                   <span className="text-sm font-medium">업데이트 이력</span>
                 </div>
-                <Button
-                  data-testid="button-clear-update-history"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => clearHistoryMutation.mutate()}
-                  disabled={clearHistoryMutation.isPending || !historyData?.history?.length}
-                >
-                  {clearHistoryMutation.isPending ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Trash2 className="h-3.5 w-3.5" />
-                  )}
-                  전체 삭제
-                </Button>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button
+                      data-testid="button-clear-update-history"
+                      variant="outline"
+                      size="sm"
+                      disabled={clearHistoryMutation.isPending || !historyData?.history?.length}
+                    >
+                      {clearHistoryMutation.isPending ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-3.5 w-3.5" />
+                      )}
+                      전체 삭제
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>업데이트 이력을 모두 삭제하시겠습니까?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        전체 업데이트 이력이 영구적으로 삭제됩니다. 이 작업은 되돌릴 수 없습니다.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel data-testid="button-clear-history-cancel">취소</AlertDialogCancel>
+                      <AlertDialogAction
+                        data-testid="button-clear-history-confirm"
+                        onClick={() => clearHistoryMutation.mutate()}
+                      >
+                        전체 삭제
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               </div>
               {!historyData || historyData.history.length === 0 ? (
                 <p
