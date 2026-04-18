@@ -18,7 +18,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Wifi, WifiOff, Activity, Loader2, RefreshCw, Download, CheckCircle2, AlertCircle, UploadCloud, History, Trash2, Circle } from "lucide-react";
+import { Wifi, WifiOff, Activity, Loader2, RefreshCw, Download, CheckCircle2, AlertCircle, UploadCloud, History, Trash2, Circle, Clock } from "lucide-react";
 
 const POLL_INTERVAL_MS = 15_000;
 
@@ -155,6 +155,11 @@ export function SettingsAgentMonitor() {
   const [isUpdating, setIsUpdating] = useState(false);
   const [updateSteps, setUpdateSteps] = useState<UpdateStep[]>([]);
   const [historyLimit, setHistoryLimit] = useState(20);
+  const [isWaitingReconnect, setIsWaitingReconnect] = useState(false);
+  const [reconnectTargetHash, setReconnectTargetHash] = useState<string | null>(null);
+  const [reconnectResult, setReconnectResult] = useState<"confirmed" | "timeout" | null>(null);
+  const reconnectPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { data: status, isLoading } = useQuery<PollingStatus>({
     queryKey: ["/api/kiwoom-agent/polling-status"],
@@ -200,12 +205,51 @@ export function SettingsAgentMonitor() {
     }
   }, [serverVersion, status?.agentVersionHash]);
 
-  // 컴포넌트 언마운트 시 SSE 연결 정리
+  // 컴포넌트 언마운트 시 SSE 연결 및 재연결 폴링 정리
   useEffect(() => {
     return () => {
       eventSourceRef.current?.close();
+      if (reconnectPollRef.current) clearInterval(reconnectPollRef.current);
+      if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
     };
   }, []);
+
+  // 재연결 대기 중일 때 2초마다 polling-status 를 갱신해 해시 변경을 감지
+  useEffect(() => {
+    if (!isWaitingReconnect || !reconnectTargetHash) return;
+
+    // 2초마다 polling-status 강제 갱신
+    reconnectPollRef.current = setInterval(() => {
+      queryClient.invalidateQueries({ queryKey: ["/api/kiwoom-agent/polling-status"] });
+    }, 2_000);
+
+    // 30초 시간 초과 타이머
+    reconnectTimeoutRef.current = setTimeout(() => {
+      if (reconnectPollRef.current) clearInterval(reconnectPollRef.current);
+      setIsWaitingReconnect(false);
+      setReconnectResult("timeout");
+    }, 30_000);
+
+    return () => {
+      if (reconnectPollRef.current) clearInterval(reconnectPollRef.current);
+      if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+    };
+  }, [isWaitingReconnect, reconnectTargetHash]);
+
+  // polling-status 의 agentVersionHash 가 목표 해시로 바뀌면 재연결 확인
+  useEffect(() => {
+    if (!isWaitingReconnect || !reconnectTargetHash) return;
+    if (status?.agentVersionHash === reconnectTargetHash) {
+      if (reconnectPollRef.current) clearInterval(reconnectPollRef.current);
+      if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+      setIsWaitingReconnect(false);
+      setReconnectResult("confirmed");
+      setSelfUpdateResult("success");
+      setUpdateCheckResult(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/kiwoom-agent/polling-status"] });
+      refetchVersion();
+    }
+  }, [status?.agentVersionHash, isWaitingReconnect, reconnectTargetHash]);
 
   const switchMutation = useMutation({
     mutationFn: async (enabled: boolean) =>
@@ -248,6 +292,11 @@ export function SettingsAgentMonitor() {
     setIsUpdating(true);
     setUpdateSteps([]);
     setSelfUpdateResult(null);
+    setIsWaitingReconnect(false);
+    setReconnectResult(null);
+    setReconnectTargetHash(null);
+    if (reconnectPollRef.current) clearInterval(reconnectPollRef.current);
+    if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
     closeEventSource();
 
     try {
@@ -273,11 +322,11 @@ export function SettingsAgentMonitor() {
             setIsUpdating(false);
             refetchHistory();
             if (data.success) {
-              setSelfUpdateResult("success");
-              setUpdateCheckResult(null);
-              toast({ title: "업데이트 완료", description: "에이전트가 최신 버전으로 업데이트되고 재시작되었습니다." });
-              queryClient.invalidateQueries({ queryKey: ["/api/kiwoom-agent/polling-status"] });
-              refetchVersion();
+              // 재시작 완료 → 에이전트 재연결 대기 단계로 진입
+              const targetHash = serverVersion?.serverHash ?? null;
+              setReconnectTargetHash(targetHash);
+              setIsWaitingReconnect(true);
+              toast({ title: "재시작 완료", description: "에이전트가 재시작되었습니다. 재연결을 기다립니다..." });
             } else {
               setSelfUpdateResult("failure");
               const errMsg = data.error ?? "에이전트가 응답하지 않습니다.";
@@ -329,6 +378,11 @@ export function SettingsAgentMonitor() {
     setUpdateCheckResult(null);
     setSelfUpdateResult(null);
     setUpdateSteps([]);
+    setIsWaitingReconnect(false);
+    setReconnectResult(null);
+    setReconnectTargetHash(null);
+    if (reconnectPollRef.current) clearInterval(reconnectPollRef.current);
+    if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
     const result = await refetchVersion();
     if (result.error) {
       toast({ variant: "destructive", title: "버전 확인 실패", description: "서버에서 버전 정보를 가져오지 못했습니다" });
@@ -464,7 +518,39 @@ export function SettingsAgentMonitor() {
                     <UpdateProgressDisplay steps={updateSteps} isUpdating={isUpdating} />
                   )}
 
-                  {updateCheckResult === "uptodate" && selfUpdateResult === null && !isUpdating && (
+                  {/* 재시작 후 에이전트 재연결 대기 중 */}
+                  {isWaitingReconnect && (
+                    <div
+                      data-testid="status-reconnect-waiting"
+                      className="space-y-2"
+                    >
+                      {updateSteps.length > 0 && (
+                        <UpdateProgressDisplay steps={updateSteps} isUpdating={false} />
+                      )}
+                      <div className="flex items-center gap-2 text-sm bg-muted/50 rounded-md px-3 py-2">
+                        <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
+                        <span>에이전트 재연결 대기 중... (최대 30초)</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 재연결 시간 초과 */}
+                  {reconnectResult === "timeout" && !isWaitingReconnect && (
+                    <div
+                      data-testid="status-reconnect-timeout"
+                      className="space-y-2"
+                    >
+                      {updateSteps.length > 0 && (
+                        <UpdateProgressDisplay steps={updateSteps} isUpdating={false} />
+                      )}
+                      <div className="flex items-center gap-2 text-sm bg-muted/50 rounded-md px-3 py-2">
+                        <Clock className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                        <span>재연결 시간 초과. 에이전트가 실행 중인지 확인해 주세요.</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {updateCheckResult === "uptodate" && selfUpdateResult === null && !isUpdating && !isWaitingReconnect && (
                     <div
                       data-testid="status-update-uptodate"
                       className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/50 rounded-md px-3 py-2"
@@ -474,7 +560,7 @@ export function SettingsAgentMonitor() {
                     </div>
                   )}
 
-                  {updateCheckResult === "outdated" && selfUpdateResult === null && !isUpdating && (
+                  {updateCheckResult === "outdated" && selfUpdateResult === null && !isUpdating && !isWaitingReconnect && (
                     <div
                       data-testid="status-update-outdated"
                       className="space-y-2"
@@ -523,7 +609,7 @@ export function SettingsAgentMonitor() {
                 </div>
               )}
 
-              {selfUpdateResult === "success" && !isUpdating && (
+              {selfUpdateResult === "success" && !isUpdating && !isWaitingReconnect && (
                 <div
                   data-testid="status-self-update-success"
                   className="space-y-2"
@@ -533,7 +619,9 @@ export function SettingsAgentMonitor() {
                   )}
                   <div className="flex items-center gap-2 text-sm bg-muted/50 rounded-md px-3 py-2">
                     <CheckCircle2 className="h-4 w-4 shrink-0 text-green-600 dark:text-green-400" />
-                    업데이트 완료. 에이전트가 재시작되었습니다.
+                    {reconnectResult === "confirmed"
+                      ? "업데이트 완료. 에이전트가 새 버전으로 재연결되었습니다."
+                      : "업데이트 완료. 에이전트가 재시작되었습니다."}
                   </div>
                 </div>
               )}
