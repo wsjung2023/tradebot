@@ -121,7 +121,16 @@ export function registerAccountRoutes(app: Router) {
       if (!account) return res.status(404).json({ error: "Account not found" });
 
       // ── 에이전트 미연결 조기 거절 (15초 기다릴 필요 없음) ──────────────────
-      if (!isAgentConnected(60)) {
+      // 임계값 적응형: 장중(09:00-16:00 KST 평일)에는 60초, 장외에는 360초
+      // 장외 에이전트 idle 폴링 기본값(300초) + 60초 여유를 두어 오판을 방지한다.
+      // 단, 실제 미연결 시 callViaAgent가 15초 timeout을 일으키지 않도록
+      // 장외에서도 360초를 초과한 경우엔 즉시 거절한다.
+      const nowKst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+      const kstHour = nowKst.getUTCHours();
+      const kstDay = nowKst.getUTCDay(); // 0=일, 6=토
+      const isMarketHours = kstDay >= 1 && kstDay <= 5 && kstHour >= 9 && kstHour < 16;
+      const agentConnectThresholdSec = isMarketHours ? 60 : 360;
+      if (!isAgentConnected(agentConnectThresholdSec)) {
         const ago = getAgentLastSeenSecondsAgo();
         const agoLabel = ago === null ? "한 번도 폴링 없음" : `마지막 폴링 ${ago}초 전`;
         return res.status(503).json({
