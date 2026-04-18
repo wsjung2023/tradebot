@@ -839,3 +839,18 @@ export const assetSnapshots = pgTable("asset_snapshots", {
 export const insertAssetSnapshotSchema = createInsertSchema(assetSnapshots).omit({ id: true, snapshotAt: true });
 export type AssetSnapshot = typeof assetSnapshots.$inferSelect;
 export type InsertAssetSnapshot = z.infer<typeof insertAssetSnapshotSchema>;
+
+// ==================== Agent Update Logs ====================
+
+export const agentUpdateLogs = pgTable("agent_update_logs", {
+  id: serial("id").primaryKey(),
+  timestamp: timestamp("timestamp").notNull().defaultNow(),
+  success: boolean("success").notNull(),
+  agentHashBefore: text("agent_hash_before"),
+  serverHash: text("server_hash"),
+  errorMessage: text("error_message"),
+});
+
+export const insertAgentUpdateLogSchema = createInsertSchema(agentUpdateLogs).omit({ id: true, timestamp: true });
+export type AgentUpdateLog = typeof agentUpdateLogs.$inferSelect;
+export type InsertAgentUpdateLog = z.infer<typeof insertAgentUpdateLogSchema>;

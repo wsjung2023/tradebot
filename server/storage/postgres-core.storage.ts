@@ -26,6 +26,7 @@ import type {
   EngineNotification, InsertEngineNotification,
   CandidateStock, InsertCandidateStock,
   AssetSnapshot, InsertAssetSnapshot,
+  AgentUpdateLog, InsertAgentUpdateLog,
 } from '@shared/schema';
 
 export class PostgreSQLCoreStorage {
@@ -828,5 +829,23 @@ export class PostgreSQLCoreStorage {
         gte(schema.assetSnapshots.snapshotAt, cutoff),
       ))
       .orderBy(schema.assetSnapshots.snapshotAt);
+  }
+
+  // ==================== Agent Update Logs ====================
+
+  async createAgentUpdateLog(log: InsertAgentUpdateLog): Promise<AgentUpdateLog> {
+    const result = await db.insert(schema.agentUpdateLogs).values([log]).returning();
+    return result[0];
+  }
+
+  async getAgentUpdateLogs(limit: number = 50): Promise<AgentUpdateLog[]> {
+    return db.select()
+      .from(schema.agentUpdateLogs)
+      .orderBy(desc(schema.agentUpdateLogs.timestamp))
+      .limit(limit);
+  }
+
+  async deleteAgentUpdateLog(id: number): Promise<void> {
+    await db.delete(schema.agentUpdateLogs).where(eq(schema.agentUpdateLogs.id, id));
   }
 }

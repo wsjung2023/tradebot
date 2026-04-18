@@ -31,6 +31,7 @@ import {
   type EngineNotification, type InsertEngineNotification,
   type CandidateStock, type InsertCandidateStock,
   type AssetSnapshot, type InsertAssetSnapshot,
+  type AgentUpdateLog, type InsertAgentUpdateLog,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -237,4 +238,9 @@ export interface IStorage {
   deleteMarketIssuesOlderThan(cutoffDate: Date): Promise<number>;
   deleteFinancialSnapshotsOlderThan(cutoffDate: Date): Promise<number>;
   deleteTriggeredAlertsOlderThan(cutoffDate: Date): Promise<number>;
+
+  // 에이전트 업데이트 이력
+  createAgentUpdateLog(log: InsertAgentUpdateLog): Promise<AgentUpdateLog>;
+  getAgentUpdateLogs(limit?: number): Promise<AgentUpdateLog[]>;
+  deleteAgentUpdateLog(id: number): Promise<void>;
 }

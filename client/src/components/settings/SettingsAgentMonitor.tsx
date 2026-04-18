@@ -36,7 +36,6 @@ interface AgentUpdateRecord {
   id: number;
   timestamp: string;
   success: boolean;
-  versionHash: string | null;
   agentHashBefore: string | null;
   serverHash: string | null;
   errorMessage: string | null;
@@ -414,7 +413,7 @@ export function SettingsAgentMonitor() {
                   data-testid="text-update-history-empty"
                   className="text-xs text-muted-foreground px-1"
                 >
-                  이번 서버 기동 이후 업데이트 이력이 없습니다.
+                  업데이트 이력이 없습니다.
                 </p>
               ) : (
                 <div className="space-y-1.5" data-testid="list-update-history">
@@ -452,9 +451,6 @@ export function SettingsAgentMonitor() {
                           )}
                           {record.serverHash && (
                             <span>서버: {record.serverHash}</span>
-                          )}
-                          {record.versionHash && record.versionHash !== record.agentHashBefore && (
-                            <span>갱신: {record.versionHash}</span>
                           )}
                         </div>
                         {!record.success && record.errorMessage && (

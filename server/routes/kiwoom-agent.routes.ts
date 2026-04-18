@@ -88,19 +88,6 @@ function sanitizeJob(job: KiwoomJob) {
 // 에이전트 로그 인메모리 버퍼 (최근 200개)
 const AGENT_LOG_BUFFER: Array<{ts: number; level: string; message: string; logger?: string}> = [];
 
-// 에이전트 업데이트 이력 인메모리 버퍼 (최근 50개)
-interface AgentUpdateRecord {
-  id: number;
-  timestamp: string;  // ISO string
-  success: boolean;
-  versionHash: string | null;  // 업데이트 후 에이전트 보고 해시 (재연결 후)
-  agentHashBefore: string | null;  // 업데이트 시작 시 에이전트 해시
-  serverHash: string | null;  // 업데이트 시 서버 파일 해시
-  errorMessage: string | null;
-}
-const AGENT_UPDATE_HISTORY: AgentUpdateRecord[] = [];
-const AGENT_UPDATE_HISTORY_MAX = 50;
-let _updateRecordCounter = 0;
 
 // 키움 시스템 점검 상태 캐시
 let _sysStatusCache: { status: string; message: string; httpStatus?: number; location?: string | null; checkedAt: number } | null = null;
@@ -427,19 +414,17 @@ export function registerKiwoomAgentRoutes(app: Express): void {
       }
     } catch (_) {}
 
-    const recordUpdate = (success: boolean, errorMessage: string | null) => {
-      _updateRecordCounter++;
-      const record: AgentUpdateRecord = {
-        id: _updateRecordCounter,
-        timestamp: new Date().toISOString(),
-        success,
-        versionHash: _agentVersionHash,
-        agentHashBefore,
-        serverHash: serverHashNow,
-        errorMessage,
-      };
-      AGENT_UPDATE_HISTORY.push(record);
-      if (AGENT_UPDATE_HISTORY.length > AGENT_UPDATE_HISTORY_MAX) AGENT_UPDATE_HISTORY.shift();
+    const recordUpdate = async (success: boolean, errorMessage: string | null) => {
+      try {
+        await storage.createAgentUpdateLog({
+          success,
+          agentHashBefore: agentHashBefore ?? null,
+          serverHash: serverHashNow ?? null,
+          errorMessage: errorMessage ?? null,
+        });
+      } catch (e) {
+        console.error("[update-history] DB 저장 실패:", e);
+      }
     };
 
     try {
@@ -461,25 +446,30 @@ export function registerKiwoomAgentRoutes(app: Express): void {
         const updated = await storage.getKiwoomJobByIdInternal(job.id);
         if (!updated) break;
         if (updated.status === "done") {
-          recordUpdate(true, null);
+          await recordUpdate(true, null);
           return res.json({ success: true, result: updated.result });
         }
         if (updated.status === "error") {
-          recordUpdate(false, updated.errorMessage ?? "에이전트 오류");
+          await recordUpdate(false, updated.errorMessage ?? "에이전트 오류");
           return res.json({ success: false, error: updated.errorMessage });
         }
       }
-      recordUpdate(false, "타임아웃 — 에이전트가 응답하지 않습니다");
+      await recordUpdate(false, "타임아웃 — 에이전트가 응답하지 않습니다");
       res.json({ success: false, error: "타임아웃 — 에이전트가 응답하지 않습니다" });
     } catch (e: any) {
-      recordUpdate(false, e.message);
+      await recordUpdate(false, e.message);
       res.status(500).json({ error: e.message });
     }
   });
 
   // ─── 에이전트 업데이트 이력 조회 ──────────────────────────────────────────
-  app.get("/api/kiwoom-agent/update-history", isAuthenticated, (_req: Request, res: Response) => {
-    res.json({ history: [...AGENT_UPDATE_HISTORY].reverse() });
+  app.get("/api/kiwoom-agent/update-history", isAuthenticated, async (_req: Request, res: Response) => {
+    try {
+      const history = await storage.getAgentUpdateLogs(50);
+      res.json({ history });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
   });
 
   // ─── 에이전트 연결 정보 — 설정 페이지용 ──────────────────────────────────
