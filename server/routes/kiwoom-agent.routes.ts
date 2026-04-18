@@ -9,7 +9,7 @@ import { storage } from "../storage";
 import { insertKiwoomJobSchema } from "@shared/schema";
 import type { KiwoomJob } from "@shared/schema";
 import { isAuthenticated } from "../auth";
-import { sendTestAlert, isSmtpConfigured, validateWebhookUrl } from "../services/agent-alert.service";
+import { sendTestAlert, isSmtpConfigured, getEmailProviderStatuses, validateWebhookUrl, type EmailProvider } from "../services/agent-alert.service";
 import { resetUserAlertState } from "../jobs/agent-disconnect-watcher";
 
 const AGENT_KEY = process.env.AGENT_KEY || "";
@@ -862,6 +862,7 @@ export function registerKiwoomAgentRoutes(app: Express): void {
     email: string;
     webhookUrl?: string;
     disconnectThresholdMinutes: number;
+    emailProvider?: EmailProvider;
   }
 
   interface NotificationSettingsRecord {
@@ -889,7 +890,8 @@ export function registerKiwoomAgentRoutes(app: Express): void {
         webhookUrl: "",
         disconnectThresholdMinutes: 3,
       };
-      res.json({ agentAlert, smtpConfigured: isSmtpConfigured() });
+      const providerStatuses = getEmailProviderStatuses();
+      res.json({ agentAlert, smtpConfigured: isSmtpConfigured(), emailProviders: providerStatuses });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       res.status(500).json({ error: msg });
@@ -902,12 +904,18 @@ export function registerKiwoomAgentRoutes(app: Express): void {
       const userId = getAuthUserId(req);
       if (!userId) return res.status(401).json({ error: "로그인 필요" });
 
-      const { enabled, email, webhookUrl, disconnectThresholdMinutes } = req.body as {
+      const { enabled, email, webhookUrl, disconnectThresholdMinutes, emailProvider } = req.body as {
         enabled?: unknown;
         email?: unknown;
         webhookUrl?: unknown;
         disconnectThresholdMinutes?: unknown;
+        emailProvider?: unknown;
       };
+
+      const VALID_PROVIDERS: EmailProvider[] = ["smtp", "sendgrid", "resend", "auto"];
+      if (emailProvider !== undefined && !VALID_PROVIDERS.includes(emailProvider as EmailProvider)) {
+        return res.status(400).json({ error: "유효하지 않은 이메일 공급자입니다" });
+      }
 
       // 웹훅 URL 저장 전 유효성 검증
       if (typeof webhookUrl === "string" && webhookUrl.trim() !== "") {
@@ -931,6 +939,9 @@ export function registerKiwoomAgentRoutes(app: Express): void {
         ...(typeof disconnectThresholdMinutes === "number"
           ? { disconnectThresholdMinutes: Math.max(1, Math.min(60, disconnectThresholdMinutes)) }
           : {}),
+        ...(VALID_PROVIDERS.includes(emailProvider as EmailProvider)
+          ? { emailProvider: emailProvider as EmailProvider }
+          : {}),
       };
 
       // enabled=true일 때 최소 1개 채널 필수
@@ -944,7 +955,8 @@ export function registerKiwoomAgentRoutes(app: Express): void {
       // 설정 변경 시 알림 상태 초기화 (오래된 alertedAt 방지)
       resetUserAlertState(userId);
 
-      res.json({ agentAlert: updatedAlert, smtpConfigured: isSmtpConfigured() });
+      const providerStatuses = getEmailProviderStatuses();
+      res.json({ agentAlert: updatedAlert, smtpConfigured: isSmtpConfigured(), emailProviders: providerStatuses });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       res.status(500).json({ error: msg });
@@ -965,7 +977,11 @@ export function registerKiwoomAgentRoutes(app: Express): void {
         return res.status(400).json({ error: "알림 채널(이메일 또는 웹훅)이 설정되어 있지 않습니다" });
       }
 
-      const result = await sendTestAlert(alertCfg.email || undefined, alertCfg.webhookUrl || undefined);
+      const result = await sendTestAlert(
+        alertCfg.email || undefined,
+        alertCfg.webhookUrl || undefined,
+        alertCfg.emailProvider,
+      );
       const messages: string[] = [];
       if (result.email?.ok) messages.push(`이메일 → ${alertCfg.email}`);
       if (result.webhook?.ok) messages.push("웹훅 발송 완료");

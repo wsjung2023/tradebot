@@ -9,19 +9,36 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { Bell, BellOff, Mail, Globe, SendHorizonal, AlertTriangle, CheckCircle2, Info, XCircle, Clock } from "lucide-react";
+import { Bell, BellOff, Mail, Globe, SendHorizonal, AlertTriangle, CheckCircle2, Info, XCircle, Clock, ChevronDown } from "lucide-react";
 import { Label } from "@/components/ui/label";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+
+type EmailProvider = "smtp" | "sendgrid" | "resend" | "auto";
 
 interface AgentAlertConfig {
   enabled: boolean;
   email: string;
   webhookUrl?: string;
   disconnectThresholdMinutes: number;
+  emailProvider?: EmailProvider;
+}
+
+interface EmailProviderStatuses {
+  smtp: boolean;
+  sendgrid: boolean;
+  resend: boolean;
 }
 
 interface AlertSettingsResponse {
   agentAlert: AgentAlertConfig;
   smtpConfigured: boolean;
+  emailProviders?: EmailProviderStatuses;
 }
 
 interface PatchAlertBody {
@@ -29,6 +46,7 @@ interface PatchAlertBody {
   email?: string;
   webhookUrl?: string;
   disconnectThresholdMinutes?: number;
+  emailProvider?: EmailProvider;
 }
 
 interface TestAlertResponse {
@@ -63,6 +81,13 @@ function formatSentAt(sentAt: string): string {
   return d.toLocaleString("ko-KR", { timeZone: "Asia/Seoul", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
+const PROVIDER_LABELS: Record<EmailProvider, string> = {
+  auto: "자동 선택",
+  smtp: "SMTP",
+  sendgrid: "SendGrid",
+  resend: "Resend",
+};
+
 export function SettingsAgentAlerts() {
   const { toast } = useToast();
 
@@ -77,6 +102,7 @@ export function SettingsAgentAlerts() {
   const [email, setEmail] = useState("");
   const [webhookUrl, setWebhookUrl] = useState("");
   const [threshold, setThreshold] = useState(3);
+  const [emailProvider, setEmailProvider] = useState<EmailProvider>("auto");
   const [dirty, setDirty] = useState(false);
 
   useEffect(() => {
@@ -84,6 +110,7 @@ export function SettingsAgentAlerts() {
       setEmail(data.agentAlert.email || "");
       setWebhookUrl(data.agentAlert.webhookUrl || "");
       setThreshold(data.agentAlert.disconnectThresholdMinutes || 3);
+      setEmailProvider(data.agentAlert.emailProvider || "auto");
     }
   }, [data]);
 
@@ -125,13 +152,27 @@ export function SettingsAgentAlerts() {
       email: email.trim(),
       webhookUrl: webhookUrl.trim(),
       disconnectThresholdMinutes: threshold,
+      emailProvider,
     });
   };
 
   const enabled = data?.agentAlert?.enabled ?? false;
-  const smtpConfigured = data?.smtpConfigured ?? false;
+  const providerStatuses = data?.emailProviders;
+  const hasAnyEmailProvider = !!(providerStatuses?.smtp || providerStatuses?.sendgrid || providerStatuses?.resend);
   const hasChannel = !!(email.trim() || webhookUrl.trim() || data?.agentAlert?.email || data?.agentAlert?.webhookUrl);
   const logs = logsData?.logs ?? [];
+
+  // build list of available (configured) providers for display
+  const configuredProviders: Array<{ key: EmailProvider; label: string }> = [];
+  if (providerStatuses?.sendgrid) configuredProviders.push({ key: "sendgrid", label: "SendGrid" });
+  if (providerStatuses?.resend) configuredProviders.push({ key: "resend", label: "Resend" });
+  if (providerStatuses?.smtp) configuredProviders.push({ key: "smtp", label: "SMTP" });
+
+  // Available options for the dropdown = configured providers + auto
+  const providerOptions: Array<{ key: EmailProvider; label: string }> = [
+    { key: "auto", label: "자동 선택" },
+    ...configuredProviders,
+  ];
 
   return (
     <Card>
@@ -163,30 +204,51 @@ export function SettingsAgentAlerts() {
       </CardHeader>
 
       <CardContent className="space-y-5">
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          {!smtpConfigured && (
+        {/* 이메일 공급자 상태 배너 */}
+        <div className="space-y-2">
+          {!hasAnyEmailProvider && (
             <div
               data-testid="banner-smtp-not-configured"
               className="flex items-start gap-2 text-sm bg-muted/50 rounded-md px-3 py-2.5"
             >
               <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
               <div>
-                <p className="font-medium text-foreground">SMTP 미설정</p>
+                <p className="font-medium text-foreground">이메일 공급자 미설정</p>
                 <p className="text-muted-foreground text-xs mt-0.5">
-                  이메일 알림: <code className="bg-muted px-1 py-0.5 rounded text-xs">SMTP_HOST</code>{", "}
-                  <code className="bg-muted px-1 py-0.5 rounded text-xs">SMTP_USER</code>{", "}
-                  <code className="bg-muted px-1 py-0.5 rounded text-xs">SMTP_PASS</code> 시크릿 필요
+                  아래 중 하나를 설정하면 이메일 알림을 받을 수 있습니다:
                 </p>
+                <ul className="text-muted-foreground text-xs mt-1 space-y-0.5 list-disc list-inside">
+                  <li>
+                    <strong>SendGrid</strong>: <code className="bg-muted px-1 py-0.5 rounded text-xs">SENDGRID_API_KEY</code>
+                    {" "}+ 선택: <code className="bg-muted px-1 py-0.5 rounded text-xs">SENDGRID_FROM</code>
+                  </li>
+                  <li>
+                    <strong>Resend</strong>: <code className="bg-muted px-1 py-0.5 rounded text-xs">RESEND_API_KEY</code>
+                    {" "}+ 선택: <code className="bg-muted px-1 py-0.5 rounded text-xs">RESEND_FROM</code>
+                  </li>
+                  <li>
+                    <strong>SMTP</strong>: <code className="bg-muted px-1 py-0.5 rounded text-xs">SMTP_HOST</code>{", "}
+                    <code className="bg-muted px-1 py-0.5 rounded text-xs">SMTP_USER</code>{", "}
+                    <code className="bg-muted px-1 py-0.5 rounded text-xs">SMTP_PASS</code>
+                  </li>
+                </ul>
               </div>
             </div>
           )}
-          {smtpConfigured && (
+          {hasAnyEmailProvider && (
             <div
               data-testid="banner-smtp-configured"
-              className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/50 rounded-md px-3 py-2"
+              className="flex items-center gap-2 text-sm bg-muted/50 rounded-md px-3 py-2"
             >
               <CheckCircle2 className="h-4 w-4 shrink-0 text-green-600 dark:text-green-400" />
-              <span>SMTP 설정됨 — 이메일 발송 가능</span>
+              <span className="text-muted-foreground">이메일 발송 가능 —</span>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {configuredProviders.map((p) => (
+                  <Badge key={p.key} variant="secondary" className="text-xs font-normal" data-testid={`badge-provider-${p.key}`}>
+                    {p.label}
+                  </Badge>
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -206,6 +268,67 @@ export function SettingsAgentAlerts() {
               onChange={(e) => { setEmail(e.target.value); setDirty(true); }}
             />
           </div>
+
+          {/* 이메일 발송 방식 선택 — 이메일이 입력된 경우에만 표시 */}
+          {(email.trim() || data?.agentAlert?.email) && hasAnyEmailProvider && (
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium flex items-center gap-1.5">
+                <Mail className="h-3.5 w-3.5 text-muted-foreground" />
+                이메일 발송 방식
+              </Label>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    data-testid="select-email-provider"
+                    className="w-48 justify-between"
+                  >
+                    <span>{PROVIDER_LABELS[emailProvider]}</span>
+                    <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  <DropdownMenuRadioGroup
+                    value={emailProvider}
+                    onValueChange={(v) => { setEmailProvider(v as EmailProvider); setDirty(true); }}
+                  >
+                    {providerOptions.map((opt) => (
+                      <DropdownMenuRadioItem
+                        key={opt.key}
+                        value={opt.key}
+                        data-testid={`option-provider-${opt.key}`}
+                      >
+                        {opt.label}
+                        {opt.key === "auto" && (
+                          <span className="ml-1.5 text-xs text-muted-foreground">
+                            ({configuredProviders[0]?.label ?? "미설정"} 우선)
+                          </span>
+                        )}
+                      </DropdownMenuRadioItem>
+                    ))}
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              {emailProvider !== "auto" && providerStatuses && !providerStatuses[emailProvider] ? (
+                <div
+                  data-testid="banner-provider-not-configured"
+                  className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400"
+                >
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                  <span>
+                    {PROVIDER_LABELS[emailProvider]}이 설정되지 않았습니다. 자동 선택으로 변경하거나 해당 API 키를 설정하세요.
+                  </span>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  {emailProvider === "auto"
+                    ? "설정된 공급자 중 SendGrid → Resend → SMTP 순으로 자동 선택됩니다"
+                    : `${PROVIDER_LABELS[emailProvider]}을 통해 이메일을 발송합니다`}
+                </p>
+              )}
+            </div>
+          )}
 
           <div className="space-y-1.5">
             <Label htmlFor="alert-webhook" className="text-sm font-medium flex items-center gap-1.5">
@@ -330,6 +453,9 @@ export function SettingsAgentAlerts() {
             <p>에이전트가 다시 연결되면 복구 알림도 자동 발송됩니다.</p>
             <div className="flex items-center gap-1.5 flex-wrap mt-1">
               <Badge variant="secondary" className="text-xs font-normal">이메일</Badge>
+              <Badge variant="secondary" className="text-xs font-normal">SMTP</Badge>
+              <Badge variant="secondary" className="text-xs font-normal">SendGrid</Badge>
+              <Badge variant="secondary" className="text-xs font-normal">Resend</Badge>
               <Badge variant="secondary" className="text-xs font-normal">웹훅</Badge>
             </div>
           </div>

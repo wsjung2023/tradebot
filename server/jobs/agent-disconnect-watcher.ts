@@ -4,7 +4,7 @@
 import { db } from "../db";
 import * as schema from "@shared/schema";
 import { getAgentLastSeenSecondsAgo } from "../routes/kiwoom-agent.routes";
-import { sendAgentDisconnectAlert, sendAgentRecoveryAlert } from "../services/agent-alert.service";
+import { sendAgentDisconnectAlert, sendAgentRecoveryAlert, type EmailProvider } from "../services/agent-alert.service";
 import { storage } from "../storage";
 
 export interface AgentAlertSettings {
@@ -12,6 +12,7 @@ export interface AgentAlertSettings {
   email: string;
   webhookUrl?: string;
   disconnectThresholdMinutes: number;
+  emailProvider?: EmailProvider;
 }
 
 interface NotificationSettingsShape {
@@ -37,6 +38,7 @@ function parseAgentAlertSettings(raw: unknown): AgentAlertSettings | null {
     email: a.email || "",
     webhookUrl: a.webhookUrl,
     disconnectThresholdMinutes: Math.max(1, Number(a.disconnectThresholdMinutes) || 3),
+    emailProvider: (a.emailProvider as EmailProvider) || "auto",
   };
 }
 
@@ -116,6 +118,7 @@ async function runCheck() {
         webhookUrl: settings.webhookUrl,
         thresholdMinutes: settings.disconnectThresholdMinutes,
         lastSeenSecondsAgo: lastSeenSec,
+        emailProvider: settings.emailProvider,
       });
       const succeeded = sendSucceeded(result);
       await saveAlertLog({
@@ -136,6 +139,7 @@ async function runCheck() {
         toEmail: settings.email || undefined,
         webhookUrl: settings.webhookUrl,
         disconnectedDurationMinutes: disconnectedMinutes,
+        emailProvider: settings.emailProvider,
       });
       const succeeded = sendSucceeded(result);
       await saveAlertLog({
