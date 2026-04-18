@@ -9,7 +9,7 @@ import { storage } from "../storage";
 import { insertKiwoomJobSchema } from "@shared/schema";
 import type { KiwoomJob } from "@shared/schema";
 import { isAuthenticated } from "../auth";
-import { sendTestAlert, isSmtpConfigured, getEmailProviderStatuses, validateWebhookUrl, type EmailProvider } from "../services/agent-alert.service";
+import { sendTestAlert, isSmtpConfigured, getEmailProviderStatuses, validateWebhookUrl, type EmailProvider, type KakaoAlimtalkConfig } from "../services/agent-alert.service";
 import { resetUserAlertState } from "../jobs/agent-disconnect-watcher";
 
 const AGENT_KEY = process.env.AGENT_KEY || "";
@@ -453,22 +453,6 @@ export function registerKiwoomAgentRoutes(app: Express): void {
 
   // ─── 에이전트 원격 업데이트 — job 생성 후 jobId 즉시 반환 ────────────────
   app.post("/api/kiwoom-agent/self-update", isAuthenticated, async (req: Request, res: Response) => {
-    const agentHashBefore = _agentVersionHash;
-
-    // 업데이트 시 서버 파일 해시 계산
-    let serverHashNow: string | null = null;
-    try {
-      const candidates = [
-        join(process.cwd(), "agent/kiwoom-agent.py"),
-        join(process.cwd(), "../agent/kiwoom-agent.py"),
-      ];
-      const scriptPath = candidates.find((p) => existsSync(p));
-      if (scriptPath) {
-        const content = readFileSync(scriptPath);
-        serverHashNow = createHash("md5").update(content).digest("hex").slice(0, 8);
-      }
-    } catch (_) {}
-
     try {
       const userId = getAuthUserId(req);
       if (!userId) return res.status(401).json({ error: "로그인 필요" });
@@ -540,21 +524,6 @@ export function registerKiwoomAgentRoutes(app: Express): void {
     try {
       await storage.deleteAllAgentUpdateLogs();
       console.log("[kiwoom-agent] 업데이트 이력 초기화 완료");
-      res.json({ success: true });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
-    }
-  });
-
-  // ─── 업데이트 이력 개별 삭제 ─────────────────────────────────────────────
-  app.delete("/api/kiwoom-agent/update-history/:id", isAuthenticated, async (req: Request, res: Response) => {
-    try {
-      const id = parseInt(req.params.id);
-      if (isNaN(id)) {
-        res.status(400).json({ error: "잘못된 id" });
-        return;
-      }
-      await storage.deleteAgentUpdateLog(id);
       res.json({ success: true });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
@@ -863,6 +832,14 @@ export function registerKiwoomAgentRoutes(app: Express): void {
     webhookUrl?: string;
     disconnectThresholdMinutes: number;
     emailProvider?: EmailProvider;
+    kakaoEnabled?: boolean;
+    kakaoApiKey?: string;
+    kakaoUserId?: string;
+    kakaoSenderKey?: string;
+    kakaoPhoneFrom?: string;
+    kakaoPhoneTo?: string;
+    kakaoDisconnectTemplateCode?: string;
+    kakaoRecoveryTemplateCode?: string;
   }
 
   interface NotificationSettingsRecord {
@@ -904,12 +881,24 @@ export function registerKiwoomAgentRoutes(app: Express): void {
       const userId = getAuthUserId(req);
       if (!userId) return res.status(401).json({ error: "로그인 필요" });
 
-      const { enabled, email, webhookUrl, disconnectThresholdMinutes, emailProvider } = req.body as {
+      const {
+        enabled, email, webhookUrl, disconnectThresholdMinutes, emailProvider,
+        kakaoEnabled, kakaoApiKey, kakaoUserId, kakaoSenderKey,
+        kakaoPhoneFrom, kakaoPhoneTo, kakaoDisconnectTemplateCode, kakaoRecoveryTemplateCode,
+      } = req.body as {
         enabled?: unknown;
         email?: unknown;
         webhookUrl?: unknown;
         disconnectThresholdMinutes?: unknown;
         emailProvider?: unknown;
+        kakaoEnabled?: unknown;
+        kakaoApiKey?: unknown;
+        kakaoUserId?: unknown;
+        kakaoSenderKey?: unknown;
+        kakaoPhoneFrom?: unknown;
+        kakaoPhoneTo?: unknown;
+        kakaoDisconnectTemplateCode?: unknown;
+        kakaoRecoveryTemplateCode?: unknown;
       };
 
       const VALID_PROVIDERS: EmailProvider[] = ["smtp", "sendgrid", "resend", "auto"];
@@ -942,11 +931,20 @@ export function registerKiwoomAgentRoutes(app: Express): void {
         ...(VALID_PROVIDERS.includes(emailProvider as EmailProvider)
           ? { emailProvider: emailProvider as EmailProvider }
           : {}),
+        ...(typeof kakaoEnabled === "boolean" ? { kakaoEnabled } : {}),
+        ...(typeof kakaoApiKey === "string" ? { kakaoApiKey: kakaoApiKey.trim() } : {}),
+        ...(typeof kakaoUserId === "string" ? { kakaoUserId: kakaoUserId.trim() } : {}),
+        ...(typeof kakaoSenderKey === "string" ? { kakaoSenderKey: kakaoSenderKey.trim() } : {}),
+        ...(typeof kakaoPhoneFrom === "string" ? { kakaoPhoneFrom: kakaoPhoneFrom.trim() } : {}),
+        ...(typeof kakaoPhoneTo === "string" ? { kakaoPhoneTo: kakaoPhoneTo.trim() } : {}),
+        ...(typeof kakaoDisconnectTemplateCode === "string" ? { kakaoDisconnectTemplateCode: kakaoDisconnectTemplateCode.trim() } : {}),
+        ...(typeof kakaoRecoveryTemplateCode === "string" ? { kakaoRecoveryTemplateCode: kakaoRecoveryTemplateCode.trim() } : {}),
       };
 
       // enabled=true일 때 최소 1개 채널 필수
-      if (updatedAlert.enabled && !updatedAlert.email && !updatedAlert.webhookUrl) {
-        return res.status(400).json({ error: "알림 활성화 시 이메일 또는 웹훅 URL 중 하나를 설정해야 합니다" });
+      const hasKakao = !!(updatedAlert.kakaoEnabled && updatedAlert.kakaoApiKey && updatedAlert.kakaoUserId && updatedAlert.kakaoSenderKey && updatedAlert.kakaoPhoneTo && updatedAlert.kakaoDisconnectTemplateCode);
+      if (updatedAlert.enabled && !updatedAlert.email && !updatedAlert.webhookUrl && !hasKakao) {
+        return res.status(400).json({ error: "알림 활성화 시 이메일, 웹훅 URL, 또는 카카오 알림톡 중 하나를 설정해야 합니다" });
       }
 
       const updatedNs: NotificationSettingsRecord = { ...currentNs, agentAlert: updatedAlert };
@@ -973,26 +971,39 @@ export function registerKiwoomAgentRoutes(app: Express): void {
       const ns = parseNotificationSettings(settings?.notificationSettings);
       const alertCfg = ns.agentAlert;
 
-      if (!alertCfg?.email && !alertCfg?.webhookUrl) {
-        return res.status(400).json({ error: "알림 채널(이메일 또는 웹훅)이 설정되어 있지 않습니다" });
+      const hasKakao = !!(alertCfg?.kakaoEnabled && alertCfg?.kakaoApiKey && alertCfg?.kakaoUserId && alertCfg?.kakaoSenderKey && alertCfg?.kakaoPhoneTo && alertCfg?.kakaoDisconnectTemplateCode);
+      if (!alertCfg?.email && !alertCfg?.webhookUrl && !hasKakao) {
+        return res.status(400).json({ error: "알림 채널(이메일, 웹훅, 또는 카카오 알림톡)이 설정되어 있지 않습니다" });
       }
 
+      const kakaoConfig: KakaoAlimtalkConfig | undefined = hasKakao ? {
+        apiKey: alertCfg!.kakaoApiKey!,
+        userId: alertCfg!.kakaoUserId!,
+        senderKey: alertCfg!.kakaoSenderKey!,
+        phoneFrom: alertCfg!.kakaoPhoneFrom || alertCfg!.kakaoPhoneTo!,
+        phoneTo: alertCfg!.kakaoPhoneTo!,
+        disconnectTemplateCode: alertCfg!.kakaoDisconnectTemplateCode!,
+        recoveryTemplateCode: alertCfg!.kakaoRecoveryTemplateCode || alertCfg!.kakaoDisconnectTemplateCode!,
+      } : undefined;
+
       const result = await sendTestAlert(
-        alertCfg.email || undefined,
-        alertCfg.webhookUrl || undefined,
-        alertCfg.emailProvider,
+        alertCfg?.email || undefined,
+        alertCfg?.webhookUrl || undefined,
+        alertCfg?.emailProvider,
+        kakaoConfig,
       );
       const messages: string[] = [];
-      if (result.email?.ok) messages.push(`이메일 → ${alertCfg.email}`);
+      if (result.email?.ok) messages.push(`이메일 → ${alertCfg?.email}`);
       if (result.webhook?.ok) messages.push("웹훅 발송 완료");
+      if (result.kakao?.ok) messages.push("카카오 알림톡 발송 완료");
 
       const succeeded = messages.length > 0;
-      const errorMsg = [result.email?.error, result.webhook?.error].filter(Boolean).join(", ");
+      const errorMsg = [result.email?.error, result.webhook?.error, result.kakao?.error].filter(Boolean).join(", ");
 
       // 이력 저장
       storage.createAgentAlertLog({
         userId,
-        toEmail: alertCfg.email || null,
+        toEmail: alertCfg!.email || null,
         alertType: "test",
         success: succeeded,
         errorMessage: succeeded ? null : (errorMsg || "발송 실패"),

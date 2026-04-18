@@ -1,4 +1,4 @@
-// SettingsAgentAlerts.tsx — 에이전트 연결 끊김 시 이메일/웹훅 알림 설정 카드
+// SettingsAgentAlerts.tsx — 에이전트 연결 끊김 시 이메일/웹훅/카카오 알림톡 설정 카드
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { Bell, BellOff, Mail, Globe, SendHorizonal, AlertTriangle, CheckCircle2, Info, XCircle, Clock, ChevronDown } from "lucide-react";
+import { Bell, BellOff, Mail, Globe, SendHorizonal, AlertTriangle, CheckCircle2, Info, XCircle, Clock, MessageCircle, ChevronDown, ChevronUp } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import {
   DropdownMenu,
@@ -27,6 +27,14 @@ interface AgentAlertConfig {
   webhookUrl?: string;
   disconnectThresholdMinutes: number;
   emailProvider?: EmailProvider;
+  kakaoEnabled?: boolean;
+  kakaoApiKey?: string;
+  kakaoUserId?: string;
+  kakaoSenderKey?: string;
+  kakaoPhoneFrom?: string;
+  kakaoPhoneTo?: string;
+  kakaoDisconnectTemplateCode?: string;
+  kakaoRecoveryTemplateCode?: string;
 }
 
 interface EmailProviderStatuses {
@@ -47,6 +55,14 @@ interface PatchAlertBody {
   webhookUrl?: string;
   disconnectThresholdMinutes?: number;
   emailProvider?: EmailProvider;
+  kakaoEnabled?: boolean;
+  kakaoApiKey?: string;
+  kakaoUserId?: string;
+  kakaoSenderKey?: string;
+  kakaoPhoneFrom?: string;
+  kakaoPhoneTo?: string;
+  kakaoDisconnectTemplateCode?: string;
+  kakaoRecoveryTemplateCode?: string;
 }
 
 interface TestAlertResponse {
@@ -105,12 +121,32 @@ export function SettingsAgentAlerts() {
   const [emailProvider, setEmailProvider] = useState<EmailProvider>("auto");
   const [dirty, setDirty] = useState(false);
 
+  const [kakaoEnabled, setKakaoEnabled] = useState(false);
+  const [kakaoExpanded, setKakaoExpanded] = useState(false);
+  const [kakaoApiKey, setKakaoApiKey] = useState("");
+  const [kakaoUserId, setKakaoUserId] = useState("");
+  const [kakaoSenderKey, setKakaoSenderKey] = useState("");
+  const [kakaoPhoneFrom, setKakaoPhoneFrom] = useState("");
+  const [kakaoPhoneTo, setKakaoPhoneTo] = useState("");
+  const [kakaoDisconnectTemplateCode, setKakaoDisconnectTemplateCode] = useState("");
+  const [kakaoRecoveryTemplateCode, setKakaoRecoveryTemplateCode] = useState("");
+
   useEffect(() => {
     if (data?.agentAlert) {
-      setEmail(data.agentAlert.email || "");
-      setWebhookUrl(data.agentAlert.webhookUrl || "");
-      setThreshold(data.agentAlert.disconnectThresholdMinutes || 3);
-      setEmailProvider(data.agentAlert.emailProvider || "auto");
+      const a = data.agentAlert;
+      setEmail(a.email || "");
+      setWebhookUrl(a.webhookUrl || "");
+      setThreshold(a.disconnectThresholdMinutes || 3);
+      setEmailProvider(a.emailProvider || "auto");
+      setKakaoEnabled(a.kakaoEnabled ?? false);
+      setKakaoApiKey(a.kakaoApiKey || "");
+      setKakaoUserId(a.kakaoUserId || "");
+      setKakaoSenderKey(a.kakaoSenderKey || "");
+      setKakaoPhoneFrom(a.kakaoPhoneFrom || "");
+      setKakaoPhoneTo(a.kakaoPhoneTo || "");
+      setKakaoDisconnectTemplateCode(a.kakaoDisconnectTemplateCode || "");
+      setKakaoRecoveryTemplateCode(a.kakaoRecoveryTemplateCode || "");
+      if (a.kakaoEnabled) setKakaoExpanded(true);
     }
   }, [data]);
 
@@ -143,9 +179,22 @@ export function SettingsAgentAlerts() {
     patchMutation.mutate({ enabled });
   };
 
+  const handleKakaoToggle = (val: boolean) => {
+    setKakaoEnabled(val);
+    setDirty(true);
+    if (val) setKakaoExpanded(true);
+  };
+
   const handleSave = () => {
-    if (!email.trim() && !webhookUrl.trim()) {
-      toast({ variant: "destructive", title: "입력 오류", description: "이메일 또는 웹훅 URL 중 하나를 입력하세요" });
+    const hasEmail = !!email.trim();
+    const hasWebhook = !!webhookUrl.trim();
+    const hasKakao = !!(kakaoEnabled && kakaoApiKey.trim() && kakaoUserId.trim() && kakaoSenderKey.trim() && kakaoPhoneTo.trim() && kakaoDisconnectTemplateCode.trim());
+    if (!hasEmail && !hasWebhook && !hasKakao) {
+      toast({
+        variant: "destructive",
+        title: "입력 오류",
+        description: "이메일, 웹훅 URL, 또는 카카오 알림톡 설정 중 하나를 입력하세요",
+      });
       return;
     }
     patchMutation.mutate({
@@ -153,13 +202,26 @@ export function SettingsAgentAlerts() {
       webhookUrl: webhookUrl.trim(),
       disconnectThresholdMinutes: threshold,
       emailProvider,
+      kakaoEnabled,
+      kakaoApiKey: kakaoApiKey.trim(),
+      kakaoUserId: kakaoUserId.trim(),
+      kakaoSenderKey: kakaoSenderKey.trim(),
+      kakaoPhoneFrom: kakaoPhoneFrom.trim(),
+      kakaoPhoneTo: kakaoPhoneTo.trim(),
+      kakaoDisconnectTemplateCode: kakaoDisconnectTemplateCode.trim(),
+      kakaoRecoveryTemplateCode: kakaoRecoveryTemplateCode.trim(),
     });
   };
 
   const enabled = data?.agentAlert?.enabled ?? false;
+  const smtpConfigured = data?.smtpConfigured ?? false;
   const providerStatuses = data?.emailProviders;
   const hasAnyEmailProvider = !!(providerStatuses?.smtp || providerStatuses?.sendgrid || providerStatuses?.resend);
-  const hasChannel = !!(email.trim() || webhookUrl.trim() || data?.agentAlert?.email || data?.agentAlert?.webhookUrl);
+  const hasChannel = !!(
+    email.trim() || webhookUrl.trim() ||
+    data?.agentAlert?.email || data?.agentAlert?.webhookUrl ||
+    (data?.agentAlert?.kakaoEnabled && data?.agentAlert?.kakaoPhoneTo)
+  );
   const logs = logsData?.logs ?? [];
 
   // build list of available (configured) providers for display
@@ -173,6 +235,11 @@ export function SettingsAgentAlerts() {
     { key: "auto", label: "자동 선택" },
     ...configuredProviders,
   ];
+
+  const markDirty = (setter: (v: string) => void) => (e: React.ChangeEvent<HTMLInputElement>) => {
+    setter(e.target.value);
+    setDirty(true);
+  };
 
   return (
     <Card>
@@ -265,7 +332,7 @@ export function SettingsAgentAlerts() {
               type="email"
               placeholder="example@gmail.com"
               value={email}
-              onChange={(e) => { setEmail(e.target.value); setDirty(true); }}
+              onChange={markDirty(setEmail)}
             />
           </div>
 
@@ -342,11 +409,158 @@ export function SettingsAgentAlerts() {
               type="url"
               placeholder="https://hooks.slack.com/services/..."
               value={webhookUrl}
-              onChange={(e) => { setWebhookUrl(e.target.value); setDirty(true); }}
+              onChange={markDirty(setWebhookUrl)}
             />
             <p className="text-xs text-muted-foreground">
               Slack Incoming Webhook, Discord Webhook, 카카오웍스 등 POST를 지원하는 URL
             </p>
+          </div>
+
+          <Separator />
+
+          {/* ─── 카카오 알림톡 섹션 ────────────────────────────────────── */}
+          <div className="rounded-md border">
+            <button
+              type="button"
+              data-testid="button-kakao-section-toggle"
+              className="w-full flex items-center justify-between px-3 py-2.5 text-left"
+              onClick={() => setKakaoExpanded((v) => !v)}
+            >
+              <div className="flex items-center gap-2">
+                <MessageCircle className="h-4 w-4 text-[#FEE500] fill-[#FEE500]" />
+                <span className="text-sm font-medium">카카오 알림톡</span>
+                <Badge variant="secondary" className="text-xs font-normal">Aligo 비즈메시지</Badge>
+                {kakaoEnabled && (
+                  <Badge variant="default" className="text-xs font-normal">활성화됨</Badge>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <Switch
+                  data-testid="switch-kakao-enabled"
+                  checked={kakaoEnabled}
+                  onCheckedChange={handleKakaoToggle}
+                  onClick={(e) => e.stopPropagation()}
+                />
+                {kakaoExpanded ? (
+                  <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                ) : (
+                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                )}
+              </div>
+            </button>
+
+            {kakaoExpanded && (
+              <div className="px-3 pb-3 space-y-3 border-t pt-3">
+                <div className="flex items-start gap-2 text-xs text-muted-foreground bg-muted/50 rounded-md px-3 py-2.5">
+                  <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <p>Aligo 비즈메시지 계정과 카카오 알림톡 채널이 필요합니다.</p>
+                    <p>연결 끊김/복구 각각 승인된 알림톡 템플릿 코드를 입력하세요.</p>
+                    <p>템플릿 변수: <code className="bg-muted px-1 rounded">에이전트 연결 끊김</code>, <code className="bg-muted px-1 rounded">마지막 연결</code>, <code className="bg-muted px-1 rounded">감지 시각</code> 등 포함 권장</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="kakao-api-key" className="text-xs font-medium">
+                      Aligo API Key
+                    </Label>
+                    <Input
+                      id="kakao-api-key"
+                      data-testid="input-kakao-api-key"
+                      type="password"
+                      placeholder="Aligo API 키"
+                      value={kakaoApiKey}
+                      onChange={markDirty(setKakaoApiKey)}
+                      autoComplete="off"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="kakao-user-id" className="text-xs font-medium">
+                      Aligo 사용자 ID
+                    </Label>
+                    <Input
+                      id="kakao-user-id"
+                      data-testid="input-kakao-user-id"
+                      placeholder="Aligo 로그인 ID"
+                      value={kakaoUserId}
+                      onChange={markDirty(setKakaoUserId)}
+                      autoComplete="off"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="kakao-sender-key" className="text-xs font-medium">
+                    카카오 채널 발신 프로필 키 (Sender Key)
+                  </Label>
+                  <Input
+                    id="kakao-sender-key"
+                    data-testid="input-kakao-sender-key"
+                    placeholder="40자리 발신 프로필 키"
+                    value={kakaoSenderKey}
+                    onChange={markDirty(setKakaoSenderKey)}
+                    autoComplete="off"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="kakao-phone-from" className="text-xs font-medium">
+                      발신자 번호 <span className="text-muted-foreground font-normal">(Aligo 등록 번호)</span>
+                    </Label>
+                    <Input
+                      id="kakao-phone-from"
+                      data-testid="input-kakao-phone-from"
+                      type="tel"
+                      placeholder="01012345678"
+                      value={kakaoPhoneFrom}
+                      onChange={markDirty(setKakaoPhoneFrom)}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="kakao-phone-to" className="text-xs font-medium">
+                      수신자 번호 <span className="text-muted-foreground font-normal">(알림 받을 번호)</span>
+                    </Label>
+                    <Input
+                      id="kakao-phone-to"
+                      data-testid="input-kakao-phone-to"
+                      type="tel"
+                      placeholder="01012345678"
+                      value={kakaoPhoneTo}
+                      onChange={markDirty(setKakaoPhoneTo)}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="kakao-disconnect-tpl" className="text-xs font-medium">
+                      연결 끊김 템플릿 코드
+                    </Label>
+                    <Input
+                      id="kakao-disconnect-tpl"
+                      data-testid="input-kakao-disconnect-template"
+                      placeholder="TB_DISCONNECT"
+                      value={kakaoDisconnectTemplateCode}
+                      onChange={markDirty(setKakaoDisconnectTemplateCode)}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="kakao-recovery-tpl" className="text-xs font-medium">
+                      복구 템플릿 코드 <span className="text-muted-foreground font-normal">(없으면 연결 끊김 코드 사용)</span>
+                    </Label>
+                    <Input
+                      id="kakao-recovery-tpl"
+                      data-testid="input-kakao-recovery-template"
+                      placeholder="TB_RECOVERY"
+                      value={kakaoRecoveryTemplateCode}
+                      onChange={markDirty(setKakaoRecoveryTemplateCode)}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           <Separator />
@@ -457,6 +671,7 @@ export function SettingsAgentAlerts() {
               <Badge variant="secondary" className="text-xs font-normal">SendGrid</Badge>
               <Badge variant="secondary" className="text-xs font-normal">Resend</Badge>
               <Badge variant="secondary" className="text-xs font-normal">웹훅</Badge>
+              <Badge variant="secondary" className="text-xs font-normal">카카오 알림톡</Badge>
             </div>
           </div>
         </div>

@@ -4,7 +4,7 @@
 import { db } from "../db";
 import * as schema from "@shared/schema";
 import { getAgentLastSeenSecondsAgo } from "../routes/kiwoom-agent.routes";
-import { sendAgentDisconnectAlert, sendAgentRecoveryAlert, type EmailProvider } from "../services/agent-alert.service";
+import { sendAgentDisconnectAlert, sendAgentRecoveryAlert, type EmailProvider, type KakaoAlimtalkConfig } from "../services/agent-alert.service";
 import { storage } from "../storage";
 
 export interface AgentAlertSettings {
@@ -13,6 +13,14 @@ export interface AgentAlertSettings {
   webhookUrl?: string;
   disconnectThresholdMinutes: number;
   emailProvider?: EmailProvider;
+  kakaoEnabled?: boolean;
+  kakaoApiKey?: string;
+  kakaoUserId?: string;
+  kakaoSenderKey?: string;
+  kakaoPhoneFrom?: string;
+  kakaoPhoneTo?: string;
+  kakaoDisconnectTemplateCode?: string;
+  kakaoRecoveryTemplateCode?: string;
 }
 
 interface NotificationSettingsShape {
@@ -32,13 +40,22 @@ function parseAgentAlertSettings(raw: unknown): AgentAlertSettings | null {
   const ns = raw as NotificationSettingsShape;
   const a = ns.agentAlert;
   if (!a || !a.enabled) return null;
-  if (!a.email && !a.webhookUrl) return null;
+  const hasKakao = !!(a.kakaoEnabled && a.kakaoApiKey && a.kakaoUserId && a.kakaoSenderKey && a.kakaoPhoneTo && a.kakaoDisconnectTemplateCode);
+  if (!a.email && !a.webhookUrl && !hasKakao) return null;
   return {
     enabled: true,
     email: a.email || "",
     webhookUrl: a.webhookUrl,
     disconnectThresholdMinutes: Math.max(1, Number(a.disconnectThresholdMinutes) || 3),
     emailProvider: (a.emailProvider as EmailProvider) || "auto",
+    kakaoEnabled: a.kakaoEnabled,
+    kakaoApiKey: a.kakaoApiKey,
+    kakaoUserId: a.kakaoUserId,
+    kakaoSenderKey: a.kakaoSenderKey,
+    kakaoPhoneFrom: a.kakaoPhoneFrom,
+    kakaoPhoneTo: a.kakaoPhoneTo,
+    kakaoDisconnectTemplateCode: a.kakaoDisconnectTemplateCode,
+    kakaoRecoveryTemplateCode: a.kakaoRecoveryTemplateCode,
   };
 }
 
@@ -65,15 +82,39 @@ async function getUsersWithAlertSettings(): Promise<Array<{ userId: string; sett
 function sendSucceeded(result: {
   email?: { ok: boolean } | null;
   webhook?: { ok: boolean } | null;
+  kakao?: { ok: boolean } | null;
 }): boolean {
-  return (result.email?.ok === true) || (result.webhook?.ok === true);
+  return (result.email?.ok === true) || (result.webhook?.ok === true) || (result.kakao?.ok === true);
+}
+
+function buildKakaoConfig(settings: AgentAlertSettings): KakaoAlimtalkConfig | undefined {
+  if (
+    settings.kakaoEnabled &&
+    settings.kakaoApiKey &&
+    settings.kakaoUserId &&
+    settings.kakaoSenderKey &&
+    settings.kakaoPhoneTo &&
+    settings.kakaoDisconnectTemplateCode
+  ) {
+    return {
+      apiKey: settings.kakaoApiKey,
+      userId: settings.kakaoUserId,
+      senderKey: settings.kakaoSenderKey,
+      phoneFrom: settings.kakaoPhoneFrom || settings.kakaoPhoneTo,
+      phoneTo: settings.kakaoPhoneTo,
+      disconnectTemplateCode: settings.kakaoDisconnectTemplateCode,
+      recoveryTemplateCode: settings.kakaoRecoveryTemplateCode || settings.kakaoDisconnectTemplateCode,
+    };
+  }
+  return undefined;
 }
 
 function getFirstError(result: {
   email?: { ok: boolean; error?: string } | null;
   webhook?: { ok: boolean; error?: string } | null;
+  kakao?: { ok: boolean; error?: string } | null;
 }): string | null {
-  return result.email?.error || result.webhook?.error || null;
+  return result.email?.error || result.webhook?.error || result.kakao?.error || null;
 }
 
 async function saveAlertLog(params: {
@@ -116,6 +157,7 @@ async function runCheck() {
       const result = await sendAgentDisconnectAlert({
         toEmail: settings.email || undefined,
         webhookUrl: settings.webhookUrl,
+        kakao: buildKakaoConfig(settings),
         thresholdMinutes: settings.disconnectThresholdMinutes,
         lastSeenSecondsAgo: lastSeenSec,
         emailProvider: settings.emailProvider,
@@ -138,6 +180,7 @@ async function runCheck() {
       const result = await sendAgentRecoveryAlert({
         toEmail: settings.email || undefined,
         webhookUrl: settings.webhookUrl,
+        kakao: buildKakaoConfig(settings),
         disconnectedDurationMinutes: disconnectedMinutes,
         emailProvider: settings.emailProvider,
       });

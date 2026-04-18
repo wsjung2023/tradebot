@@ -1,5 +1,5 @@
 // agent-alert.service.ts — 에이전트 연결 끊김/복구 시 외부 알림 발송
-// 지원 채널: 이메일(SMTP / SendGrid / Resend), 웹훅(Slack/Discord/일반 HTTPS POST)
+// 지원 채널: 이메일(SMTP / SendGrid / Resend), 웹훅(Slack/Discord/일반 HTTPS POST), 카카오 알림톡(Aligo)
 import nodemailer from "nodemailer";
 import { promises as dns } from "dns";
 
@@ -379,15 +379,91 @@ async function sendWebhook(options: {
   }
 }
 
+// ─── 카카오 알림톡 (Aligo 비즈메시지 API) ────────────────────────────────────
+
+export interface KakaoAlimtalkConfig {
+  apiKey: string;       // Aligo API Key
+  userId: string;       // Aligo 사용자 ID
+  senderKey: string;    // 카카오 채널 발신 프로필 키
+  phoneFrom: string;    // 발신자 번호 (Aligo 등록 번호)
+  phoneTo: string;      // 수신자 번호
+  disconnectTemplateCode: string;  // 연결 끊김 템플릿 코드
+  recoveryTemplateCode: string;    // 복구 템플릿 코드
+}
+
+const ALIGO_ALIMTALK_URL = "https://kakaoapi.aligo.in/akv10/alimtalk/send/";
+
+async function sendKakaoAlimtalk(options: {
+  config: KakaoAlimtalkConfig;
+  templateCode: string;
+  message: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  const { config, templateCode, message } = options;
+
+  if (!config.apiKey || !config.userId || !config.senderKey || !config.phoneTo || !templateCode) {
+    const errMsg = "카카오 알림톡 설정 불완전 (apiKey, userId, senderKey, phoneTo, templateCode 필수)";
+    console.warn("[AgentAlert]", errMsg);
+    return { ok: false, error: errMsg };
+  }
+
+  const body = new URLSearchParams({
+    apikey: config.apiKey,
+    userid: config.userId,
+    senderkey: config.senderKey,
+    tpl_code: templateCode,
+    sender: config.phoneFrom || config.phoneTo,
+    receiver_1: config.phoneTo,
+    subject_1: "[트레이드봇]",
+    message_1: message,
+    failover: "N",
+  });
+
+  try {
+    const res = await fetch(ALIGO_ALIMTALK_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+      signal: AbortSignal.timeout(15_000),
+    });
+
+    const data = await res.json() as { code?: number; message?: string; info?: unknown };
+
+    // Aligo 응답: code 0 = 성공, 나머지 = 오류
+    if (data.code === 0) {
+      return { ok: true };
+    }
+
+    const errMsg = `카카오 알림톡 발송 실패 (code: ${data.code}): ${data.message || "알 수 없는 오류"}`;
+    console.error("[AgentAlert]", errMsg);
+    return { ok: false, error: errMsg };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[AgentAlert] 카카오 알림톡 발송 실패:", msg);
+    return { ok: false, error: msg };
+  }
+}
+
 // ─── 공개 API ─────────────────────────────────────────────────────────────────
+
+export interface AlertChannelResult {
+  ok: boolean;
+  error?: string;
+}
+
+export interface SendAlertResult {
+  email: AlertChannelResult | null;
+  webhook: AlertChannelResult | null;
+  kakao: AlertChannelResult | null;
+}
 
 export async function sendAgentDisconnectAlert(options: {
   toEmail?: string;
   webhookUrl?: string;
+  kakao?: KakaoAlimtalkConfig;
   thresholdMinutes: number;
   lastSeenSecondsAgo: number | null;
   emailProvider?: EmailProvider;
-}): Promise<{ email: { ok: boolean; error?: string } | null; webhook: { ok: boolean; error?: string } | null }> {
+}): Promise<SendAlertResult> {
   const lastSeenText =
     options.lastSeenSecondsAgo === null
       ? "연결된 적 없음"
@@ -426,15 +502,27 @@ export async function sendAgentDisconnectAlert(options: {
 
   if (webhookResult?.ok) console.log("[AgentAlert] 연결 끊김 웹훅 발송 완료");
 
-  return { email: emailResult, webhook: webhookResult };
+  const kakaoMsg = `에이전트 연결 끊김\n마지막 연결: ${lastSeenText}\n임계값: ${options.thresholdMinutes}분\n감지 시각: ${now}`;
+  const kakaoResult = options.kakao
+    ? await sendKakaoAlimtalk({
+        config: options.kakao,
+        templateCode: options.kakao.disconnectTemplateCode,
+        message: kakaoMsg,
+      })
+    : null;
+
+  if (kakaoResult?.ok) console.log("[AgentAlert] 연결 끊김 카카오 알림톡 발송 완료");
+
+  return { email: emailResult, webhook: webhookResult, kakao: kakaoResult };
 }
 
 export async function sendAgentRecoveryAlert(options: {
   toEmail?: string;
   webhookUrl?: string;
+  kakao?: KakaoAlimtalkConfig;
   disconnectedDurationMinutes: number;
   emailProvider?: EmailProvider;
-}): Promise<{ email: { ok: boolean; error?: string } | null; webhook: { ok: boolean; error?: string } | null }> {
+}): Promise<SendAlertResult> {
   const now = new Date().toLocaleString("ko-KR", { timeZone: "Asia/Seoul" });
   const shortMsg = `[트레이드봇] 에이전트 복구됨 — 단절 ${options.disconnectedDurationMinutes}분 후 재연결 | ${now}`;
 
@@ -465,14 +553,26 @@ export async function sendAgentRecoveryAlert(options: {
 
   if (webhookResult?.ok) console.log("[AgentAlert] 복구 웹훅 발송 완료");
 
-  return { email: emailResult, webhook: webhookResult };
+  const kakaoMsg = `에이전트 복구됨\n단절 지속: 약 ${options.disconnectedDurationMinutes}분\n복구 시각: ${now}`;
+  const kakaoResult = options.kakao
+    ? await sendKakaoAlimtalk({
+        config: options.kakao,
+        templateCode: options.kakao.recoveryTemplateCode,
+        message: kakaoMsg,
+      })
+    : null;
+
+  if (kakaoResult?.ok) console.log("[AgentAlert] 복구 카카오 알림톡 발송 완료");
+
+  return { email: emailResult, webhook: webhookResult, kakao: kakaoResult };
 }
 
 export async function sendTestAlert(
   toEmail?: string,
   webhookUrl?: string,
   emailProvider?: EmailProvider,
-): Promise<{ email: { ok: boolean; error?: string } | null; webhook: { ok: boolean; error?: string } | null }> {
+  kakao?: KakaoAlimtalkConfig,
+): Promise<SendAlertResult> {
   const now = new Date().toLocaleString("ko-KR", { timeZone: "Asia/Seoul" });
   const shortMsg = `[트레이드봇] 테스트 알림 — 에이전트 연결 끊김 알림이 정상 설정되었습니다. 발송 시각: ${now}`;
 
@@ -492,5 +592,14 @@ export async function sendTestAlert(
     ? await sendWebhook({ url: webhookUrl, text: shortMsg })
     : null;
 
-  return { email: emailResult, webhook: webhookResult };
+  const kakaoMsg = `테스트 알림\n알림 설정이 정상적으로 완료되었습니다.\n발송 시각: ${now}`;
+  const kakaoResult = kakao
+    ? await sendKakaoAlimtalk({
+        config: kakao,
+        templateCode: kakao.disconnectTemplateCode,
+        message: kakaoMsg,
+      })
+    : null;
+
+  return { email: emailResult, webhook: webhookResult, kakao: kakaoResult };
 }
