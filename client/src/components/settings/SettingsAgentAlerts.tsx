@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { Bell, BellOff, Mail, Globe, SendHorizonal, AlertTriangle, CheckCircle2, Info, XCircle, Clock, MessageCircle, ChevronDown, ChevronUp } from "lucide-react";
+import { Bell, BellOff, Mail, Globe, SendHorizonal, AlertTriangle, CheckCircle2, Info, XCircle, Clock, ChevronDown, Key, Eye, EyeOff, Trash2, MessageCircle, ChevronUp } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import {
   DropdownMenu,
@@ -85,6 +85,13 @@ interface AlertLogsResponse {
   logs: AgentAlertLog[];
 }
 
+interface EmailApiKeysResponse {
+  sendgridApiKey: string | null;
+  resendApiKey: string | null;
+  hasSendgridKey: boolean;
+  hasResendKey: boolean;
+}
+
 function alertTypeLabel(type: string): string {
   if (type === "disconnect") return "연결 끊김";
   if (type === "recovery") return "복구";
@@ -104,6 +111,132 @@ const PROVIDER_LABELS: Record<EmailProvider, string> = {
   resend: "Resend",
 };
 
+function ApiKeyField({
+  label,
+  providerKey,
+  maskedValue,
+  hasSavedKey,
+  onSave,
+  onDelete,
+  isSaving,
+  isDeleting,
+}: {
+  label: string;
+  providerKey: "sendgrid" | "resend";
+  maskedValue: string | null;
+  hasSavedKey: boolean;
+  onSave: (key: string) => void;
+  onDelete: () => void;
+  isSaving: boolean;
+  isDeleting: boolean;
+}) {
+  const [inputValue, setInputValue] = useState("");
+  const [showInput, setShowInput] = useState(false);
+  const [showKey, setShowKey] = useState(false);
+
+  const handleSave = () => {
+    if (inputValue.trim()) {
+      onSave(inputValue.trim());
+      setInputValue("");
+      setShowInput(false);
+    }
+  };
+
+  if (hasSavedKey && !showInput) {
+    return (
+      <div className="space-y-1.5">
+        <Label className="text-sm font-medium flex items-center gap-1.5">
+          <Key className="h-3.5 w-3.5 text-muted-foreground" />
+          {label} API 키
+        </Label>
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 bg-muted/50 rounded-md px-3 py-1.5 text-sm font-mono text-muted-foreground min-w-0">
+            <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-green-600 dark:text-green-400" />
+            <span data-testid={`text-${providerKey}-key-masked`} className="truncate">
+              {showKey ? maskedValue : "••••••••••••••••••••"}
+            </span>
+          </div>
+          <Button
+            size="icon"
+            variant="ghost"
+            data-testid={`button-toggle-${providerKey}-key-visibility`}
+            onClick={() => setShowKey(!showKey)}
+            title={showKey ? "숨기기" : "마스킹된 키 보기"}
+          >
+            {showKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            data-testid={`button-change-${providerKey}-key`}
+            onClick={() => setShowInput(true)}
+          >
+            변경
+          </Button>
+          <Button
+            size="icon"
+            variant="ghost"
+            data-testid={`button-delete-${providerKey}-key`}
+            onClick={onDelete}
+            disabled={isDeleting}
+            title="키 삭제"
+          >
+            <Trash2 className="h-3.5 w-3.5 text-destructive" />
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          저장된 키가 환경 변수보다 우선 적용됩니다
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor={`input-${providerKey}-key`} className="text-sm font-medium flex items-center gap-1.5">
+        <Key className="h-3.5 w-3.5 text-muted-foreground" />
+        {label} API 키
+      </Label>
+      <div className="flex items-center gap-2 flex-wrap">
+        <Input
+          id={`input-${providerKey}-key`}
+          data-testid={`input-${providerKey}-api-key`}
+          type="password"
+          placeholder={providerKey === "sendgrid" ? "SG.xxxxxxxx..." : "re_xxxxxxxx..."}
+          value={inputValue}
+          onChange={(e) => setInputValue(e.target.value)}
+          className="max-w-xs"
+          autoComplete="off"
+        />
+        <Button
+          size="sm"
+          variant="default"
+          data-testid={`button-save-${providerKey}-key`}
+          disabled={!inputValue.trim() || isSaving}
+          onClick={handleSave}
+        >
+          저장
+        </Button>
+        {hasSavedKey && (
+          <Button
+            size="sm"
+            variant="ghost"
+            data-testid={`button-cancel-${providerKey}-key`}
+            onClick={() => { setShowInput(false); setInputValue(""); }}
+          >
+            취소
+          </Button>
+        )}
+      </div>
+      <p className="text-xs text-muted-foreground">
+        {providerKey === "sendgrid"
+          ? "SendGrid 대시보드 → Settings → API Keys에서 생성"
+          : "Resend 대시보드 → API Keys에서 생성"}
+      </p>
+    </div>
+  );
+}
+
 export function SettingsAgentAlerts() {
   const { toast } = useToast();
 
@@ -113,6 +246,10 @@ export function SettingsAgentAlerts() {
 
   const { data: logsData, isLoading: logsLoading } = useQuery<AlertLogsResponse>({
     queryKey: ["/api/kiwoom-agent/alert-logs"],
+  });
+
+  const { data: apiKeysData, isLoading: apiKeysLoading } = useQuery<EmailApiKeysResponse>({
+    queryKey: ["/api/kiwoom-agent/email-api-keys"],
   });
 
   const [email, setEmail] = useState("");
@@ -160,6 +297,30 @@ export function SettingsAgentAlerts() {
     },
     onError: (e: Error) =>
       toast({ variant: "destructive", title: "저장 실패", description: e.message }),
+  });
+
+  const saveApiKeyMutation = useMutation({
+    mutationFn: async (body: { sendgridApiKey?: string | null; resendApiKey?: string | null }) =>
+      (await apiRequest("PATCH", "/api/kiwoom-agent/email-api-keys", body)).json() as Promise<EmailApiKeysResponse>,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/kiwoom-agent/email-api-keys"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/kiwoom-agent/alert-settings"] });
+      toast({ title: "API 키 저장됨", description: "이메일 API 키가 암호화되어 저장되었습니다" });
+    },
+    onError: (e: Error) =>
+      toast({ variant: "destructive", title: "저장 실패", description: e.message }),
+  });
+
+  const deleteApiKeyMutation = useMutation({
+    mutationFn: async (body: { sendgridApiKey?: null; resendApiKey?: null }) =>
+      (await apiRequest("PATCH", "/api/kiwoom-agent/email-api-keys", body)).json() as Promise<EmailApiKeysResponse>,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/kiwoom-agent/email-api-keys"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/kiwoom-agent/alert-settings"] });
+      toast({ title: "API 키 삭제됨", description: "이메일 API 키가 삭제되었습니다" });
+    },
+    onError: (e: Error) =>
+      toast({ variant: "destructive", title: "삭제 실패", description: e.message }),
   });
 
   const testMutation = useMutation({
@@ -240,6 +401,8 @@ export function SettingsAgentAlerts() {
     setter(e.target.value);
     setDirty(true);
   };
+  const hasSendgridKey = apiKeysData?.hasSendgridKey ?? false;
+  const hasResendKey = apiKeysData?.hasResendKey ?? false;
 
   return (
     <Card>
@@ -282,23 +445,8 @@ export function SettingsAgentAlerts() {
               <div>
                 <p className="font-medium text-foreground">이메일 공급자 미설정</p>
                 <p className="text-muted-foreground text-xs mt-0.5">
-                  아래 중 하나를 설정하면 이메일 알림을 받을 수 있습니다:
+                  아래 API 키를 직접 입력하거나, 서버 환경 변수를 설정하면 이메일 알림을 받을 수 있습니다.
                 </p>
-                <ul className="text-muted-foreground text-xs mt-1 space-y-0.5 list-disc list-inside">
-                  <li>
-                    <strong>SendGrid</strong>: <code className="bg-muted px-1 py-0.5 rounded text-xs">SENDGRID_API_KEY</code>
-                    {" "}+ 선택: <code className="bg-muted px-1 py-0.5 rounded text-xs">SENDGRID_FROM</code>
-                  </li>
-                  <li>
-                    <strong>Resend</strong>: <code className="bg-muted px-1 py-0.5 rounded text-xs">RESEND_API_KEY</code>
-                    {" "}+ 선택: <code className="bg-muted px-1 py-0.5 rounded text-xs">RESEND_FROM</code>
-                  </li>
-                  <li>
-                    <strong>SMTP</strong>: <code className="bg-muted px-1 py-0.5 rounded text-xs">SMTP_HOST</code>{", "}
-                    <code className="bg-muted px-1 py-0.5 rounded text-xs">SMTP_USER</code>{", "}
-                    <code className="bg-muted px-1 py-0.5 rounded text-xs">SMTP_PASS</code>
-                  </li>
-                </ul>
               </div>
             </div>
           )}
@@ -320,11 +468,49 @@ export function SettingsAgentAlerts() {
           )}
         </div>
 
+        {/* ─── 이메일 API 키 직접 입력 섹션 ─────────────────────────────────── */}
+        <div className="space-y-4">
+          <div className="flex items-center gap-2">
+            <Key className="h-4 w-4 text-muted-foreground" />
+            <p className="text-sm font-medium">이메일 API 키 설정</p>
+            <p className="text-xs text-muted-foreground">— 환경 변수 대신 직접 입력 (암호화 저장)</p>
+          </div>
+
+          {apiKeysLoading ? (
+            <div className="text-xs text-muted-foreground py-1">불러오는 중...</div>
+          ) : (
+            <div className="space-y-4 pl-1">
+              <ApiKeyField
+                label="SendGrid"
+                providerKey="sendgrid"
+                maskedValue={apiKeysData?.sendgridApiKey ?? null}
+                hasSavedKey={hasSendgridKey}
+                onSave={(key) => saveApiKeyMutation.mutate({ sendgridApiKey: key })}
+                onDelete={() => deleteApiKeyMutation.mutate({ sendgridApiKey: null })}
+                isSaving={saveApiKeyMutation.isPending}
+                isDeleting={deleteApiKeyMutation.isPending}
+              />
+              <ApiKeyField
+                label="Resend"
+                providerKey="resend"
+                maskedValue={apiKeysData?.resendApiKey ?? null}
+                hasSavedKey={hasResendKey}
+                onSave={(key) => saveApiKeyMutation.mutate({ resendApiKey: key })}
+                onDelete={() => deleteApiKeyMutation.mutate({ resendApiKey: null })}
+                isSaving={saveApiKeyMutation.isPending}
+                isDeleting={deleteApiKeyMutation.isPending}
+              />
+            </div>
+          )}
+        </div>
+
+        <Separator />
+
         <div className="space-y-4">
           <div className="space-y-1.5">
             <Label htmlFor="alert-email" className="text-sm font-medium flex items-center gap-1.5">
               <Mail className="h-3.5 w-3.5 text-muted-foreground" />
-              이메일 주소
+              알림 수신 이메일 주소
             </Label>
             <Input
               id="alert-email"
@@ -384,7 +570,7 @@ export function SettingsAgentAlerts() {
                 >
                   <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                   <span>
-                    {PROVIDER_LABELS[emailProvider]}이 설정되지 않았습니다. 자동 선택으로 변경하거나 해당 API 키를 설정하세요.
+                    {PROVIDER_LABELS[emailProvider]}이 설정되지 않았습니다. 자동 선택으로 변경하거나 해당 API 키를 입력하세요.
                   </span>
                 </div>
               ) : (
@@ -665,6 +851,7 @@ export function SettingsAgentAlerts() {
           <div className="space-y-1">
             <p>에이전트가 임계 시간 이상 응답 없으면 연결 끊김 알림을 발송합니다.</p>
             <p>에이전트가 다시 연결되면 복구 알림도 자동 발송됩니다.</p>
+            <p>UI에서 입력한 API 키는 AES-256-GCM으로 암호화되어 DB에 저장되며, 환경 변수보다 우선 적용됩니다.</p>
             <div className="flex items-center gap-1.5 flex-wrap mt-1">
               <Badge variant="secondary" className="text-xs font-normal">이메일</Badge>
               <Badge variant="secondary" className="text-xs font-normal">SMTP</Badge>

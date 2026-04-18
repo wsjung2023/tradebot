@@ -4,8 +4,9 @@
 import { db } from "../db";
 import * as schema from "@shared/schema";
 import { getAgentLastSeenSecondsAgo } from "../routes/kiwoom-agent.routes";
-import { sendAgentDisconnectAlert, sendAgentRecoveryAlert, type EmailProvider, type KakaoAlimtalkConfig } from "../services/agent-alert.service";
+import { sendAgentDisconnectAlert, sendAgentRecoveryAlert, type EmailProvider, type KakaoAlimtalkConfig, type EmailApiKeyOverrides } from "../services/agent-alert.service";
 import { storage } from "../storage";
+import { decrypt, isEncrypted } from "../utils/crypto";
 
 export interface AgentAlertSettings {
   enabled: boolean;
@@ -25,6 +26,28 @@ export interface AgentAlertSettings {
 
 interface NotificationSettingsShape {
   agentAlert?: AgentAlertSettings;
+  sendgridApiKey?: string; // encrypted
+  resendApiKey?: string;   // encrypted
+}
+
+function resolveApiKeyOverrides(ns: NotificationSettingsShape): EmailApiKeyOverrides {
+  let sendgridApiKey: string | null = null;
+  let resendApiKey: string | null = null;
+  try {
+    if (ns.sendgridApiKey && isEncrypted(ns.sendgridApiKey)) {
+      sendgridApiKey = decrypt(ns.sendgridApiKey);
+    }
+  } catch {
+    console.warn("[AgentWatcher] SendGrid 키 복호화 실패");
+  }
+  try {
+    if (ns.resendApiKey && isEncrypted(ns.resendApiKey)) {
+      resendApiKey = decrypt(ns.resendApiKey);
+    }
+  } catch {
+    console.warn("[AgentWatcher] Resend 키 복호화 실패");
+  }
+  return { sendgridApiKey, resendApiKey };
 }
 
 interface UserAlertState {
@@ -59,17 +82,19 @@ function parseAgentAlertSettings(raw: unknown): AgentAlertSettings | null {
   };
 }
 
-async function getUsersWithAlertSettings(): Promise<Array<{ userId: string; settings: AgentAlertSettings }>> {
+async function getUsersWithAlertSettings(): Promise<Array<{ userId: string; settings: AgentAlertSettings; apiKeyOverrides: EmailApiKeyOverrides }>> {
   try {
     const rows = await db
       .select({ userId: schema.userSettings.userId, notificationSettings: schema.userSettings.notificationSettings })
       .from(schema.userSettings);
 
-    const result: Array<{ userId: string; settings: AgentAlertSettings }> = [];
+    const result: Array<{ userId: string; settings: AgentAlertSettings; apiKeyOverrides: EmailApiKeyOverrides }> = [];
     for (const row of rows) {
       const settings = parseAgentAlertSettings(row.notificationSettings);
       if (settings) {
-        result.push({ userId: row.userId, settings });
+        const ns = (row.notificationSettings ?? {}) as NotificationSettingsShape;
+        const apiKeyOverrides = resolveApiKeyOverrides(ns);
+        result.push({ userId: row.userId, settings, apiKeyOverrides });
       }
     }
     return result;
@@ -142,7 +167,7 @@ async function runCheck() {
   const users = await getUsersWithAlertSettings();
   if (users.length === 0) return;
 
-  for (const { userId, settings } of users) {
+  for (const { userId, settings, apiKeyOverrides } of users) {
     const thresholdSec = settings.disconnectThresholdMinutes * 60;
     const isDisconnected = lastSeenSec === null || lastSeenSec > thresholdSec;
 
@@ -161,6 +186,7 @@ async function runCheck() {
         thresholdMinutes: settings.disconnectThresholdMinutes,
         lastSeenSecondsAgo: lastSeenSec,
         emailProvider: settings.emailProvider,
+        apiKeyOverrides,
       });
       const succeeded = sendSucceeded(result);
       await saveAlertLog({
@@ -183,6 +209,7 @@ async function runCheck() {
         kakao: buildKakaoConfig(settings),
         disconnectedDurationMinutes: disconnectedMinutes,
         emailProvider: settings.emailProvider,
+        apiKeyOverrides,
       });
       const succeeded = sendSucceeded(result);
       await saveAlertLog({

@@ -7,46 +7,54 @@ import { promises as dns } from "dns";
 
 export type EmailProvider = "smtp" | "sendgrid" | "resend" | "auto";
 
+/** DB에서 복호화되어 전달되는 API 키 오버라이드 */
+export interface EmailApiKeyOverrides {
+  sendgridApiKey?: string | null;
+  resendApiKey?: string | null;
+}
+
 // ─── 공급자 설정 감지 ─────────────────────────────────────────────────────────
 
 export function isSmtpConfigured(): boolean {
   return !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
 }
 
-export function isSendGridConfigured(): boolean {
-  return !!process.env.SENDGRID_API_KEY;
+export function isSendGridConfigured(overrideKey?: string | null): boolean {
+  return !!(overrideKey || process.env.SENDGRID_API_KEY);
 }
 
-export function isResendConfigured(): boolean {
-  return !!process.env.RESEND_API_KEY;
+export function isResendConfigured(overrideKey?: string | null): boolean {
+  return !!(overrideKey || process.env.RESEND_API_KEY);
 }
 
-export function getEmailProviderStatuses(): {
+export function getEmailProviderStatuses(overrides?: EmailApiKeyOverrides): {
   smtp: boolean;
   sendgrid: boolean;
   resend: boolean;
 } {
   return {
     smtp: isSmtpConfigured(),
-    sendgrid: isSendGridConfigured(),
-    resend: isResendConfigured(),
+    sendgrid: isSendGridConfigured(overrides?.sendgridApiKey),
+    resend: isResendConfigured(overrides?.resendApiKey),
   };
 }
 
 /** 설정된 공급자 중 우선순위에 따라 실제 사용할 공급자를 결정. */
-function resolveProvider(preferred: EmailProvider = "auto"): "smtp" | "sendgrid" | "resend" | null {
+function resolveProvider(
+  preferred: EmailProvider = "auto",
+  overrides?: EmailApiKeyOverrides,
+): "smtp" | "sendgrid" | "resend" | null {
   const order: Array<"sendgrid" | "resend" | "smtp"> = ["sendgrid", "resend", "smtp"];
   if (preferred !== "auto") {
-    // 명시된 공급자가 실제 설정돼 있으면 그대로 사용
     if (preferred === "smtp" && isSmtpConfigured()) return "smtp";
-    if (preferred === "sendgrid" && isSendGridConfigured()) return "sendgrid";
-    if (preferred === "resend" && isResendConfigured()) return "resend";
+    if (preferred === "sendgrid" && isSendGridConfigured(overrides?.sendgridApiKey)) return "sendgrid";
+    if (preferred === "resend" && isResendConfigured(overrides?.resendApiKey)) return "resend";
     // 설정이 없으면 fallback으로 auto 진행
   }
   for (const p of order) {
     if (p === "smtp" && isSmtpConfigured()) return "smtp";
-    if (p === "sendgrid" && isSendGridConfigured()) return "sendgrid";
-    if (p === "resend" && isResendConfigured()) return "resend";
+    if (p === "sendgrid" && isSendGridConfigured(overrides?.sendgridApiKey)) return "sendgrid";
+    if (p === "resend" && isResendConfigured(overrides?.resendApiKey)) return "resend";
   }
   return null;
 }
@@ -123,8 +131,8 @@ async function sendEmailViaSendGrid(options: {
   to: string;
   subject: string;
   html: string;
-}): Promise<{ ok: boolean; error?: string }> {
-  const apiKey = process.env.SENDGRID_API_KEY;
+}, apiKeyOverride?: string | null): Promise<{ ok: boolean; error?: string }> {
+  const apiKey = apiKeyOverride || process.env.SENDGRID_API_KEY;
   if (!apiKey) return { ok: false, error: "SENDGRID_API_KEY_NOT_CONFIGURED" };
 
   const from = resolveFrom("sendgrid");
@@ -165,8 +173,8 @@ async function sendEmailViaResend(options: {
   to: string;
   subject: string;
   html: string;
-}): Promise<{ ok: boolean; error?: string }> {
-  const apiKey = process.env.RESEND_API_KEY;
+}, apiKeyOverride?: string | null): Promise<{ ok: boolean; error?: string }> {
+  const apiKey = apiKeyOverride || process.env.RESEND_API_KEY;
   if (!apiKey) return { ok: false, error: "RESEND_API_KEY_NOT_CONFIGURED" };
 
   const from = resolveFrom("resend");
@@ -206,8 +214,9 @@ async function sendEmailViaResend(options: {
 async function sendEmail(
   options: { to: string; subject: string; html: string },
   preferredProvider: EmailProvider = "auto",
+  apiKeyOverrides?: EmailApiKeyOverrides,
 ): Promise<{ ok: boolean; error?: string; provider?: string }> {
-  const provider = resolveProvider(preferredProvider);
+  const provider = resolveProvider(preferredProvider, apiKeyOverrides);
 
   if (!provider) {
     const msg = "[AgentAlert] 이메일 공급자 미설정 — SENDGRID_API_KEY, RESEND_API_KEY, 또는 SMTP_HOST+SMTP_USER+SMTP_PASS 확인";
@@ -217,9 +226,9 @@ async function sendEmail(
 
   let result: { ok: boolean; error?: string };
   if (provider === "sendgrid") {
-    result = await sendEmailViaSendGrid(options);
+    result = await sendEmailViaSendGrid(options, apiKeyOverrides?.sendgridApiKey);
   } else if (provider === "resend") {
-    result = await sendEmailViaResend(options);
+    result = await sendEmailViaResend(options, apiKeyOverrides?.resendApiKey);
   } else {
     result = await sendEmailViaSmtp(options);
   }
@@ -463,6 +472,7 @@ export async function sendAgentDisconnectAlert(options: {
   thresholdMinutes: number;
   lastSeenSecondsAgo: number | null;
   emailProvider?: EmailProvider;
+  apiKeyOverrides?: EmailApiKeyOverrides;
 }): Promise<SendAlertResult> {
   const lastSeenText =
     options.lastSeenSecondsAgo === null
@@ -491,6 +501,7 @@ export async function sendAgentDisconnectAlert(options: {
     ? await sendEmail(
         { to: options.toEmail, subject: `[트레이드봇] 에이전트 연결 끊김 — ${now}`, html: htmlBody },
         options.emailProvider,
+        options.apiKeyOverrides,
       )
     : null;
 
@@ -522,6 +533,7 @@ export async function sendAgentRecoveryAlert(options: {
   kakao?: KakaoAlimtalkConfig;
   disconnectedDurationMinutes: number;
   emailProvider?: EmailProvider;
+  apiKeyOverrides?: EmailApiKeyOverrides;
 }): Promise<SendAlertResult> {
   const now = new Date().toLocaleString("ko-KR", { timeZone: "Asia/Seoul" });
   const shortMsg = `[트레이드봇] 에이전트 복구됨 — 단절 ${options.disconnectedDurationMinutes}분 후 재연결 | ${now}`;
@@ -542,6 +554,7 @@ export async function sendAgentRecoveryAlert(options: {
     ? await sendEmail(
         { to: options.toEmail, subject: `[트레이드봇] 에이전트 복구됨 — ${now}`, html: htmlBody },
         options.emailProvider,
+        options.apiKeyOverrides,
       )
     : null;
 
@@ -572,6 +585,7 @@ export async function sendTestAlert(
   webhookUrl?: string,
   emailProvider?: EmailProvider,
   kakao?: KakaoAlimtalkConfig,
+  apiKeyOverrides?: EmailApiKeyOverrides,
 ): Promise<SendAlertResult> {
   const now = new Date().toLocaleString("ko-KR", { timeZone: "Asia/Seoul" });
   const shortMsg = `[트레이드봇] 테스트 알림 — 에이전트 연결 끊김 알림이 정상 설정되었습니다. 발송 시각: ${now}`;
@@ -585,7 +599,7 @@ export async function sendTestAlert(
 </div>`;
 
   const emailResult = toEmail
-    ? await sendEmail({ to: toEmail, subject: "[트레이드봇] 테스트 알림 — 설정 확인", html: htmlBody }, emailProvider)
+    ? await sendEmail({ to: toEmail, subject: "[트레이드봇] 테스트 알림 — 설정 확인", html: htmlBody }, emailProvider, apiKeyOverrides)
     : null;
 
   const webhookResult = webhookUrl

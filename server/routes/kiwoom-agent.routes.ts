@@ -9,8 +9,9 @@ import { storage } from "../storage";
 import { insertKiwoomJobSchema } from "@shared/schema";
 import type { KiwoomJob } from "@shared/schema";
 import { isAuthenticated } from "../auth";
-import { sendTestAlert, isSmtpConfigured, getEmailProviderStatuses, validateWebhookUrl, type EmailProvider, type KakaoAlimtalkConfig } from "../services/agent-alert.service";
+import { sendTestAlert, isSmtpConfigured, getEmailProviderStatuses, validateWebhookUrl, type EmailProvider, type KakaoAlimtalkConfig, type EmailApiKeyOverrides } from "../services/agent-alert.service";
 import { resetUserAlertState } from "../jobs/agent-disconnect-watcher";
+import { encrypt, decrypt, isEncrypted } from "../utils/crypto";
 
 const AGENT_KEY = process.env.AGENT_KEY || "";
 const AGENT_ID = "home-pc-agent"; // 안전한 식별자만 DB에 저장 (실제 키 아님)
@@ -844,6 +845,8 @@ export function registerKiwoomAgentRoutes(app: Express): void {
 
   interface NotificationSettingsRecord {
     agentAlert?: AgentAlertConfig;
+    sendgridApiKey?: string; // encrypted
+    resendApiKey?: string;   // encrypted
     [key: string]: unknown;
   }
 
@@ -852,6 +855,33 @@ export function registerKiwoomAgentRoutes(app: Express): void {
       return raw as NotificationSettingsRecord;
     }
     return {};
+  }
+
+  /** 저장된 암호화 키를 복호화하여 ApiKeyOverrides로 반환 */
+  function resolveStoredApiKeyOverrides(ns: NotificationSettingsRecord): EmailApiKeyOverrides {
+    let sendgridApiKey: string | null = null;
+    let resendApiKey: string | null = null;
+    try {
+      if (ns.sendgridApiKey && isEncrypted(ns.sendgridApiKey)) {
+        sendgridApiKey = decrypt(ns.sendgridApiKey);
+      }
+    } catch {
+      console.warn("[alert-settings] SendGrid 키 복호화 실패");
+    }
+    try {
+      if (ns.resendApiKey && isEncrypted(ns.resendApiKey)) {
+        resendApiKey = decrypt(ns.resendApiKey);
+      }
+    } catch {
+      console.warn("[alert-settings] Resend 키 복호화 실패");
+    }
+    return { sendgridApiKey, resendApiKey };
+  }
+
+  /** API 키의 마스킹된 버전 반환 (앞 4자 + ****) */
+  function maskApiKey(key: string): string {
+    if (key.length <= 4) return "****";
+    return key.slice(0, 4) + "•".repeat(Math.min(key.length - 4, 20));
   }
 
   // ─── 에이전트 알림 설정 조회 ─────────────────────────────────────────
@@ -867,11 +897,79 @@ export function registerKiwoomAgentRoutes(app: Express): void {
         webhookUrl: "",
         disconnectThresholdMinutes: 3,
       };
-      const providerStatuses = getEmailProviderStatuses();
+      const apiKeyOverrides = resolveStoredApiKeyOverrides(ns);
+      const providerStatuses = getEmailProviderStatuses(apiKeyOverrides);
       res.json({ agentAlert, smtpConfigured: isSmtpConfigured(), emailProviders: providerStatuses });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       res.status(500).json({ error: msg });
+    }
+  });
+
+  // ─── 이메일 API 키 조회 (마스킹된 값 반환) ─────────────────────────────
+  app.get("/api/kiwoom-agent/email-api-keys", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getAuthUserId(req);
+      if (!userId) return res.status(401).json({ error: "로그인 필요" });
+      const settings = await storage.getUserSettings(userId);
+      const ns = parseNotificationSettings(settings?.notificationSettings);
+      const apiKeyOverrides = resolveStoredApiKeyOverrides(ns);
+      res.json({
+        sendgridApiKey: apiKeyOverrides.sendgridApiKey ? maskApiKey(apiKeyOverrides.sendgridApiKey) : null,
+        resendApiKey: apiKeyOverrides.resendApiKey ? maskApiKey(apiKeyOverrides.resendApiKey) : null,
+        hasSendgridKey: !!apiKeyOverrides.sendgridApiKey,
+        hasResendKey: !!apiKeyOverrides.resendApiKey,
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: msg });
+    }
+  });
+
+  // ─── 이메일 API 키 저장 (암호화) ────────────────────────────────────────
+  app.patch("/api/kiwoom-agent/email-api-keys", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getAuthUserId(req);
+      if (!userId) return res.status(401).json({ error: "로그인 필요" });
+
+      const { sendgridApiKey, resendApiKey } = req.body as {
+        sendgridApiKey?: unknown;
+        resendApiKey?: unknown;
+      };
+
+      const currentSettings = await storage.getUserSettings(userId);
+      const currentNs = parseNotificationSettings(currentSettings?.notificationSettings);
+      const updatedNs: NotificationSettingsRecord = { ...currentNs };
+
+      if (sendgridApiKey === null || sendgridApiKey === "") {
+        // null 또는 빈 문자열이면 키 삭제
+        delete updatedNs.sendgridApiKey;
+      } else if (typeof sendgridApiKey === "string" && sendgridApiKey.trim()) {
+        updatedNs.sendgridApiKey = encrypt(sendgridApiKey.trim());
+      }
+
+      if (resendApiKey === null || resendApiKey === "") {
+        delete updatedNs.resendApiKey;
+      } else if (typeof resendApiKey === "string" && resendApiKey.trim()) {
+        updatedNs.resendApiKey = encrypt(resendApiKey.trim());
+      }
+
+      await storage.updateUserSettings(userId, { notificationSettings: updatedNs });
+
+      const apiKeyOverrides = resolveStoredApiKeyOverrides(updatedNs);
+      res.json({
+        sendgridApiKey: apiKeyOverrides.sendgridApiKey ? maskApiKey(apiKeyOverrides.sendgridApiKey) : null,
+        resendApiKey: apiKeyOverrides.resendApiKey ? maskApiKey(apiKeyOverrides.resendApiKey) : null,
+        hasSendgridKey: !!apiKeyOverrides.sendgridApiKey,
+        hasResendKey: !!apiKeyOverrides.resendApiKey,
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("ENCRYPTION_KEY")) {
+        res.status(500).json({ error: "서버에 ENCRYPTION_KEY가 설정되지 않아 API 키를 암호화할 수 없습니다" });
+      } else {
+        res.status(500).json({ error: msg });
+      }
     }
   });
 
@@ -953,7 +1051,8 @@ export function registerKiwoomAgentRoutes(app: Express): void {
       // 설정 변경 시 알림 상태 초기화 (오래된 alertedAt 방지)
       resetUserAlertState(userId);
 
-      const providerStatuses = getEmailProviderStatuses();
+      const updatedApiKeyOverrides = resolveStoredApiKeyOverrides(updatedNs);
+      const providerStatuses = getEmailProviderStatuses(updatedApiKeyOverrides);
       res.json({ agentAlert: updatedAlert, smtpConfigured: isSmtpConfigured(), emailProviders: providerStatuses });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -986,11 +1085,13 @@ export function registerKiwoomAgentRoutes(app: Express): void {
         recoveryTemplateCode: alertCfg!.kakaoRecoveryTemplateCode || alertCfg!.kakaoDisconnectTemplateCode!,
       } : undefined;
 
+      const apiKeyOverrides = resolveStoredApiKeyOverrides(ns);
       const result = await sendTestAlert(
         alertCfg?.email || undefined,
         alertCfg?.webhookUrl || undefined,
         alertCfg?.emailProvider,
         kakaoConfig,
+        apiKeyOverrides
       );
       const messages: string[] = [];
       if (result.email?.ok) messages.push(`이메일 → ${alertCfg?.email}`);
