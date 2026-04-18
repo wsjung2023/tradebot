@@ -20,6 +20,7 @@ import os
 import sys
 import time
 import json
+import hashlib
 import datetime
 import threading
 import logging
@@ -28,6 +29,14 @@ import websocket
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# 에이전트 파일 자체의 MD5 해시 (앞 8자리) — 버전 식별용
+# 서버의 /api/kiwoom-agent/version 해시와 비교해 업데이트 여부 확인
+try:
+    with open(os.path.abspath(__file__), "rb") as _f:
+        AGENT_VERSION_HASH = hashlib.md5(_f.read()).hexdigest()[:8]
+except Exception:
+    AGENT_VERSION_HASH = "unknown"
 
 # REPLIT_URLS (쉼표 구분 다중 URL) 또는 REPLIT_URL (단일 URL) 지원
 _raw_urls = os.getenv("REPLIT_URLS") or os.getenv("REPLIT_URL", "")
@@ -824,6 +833,7 @@ def handle_ping(_payload):
         "agentTime": time.time(),
         "mode": "mock" if KIWOOM_IS_MOCK else "real",
         "version": "3.0",
+        "versionHash": AGENT_VERSION_HASH,
         "features": ["accountType-routing", "raw-output1", "token-test", "split-appkey", "server-appkey", "financials-get", "per-account-keys"],
         "accountKeys": list(ACCOUNT_KEYS.keys()),
     }
@@ -1235,6 +1245,7 @@ def fetch_next_job():
                 headers={
                     "x-agent-key": AGENT_KEY,
                     "x-agent-supports": SUPPORTED_JOB_TYPES,
+                    "x-agent-version": AGENT_VERSION_HASH,
                 },
                 timeout=10
             )

@@ -4,7 +4,7 @@
 import type { Express, Request, Response } from "express";
 import { readFileSync, existsSync } from "fs";
 import { join } from "path";
-import { timingSafeEqual } from "crypto";
+import { timingSafeEqual, createHash } from "crypto";
 import { storage } from "../storage";
 import { insertKiwoomJobSchema } from "@shared/schema";
 import type { KiwoomJob } from "@shared/schema";
@@ -16,9 +16,13 @@ const AGENT_ID = "home-pc-agent"; // 안전한 식별자만 DB에 저장 (실제
 // 에이전트 last-seen 추적 (메모리, 재시작 시 리셋)
 let _agentLastSeen: Date | null = null;
 let _agentPollCount = 0;
-function touchAgentSeen() {
+let _agentVersionHash: string | null = null; // 에이전트가 폴링 시 전송하는 버전 해시
+function touchAgentSeen(versionHash: string | null | undefined) {
   _agentLastSeen = new Date();
   _agentPollCount++;
+  // undefined = 헤더 파싱 전, null = 헤더 없음(구형 에이전트), string = 새 에이전트
+  // null을 받으면 구형 에이전트로 간주해 해시를 null로 초기화 (stale 방지)
+  if (versionHash !== undefined) _agentVersionHash = versionHash ?? null;
 }
 
 /**
@@ -202,7 +206,9 @@ export function registerKiwoomAgentRoutes(app: Express): void {
   app.get("/api/kiwoom-agent/jobs/next", async (req: Request, res: Response) => {
     try {
       if (!requireAgentKey(req, res)) return;
-      touchAgentSeen();
+      // x-agent-version 헤더가 없는 구형 에이전트는 null로 명시 (stale 해시 방지)
+      const agentVersionHeader = (req.headers["x-agent-version"] as string | undefined) ?? null;
+      touchAgentSeen(agentVersionHeader);
 
       // 폴링 스위치 OFF 상태면 잡 없음 즉시 반환 (DB 쿼리 없음)
       if (!_pollingEnabled) {
@@ -447,7 +453,35 @@ export function registerKiwoomAgentRoutes(app: Express): void {
       agentLastSeenSecondsAgo: secondsAgo,
       todayPollCount: _agentPollCount,
       todayDispatchCount: _todayDispatchCount,
+      agentVersionHash: _agentVersionHash,
     });
+  });
+
+  // ─── 서버 최신 에이전트 버전 해시 조회 ────────────────────────────────
+  // 프론트엔드에서 에이전트 현재 버전과 비교해 업데이트 필요 여부를 판단
+  // /script 엔드포인트와 동일한 다중 경로 폴백 사용
+  app.get("/api/kiwoom-agent/version", isAuthenticated, (_req: Request, res: Response) => {
+    try {
+      const candidates = [
+        join(process.cwd(), "agent/kiwoom-agent.py"),
+        join(process.cwd(), "../agent/kiwoom-agent.py"),
+      ];
+      const scriptPath = candidates.find((p) => existsSync(p));
+      if (!scriptPath) {
+        res.status(404).json({ error: "에이전트 파일을 찾을 수 없습니다" });
+        return;
+      }
+      const content = readFileSync(scriptPath);
+      const hash = createHash("md5").update(content).digest("hex").slice(0, 8);
+      res.json({
+        serverHash: hash,
+        size: content.length,
+        scriptUrl: "/api/kiwoom-agent/script",
+      });
+    } catch (err) {
+      console.error("[kiwoom-agent/version] 버전 해시 계산 실패:", err);
+      res.status(500).json({ error: "버전 해시 계산 실패" });
+    }
   });
 
   // ─── 폴링 스위치 ON/OFF 변경 ───────────────────────────────────────────

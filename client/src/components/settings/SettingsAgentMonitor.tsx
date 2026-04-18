@@ -1,12 +1,13 @@
 // SettingsAgentMonitor.tsx — 집 PC 에이전트 ON/OFF 스위치 + 실시간 현황 카드
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { Wifi, WifiOff, Activity, Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Wifi, WifiOff, Activity, Loader2, RefreshCw, Download, CheckCircle2, AlertCircle } from "lucide-react";
 
 const POLL_INTERVAL_MS = 15_000;
 
@@ -16,6 +17,13 @@ interface PollingStatus {
   agentLastSeenSecondsAgo: number | null;
   todayPollCount: number;
   todayDispatchCount: number;
+  agentVersionHash: string | null;
+}
+
+interface AgentVersion {
+  serverHash: string;
+  size: number;
+  scriptUrl: string;
 }
 
 function formatSecondsAgo(sec: number | null): string {
@@ -29,11 +37,19 @@ function formatSecondsAgo(sec: number | null): string {
 export function SettingsAgentMonitor() {
   const { toast } = useToast();
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [updateCheckResult, setUpdateCheckResult] = useState<"uptodate" | "outdated" | null>(null);
 
   const { data: status, isLoading } = useQuery<PollingStatus>({
     queryKey: ["/api/kiwoom-agent/polling-status"],
     refetchInterval: POLL_INTERVAL_MS,
     staleTime: POLL_INTERVAL_MS,
+  });
+
+  const { data: serverVersion, isLoading: isVersionLoading, refetch: refetchVersion } = useQuery<AgentVersion>({
+    queryKey: ["/api/kiwoom-agent/version"],
+    staleTime: 60_000,
+    enabled: false,
+    retry: false,
   });
 
   // 15초마다 강제 refetch (화면이 포커스를 잃어도)
@@ -45,6 +61,15 @@ export function SettingsAgentMonitor() {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, []);
+
+  // 버전 해시가 업데이트되면 updateCheckResult 재계산
+  useEffect(() => {
+    if (serverVersion && status?.agentVersionHash) {
+      setUpdateCheckResult(
+        status.agentVersionHash === serverVersion.serverHash ? "uptodate" : "outdated"
+      );
+    }
+  }, [serverVersion, status?.agentVersionHash]);
 
   const switchMutation = useMutation({
     mutationFn: async (enabled: boolean) =>
@@ -65,8 +90,17 @@ export function SettingsAgentMonitor() {
       toast({ variant: "destructive", title: "스위치 변경 실패", description: e.message }),
   });
 
+  const handleCheckUpdate = async () => {
+    setUpdateCheckResult(null);
+    const result = await refetchVersion();
+    if (result.error) {
+      toast({ variant: "destructive", title: "버전 확인 실패", description: "서버에서 버전 정보를 가져오지 못했습니다" });
+    }
+  };
+
   const connected = status?.isAgentConnected ?? false;
   const enabled = status?.enabled ?? true;
+  const agentHash = status?.agentVersionHash ?? null;
 
   return (
     <Card data-testid="card-agent-monitor">
@@ -145,6 +179,89 @@ export function SettingsAgentMonitor() {
               <div data-testid="text-today-dispatch-count" className="font-medium tabular-nums">
                 {(status?.todayDispatchCount ?? 0).toLocaleString()}건
               </div>
+
+              <div className="text-muted-foreground">에이전트 버전</div>
+              <div data-testid="text-agent-version-hash" className="font-medium tabular-nums font-mono text-xs">
+                {agentHash ?? (connected ? "—" : "미연결")}
+              </div>
+            </div>
+
+            {/* 버전 업데이트 확인 섹션 */}
+            <div className="border-t pt-4 space-y-3">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <span className="text-sm font-medium">에이전트 업데이트 확인</span>
+                <Button
+                  data-testid="button-check-update"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCheckUpdate}
+                  disabled={isVersionLoading}
+                >
+                  {isVersionLoading ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-3.5 w-3.5" />
+                  )}
+                  업데이트 확인
+                </Button>
+              </div>
+
+              {serverVersion && (
+                <div className="text-sm space-y-2">
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-1.5">
+                    <div className="text-muted-foreground">서버 최신 버전</div>
+                    <div
+                      data-testid="text-server-version-hash"
+                      className="font-mono text-xs font-medium"
+                    >
+                      {serverVersion.serverHash}
+                    </div>
+                    <div className="text-muted-foreground">에이전트 버전</div>
+                    <div className="font-mono text-xs font-medium">
+                      {agentHash ?? "미연결"}
+                    </div>
+                  </div>
+
+                  {updateCheckResult === "uptodate" && (
+                    <div
+                      data-testid="status-update-uptodate"
+                      className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/50 rounded-md px-3 py-2"
+                    >
+                      <CheckCircle2 className="h-4 w-4 shrink-0 text-green-600 dark:text-green-400" />
+                      최신 버전입니다. 업데이트가 필요하지 않습니다.
+                    </div>
+                  )}
+
+                  {updateCheckResult === "outdated" && (
+                    <div
+                      data-testid="status-update-outdated"
+                      className="space-y-2"
+                    >
+                      <div className="flex items-center gap-2 text-sm bg-muted/50 rounded-md px-3 py-2">
+                        <AlertCircle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                        <span>새 버전이 있습니다. 아래에서 최신 파일을 다운로드하세요.</span>
+                      </div>
+                      <Button
+                        data-testid="button-download-agent"
+                        variant="default"
+                        size="sm"
+                        asChild
+                      >
+                        <a href={serverVersion.scriptUrl} download="kiwoom-agent.py">
+                          <Download className="h-3.5 w-3.5" />
+                          kiwoom-agent.py 다운로드
+                        </a>
+                      </Button>
+                    </div>
+                  )}
+
+                  {!agentHash && updateCheckResult === null && (
+                    <p className="text-xs text-muted-foreground">
+                      에이전트가 연결되면 버전 비교가 가능합니다.
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* OFF 상태 안내 */}
