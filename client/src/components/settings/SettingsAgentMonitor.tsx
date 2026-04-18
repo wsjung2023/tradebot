@@ -7,7 +7,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/com
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Wifi, WifiOff, Activity, Loader2, RefreshCw, Download, CheckCircle2, AlertCircle } from "lucide-react";
+import { Wifi, WifiOff, Activity, Loader2, RefreshCw, Download, CheckCircle2, AlertCircle, UploadCloud } from "lucide-react";
 
 const POLL_INTERVAL_MS = 15_000;
 
@@ -26,6 +26,12 @@ interface AgentVersion {
   scriptUrl: string;
 }
 
+interface SelfUpdateResponse {
+  success: boolean;
+  result?: { success: boolean; message: string };
+  error?: string;
+}
+
 function formatSecondsAgo(sec: number | null): string {
   if (sec === null) return "없음";
   if (sec < 60) return `${sec}초 전`;
@@ -38,6 +44,8 @@ export function SettingsAgentMonitor() {
   const { toast } = useToast();
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [updateCheckResult, setUpdateCheckResult] = useState<"uptodate" | "outdated" | null>(null);
+  const [selfUpdateResult, setSelfUpdateResult] = useState<"success" | "failure" | null>(null);
+  const [scriptUrl, setScriptUrl] = useState<string | null>(null);
 
   const { data: status, isLoading } = useQuery<PollingStatus>({
     queryKey: ["/api/kiwoom-agent/polling-status"],
@@ -64,10 +72,13 @@ export function SettingsAgentMonitor() {
 
   // 버전 해시가 업데이트되면 updateCheckResult 재계산
   useEffect(() => {
-    if (serverVersion && status?.agentVersionHash) {
-      setUpdateCheckResult(
-        status.agentVersionHash === serverVersion.serverHash ? "uptodate" : "outdated"
-      );
+    if (serverVersion) {
+      setScriptUrl(serverVersion.scriptUrl);
+      if (status?.agentVersionHash) {
+        setUpdateCheckResult(
+          status.agentVersionHash === serverVersion.serverHash ? "uptodate" : "outdated"
+        );
+      }
     }
   }, [serverVersion, status?.agentVersionHash]);
 
@@ -86,12 +97,36 @@ export function SettingsAgentMonitor() {
           : "에이전트 요청을 즉시 반환합니다 (DB 쿼리 없음)",
       });
     },
-    onError: (e: any) =>
+    onError: (e: Error) =>
       toast({ variant: "destructive", title: "스위치 변경 실패", description: e.message }),
+  });
+
+  const selfUpdateMutation = useMutation({
+    mutationFn: async (): Promise<SelfUpdateResponse> =>
+      (await apiRequest("POST", "/api/kiwoom-agent/self-update")).json(),
+    onSuccess: (data: SelfUpdateResponse) => {
+      const agentSuccess = data.success && data.result?.success === true;
+      if (agentSuccess) {
+        setSelfUpdateResult("success");
+        toast({ title: "업데이트 완료", description: "에이전트가 최신 버전으로 업데이트되고 재시작되었습니다." });
+        setUpdateCheckResult(null);
+        queryClient.invalidateQueries({ queryKey: ["/api/kiwoom-agent/polling-status"] });
+        refetchVersion();
+      } else {
+        setSelfUpdateResult("failure");
+        const errMsg = data.error ?? data.result?.message ?? "에이전트가 응답하지 않습니다.";
+        toast({ variant: "destructive", title: "업데이트 실패", description: errMsg });
+      }
+    },
+    onError: (e: Error) => {
+      setSelfUpdateResult("failure");
+      toast({ variant: "destructive", title: "업데이트 실패", description: e.message });
+    },
   });
 
   const handleCheckUpdate = async () => {
     setUpdateCheckResult(null);
+    setSelfUpdateResult(null);
     const result = await refetchVersion();
     if (result.error) {
       toast({ variant: "destructive", title: "버전 확인 실패", description: "서버에서 버전 정보를 가져오지 못했습니다" });
@@ -222,7 +257,7 @@ export function SettingsAgentMonitor() {
                     </div>
                   </div>
 
-                  {updateCheckResult === "uptodate" && (
+                  {updateCheckResult === "uptodate" && selfUpdateResult === null && (
                     <div
                       data-testid="status-update-uptodate"
                       className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/50 rounded-md px-3 py-2"
@@ -232,26 +267,48 @@ export function SettingsAgentMonitor() {
                     </div>
                   )}
 
-                  {updateCheckResult === "outdated" && (
+                  {updateCheckResult === "outdated" && selfUpdateResult === null && (
                     <div
                       data-testid="status-update-outdated"
                       className="space-y-2"
                     >
                       <div className="flex items-center gap-2 text-sm bg-muted/50 rounded-md px-3 py-2">
                         <AlertCircle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
-                        <span>새 버전이 있습니다. 아래에서 최신 파일을 다운로드하세요.</span>
+                        <span>
+                          {connected
+                            ? "새 버전이 있습니다. 버튼을 눌러 에이전트를 자동으로 업데이트하세요."
+                            : "새 버전이 있습니다. 에이전트가 연결되면 원클릭 업데이트가 가능합니다."}
+                        </span>
                       </div>
-                      <Button
-                        data-testid="button-download-agent"
-                        variant="default"
-                        size="sm"
-                        asChild
-                      >
-                        <a href={serverVersion.scriptUrl} download="kiwoom-agent.py">
-                          <Download className="h-3.5 w-3.5" />
-                          kiwoom-agent.py 다운로드
-                        </a>
-                      </Button>
+                      <div className="flex flex-wrap gap-2">
+                        {connected && (
+                          <Button
+                            data-testid="button-self-update-agent"
+                            variant="default"
+                            size="sm"
+                            onClick={() => selfUpdateMutation.mutate()}
+                            disabled={selfUpdateMutation.isPending}
+                          >
+                            {selfUpdateMutation.isPending ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <UploadCloud className="h-3.5 w-3.5" />
+                            )}
+                            {selfUpdateMutation.isPending ? "업데이트 중..." : "지금 업데이트"}
+                          </Button>
+                        )}
+                        <Button
+                          data-testid="button-download-agent"
+                          variant="outline"
+                          size="sm"
+                          asChild
+                        >
+                          <a href={serverVersion.scriptUrl} download="kiwoom-agent.py">
+                            <Download className="h-3.5 w-3.5" />
+                            수동 다운로드
+                          </a>
+                        </Button>
+                      </div>
                     </div>
                   )}
 
@@ -260,6 +317,59 @@ export function SettingsAgentMonitor() {
                       에이전트가 연결되면 버전 비교가 가능합니다.
                     </p>
                   )}
+                </div>
+              )}
+
+              {selfUpdateResult === "success" && (
+                <div
+                  data-testid="status-self-update-success"
+                  className="flex items-center gap-2 text-sm bg-muted/50 rounded-md px-3 py-2"
+                >
+                  <CheckCircle2 className="h-4 w-4 shrink-0 text-green-600 dark:text-green-400" />
+                  업데이트 완료. 에이전트가 재시작되었습니다.
+                </div>
+              )}
+
+              {selfUpdateResult === "failure" && (
+                <div
+                  data-testid="status-self-update-failure"
+                  className="space-y-2"
+                >
+                  <div className="flex items-center gap-2 text-sm bg-muted/50 rounded-md px-3 py-2">
+                    <AlertCircle className="h-4 w-4 shrink-0 text-destructive" />
+                    업데이트에 실패했습니다. 다시 시도하거나 수동으로 파일을 교체해 주세요.
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {connected && (
+                      <Button
+                        data-testid="button-retry-self-update"
+                        variant="default"
+                        size="sm"
+                        onClick={() => { setSelfUpdateResult(null); selfUpdateMutation.mutate(); }}
+                        disabled={selfUpdateMutation.isPending}
+                      >
+                        {selfUpdateMutation.isPending ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <UploadCloud className="h-3.5 w-3.5" />
+                        )}
+                        다시 시도
+                      </Button>
+                    )}
+                    {scriptUrl && (
+                      <Button
+                        data-testid="button-download-agent-fallback"
+                        variant="outline"
+                        size="sm"
+                        asChild
+                      >
+                        <a href={scriptUrl} download="kiwoom-agent.py">
+                          <Download className="h-3.5 w-3.5" />
+                          수동 다운로드
+                        </a>
+                      </Button>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
