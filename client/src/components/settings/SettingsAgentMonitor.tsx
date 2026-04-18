@@ -7,6 +7,16 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/com
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Wifi, WifiOff, Activity, Loader2, RefreshCw, Download, CheckCircle2, AlertCircle, UploadCloud, History, Trash2 } from "lucide-react";
 
 const POLL_INTERVAL_MS = 15_000;
@@ -60,6 +70,7 @@ export function SettingsAgentMonitor() {
   const [updateCheckResult, setUpdateCheckResult] = useState<"uptodate" | "outdated" | null>(null);
   const [selfUpdateResult, setSelfUpdateResult] = useState<"success" | "failure" | null>(null);
   const [scriptUrl, setScriptUrl] = useState<string | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
 
   const { data: status, isLoading } = useQuery<PollingStatus>({
     queryKey: ["/api/kiwoom-agent/polling-status"],
@@ -125,9 +136,10 @@ export function SettingsAgentMonitor() {
       (await apiRequest("DELETE", `/api/kiwoom-agent/update-history/${id}`)).json(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/kiwoom-agent/update-history"] });
+      toast({ title: "이력 삭제", description: "업데이트 이력 항목이 삭제되었습니다." });
     },
     onError: (e: Error) =>
-      toast({ variant: "destructive", title: "삭제 실패", description: e.message }),
+      toast({ variant: "destructive", title: "이력 삭제 실패", description: e.message }),
   });
 
   const selfUpdateMutation = useMutation({
@@ -169,15 +181,6 @@ export function SettingsAgentMonitor() {
       toast({ variant: "destructive", title: "이력 초기화 실패", description: e.message }),
   });
 
-  const deleteHistoryItemMutation = useMutation({
-    mutationFn: async (id: number) =>
-      (await apiRequest("DELETE", `/api/kiwoom-agent/update-history/${id}`)).json(),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/kiwoom-agent/update-history"] });
-    },
-    onError: (e: Error) =>
-      toast({ variant: "destructive", title: "항목 삭제 실패", description: e.message }),
-  });
 
   const handleCheckUpdate = async () => {
     setUpdateCheckResult(null);
@@ -513,13 +516,13 @@ export function SettingsAgentMonitor() {
                         variant="ghost"
                         size="icon"
                         className="shrink-0 text-muted-foreground"
-                        onClick={() => deleteHistoryItemMutation.mutate(record.id)}
-                        disabled={deleteHistoryItemMutation.isPending}
+                        onClick={() => setDeleteConfirmId(record.id)}
+                        disabled={deleteHistoryMutation.isPending}
                       >
-                        {deleteHistoryItemMutation.isPending ? (
-                          <Loader2 className="h-3 w-3 animate-spin" />
+                        {deleteHistoryMutation.isPending ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
                         ) : (
-                          <Trash2 className="h-3 w-3" />
+                          <Trash2 className="h-3.5 w-3.5" />
                         )}
                       </Button>
                     </div>
@@ -530,6 +533,34 @@ export function SettingsAgentMonitor() {
           </>
         )}
       </CardContent>
+
+      <AlertDialog
+        open={deleteConfirmId !== null}
+        onOpenChange={(open) => { if (!open) setDeleteConfirmId(null); }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>이력을 삭제하시겠습니까?</AlertDialogTitle>
+            <AlertDialogDescription>
+              이 업데이트 이력 항목을 삭제합니다. 이 작업은 취소할 수 없습니다.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-delete-history-cancel">취소</AlertDialogCancel>
+            <AlertDialogAction
+              data-testid="button-delete-history-confirm"
+              onClick={() => {
+                if (deleteConfirmId !== null) {
+                  deleteHistoryMutation.mutate(deleteConfirmId);
+                  setDeleteConfirmId(null);
+                }
+              }}
+            >
+              삭제
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }

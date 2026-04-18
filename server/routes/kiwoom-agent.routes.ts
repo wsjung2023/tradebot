@@ -475,6 +475,21 @@ export function registerKiwoomAgentRoutes(app: Express): void {
     }
   });
 
+  // ─── 업데이트 이력 개별 삭제 ─────────────────────────────────────────────
+  app.delete("/api/kiwoom-agent/update-history/:id", isAuthenticated, async (req: Request, res: Response) => {
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) {
+      res.status(400).json({ error: "유효하지 않은 ID입니다." });
+      return;
+    }
+    try {
+      await storage.deleteAgentUpdateLog(id);
+      res.json({ ok: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // ─── 업데이트 이력 전체 삭제 ─────────────────────────────────────────────
   app.delete("/api/kiwoom-agent/update-history", isAuthenticated, async (_req: Request, res: Response) => {
     try {
