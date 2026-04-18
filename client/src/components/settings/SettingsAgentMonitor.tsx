@@ -332,7 +332,16 @@ export function SettingsAgentMonitor() {
               const errMsg = data.error ?? "에이전트가 응답하지 않습니다.";
               toast({ variant: "destructive", title: "업데이트 실패", description: errMsg });
             }
-          } else if (data.type === "error" || data.type === "timeout") {
+          } else if (data.type === "timeout") {
+            closeEventSource();
+            setIsUpdating(false);
+            setIsWaitingReconnect(false);
+            if (reconnectPollRef.current) clearInterval(reconnectPollRef.current);
+            if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+            setReconnectResult("timeout");
+            refetchHistory();
+            toast({ variant: "destructive", title: "재연결 시간 초과", description: "에이전트가 30초 내에 재연결하지 않았습니다. 수동으로 파일을 교체해 주세요." });
+          } else if (data.type === "error") {
             closeEventSource();
             setIsUpdating(false);
             setSelfUpdateResult("failure");
@@ -545,7 +554,35 @@ export function SettingsAgentMonitor() {
                       )}
                       <div className="flex items-center gap-2 text-sm bg-muted/50 rounded-md px-3 py-2">
                         <Clock className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
-                        <span>재연결 시간 초과. 에이전트가 실행 중인지 확인해 주세요.</span>
+                        <span>에이전트가 30초 내에 재연결하지 않았습니다. 파일을 직접 교체하거나 다시 시도해 주세요.</span>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          data-testid="button-retry-reconnect"
+                          variant="default"
+                          size="sm"
+                          onClick={() => {
+                            setReconnectResult(null);
+                            setSelfUpdateResult(null);
+                            setUpdateSteps([]);
+                          }}
+                        >
+                          <RefreshCw className="h-3.5 w-3.5" />
+                          다시 시도
+                        </Button>
+                        {scriptUrl && (
+                          <Button
+                            data-testid="button-download-agent-reconnect-timeout"
+                            variant="outline"
+                            size="sm"
+                            asChild
+                          >
+                            <a href={scriptUrl} download="kiwoom-agent.py">
+                              <Download className="h-3.5 w-3.5" />
+                              수동 다운로드
+                            </a>
+                          </Button>
+                        )}
                       </div>
                     </div>
                   )}
