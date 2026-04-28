@@ -870,3 +870,11 @@ export const agentAlertLogs = pgTable("agent_alert_logs", {
 export const insertAgentAlertLogSchema = createInsertSchema(agentAlertLogs).omit({ id: true, sentAt: true });
 export type AgentAlertLog = typeof agentAlertLogs.$inferSelect;
 export type InsertAgentAlertLog = z.infer<typeof insertAgentAlertLogSchema>;
+
+// ==================== System Config (key-value, 잡 상태 영속화용) ====================
+
+export const systemConfig = pgTable("system_config", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});

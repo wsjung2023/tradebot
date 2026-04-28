@@ -11,8 +11,7 @@ import { pool } from "./db";
 import { registerRoutes } from "./routes";
 import { setupVite, log } from "./vite";
 import { setupAuth } from "./auth";
-import { balanceRefreshService } from "./services/balance-refresh.service";
-import { startAgentDisconnectWatcher } from "./jobs/agent-disconnect-watcher";
+import { jobManager } from "./job-manager";
 
 // 전역 에러 핸들러
 process.on('uncaughtException', (err) => {
@@ -214,8 +213,7 @@ httpServer.listen({ port, host: "0.0.0.0" }, () => {
       setupStaticServing();
     }
 
-    balanceRefreshService.start();
-    startAgentDisconnectWatcher();
+    await jobManager.initialize();
     console.log('[STARTUP] Ready ✓');
   } catch (err: any) {
     console.error('[STARTUP] FATAL:', err.message, err.stack);

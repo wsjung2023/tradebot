@@ -4,56 +4,63 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Play, Square, RotateCcw, Clock, Activity, AlertCircle } from "lucide-react";
+import { Play, Square, RotateCcw, Clock, Activity, AlertCircle, Info } from "lucide-react";
 
 interface JobInfo {
   id: string;
   name: string;
+  description: string;
   status: "running" | "stopped";
   lastRun: string | null;
   nextRun: string | null;
   intervalMinutes: number;
+  scheduleLabel: string;
+  runCount: number;
+  errorCount: number;
   lastError: string | null;
+  isCurrentlyExecuting: boolean;
 }
+
+const NO_RUN_NOW = new Set(["agent-watcher"]);
 
 export default function AdminJobs() {
   const { toast } = useToast();
 
   const { data: jobs = [], isLoading, refetch } = useQuery<JobInfo[]>({
     queryKey: ["/api/admin/jobs"],
+    refetchInterval: 10000,
   });
 
   const startMutation = useMutation({
     mutationFn: (id: string) => apiRequest("POST", `/api/admin/jobs/${id}/start`),
-    onSuccess: () => {
+    onSuccess: (_data, id) => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/jobs"] });
-      toast({ title: "배치잡 시작됨" });
+      toast({ title: `[${id}] 시작됨`, description: "서버 재시작 후에도 유지됩니다." });
     },
     onError: () => toast({ variant: "destructive", title: "시작 실패" }),
   });
 
   const stopMutation = useMutation({
     mutationFn: (id: string) => apiRequest("POST", `/api/admin/jobs/${id}/stop`),
-    onSuccess: () => {
+    onSuccess: (_data, id) => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/jobs"] });
-      toast({ title: "배치잡 중지됨" });
+      toast({ title: `[${id}] 중지됨`, description: "서버 재시작 후에도 중지 상태가 유지됩니다." });
     },
     onError: () => toast({ variant: "destructive", title: "중지 실패" }),
   });
 
   const runNowMutation = useMutation({
     mutationFn: (id: string) => apiRequest("POST", `/api/admin/jobs/${id}/run`),
-    onSuccess: () => {
+    onSuccess: (_data, id) => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/jobs"] });
-      toast({ title: "즉시 실행 완료" });
+      toast({ title: `[${id}] 즉시 실행 완료` });
     },
-    onError: () => toast({ variant: "destructive", title: "즉시 실행 실패" }),
+    onError: (_, id) => toast({ variant: "destructive", title: `[${id}] 즉시 실행 실패` }),
   });
 
   const formatDate = (iso: string | null) => {
     if (!iso) return "-";
-    const d = new Date(iso);
-    return d.toLocaleString("ko-KR");
+    return new Date(iso).toLocaleString("ko-KR");
   };
 
   return (
@@ -62,7 +69,7 @@ export default function AdminJobs() {
         <div>
           <h1 className="text-2xl font-bold">배치잡 관리</h1>
           <p className="text-muted-foreground mt-1">
-            자동매매, 학습, 데이터 정리 등 백그라운드 작업을 제어합니다.
+            자동매매, 학습, 잔고 갱신, 에이전트 감시 등 모든 백그라운드 작업을 제어합니다.
           </p>
         </div>
         <Button
@@ -77,11 +84,19 @@ export default function AdminJobs() {
         </Button>
       </div>
 
+      <div className="flex items-start gap-2 text-sm text-muted-foreground bg-muted/40 rounded-md px-4 py-3">
+        <Info className="w-4 h-4 mt-0.5 shrink-0" />
+        <span>
+          중지 상태는 DB에 저장되어 <strong>서버 재시작 후에도 유지</strong>됩니다.
+          시작/중지 버튼을 누른 상태가 그대로 보존됩니다.
+        </span>
+      </div>
+
       {isLoading ? (
         <div className="grid gap-4">
-          {[1, 2, 3].map((i) => (
+          {[1, 2, 3, 4, 5].map((i) => (
             <Card key={i} className="animate-pulse">
-              <CardContent className="h-24" />
+              <CardContent className="h-28" />
             </Card>
           ))}
         </div>
@@ -98,10 +113,11 @@ export default function AdminJobs() {
             <Card key={job.id} data-testid={`card-job-${job.id}`}>
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <Activity className="w-4 h-4" />
-                    {job.name}
-                  </CardTitle>
+                  <div className="flex items-center gap-2">
+                    <Activity className="w-4 h-4 text-muted-foreground" />
+                    <CardTitle className="text-base">{job.name}</CardTitle>
+                    <span className="text-xs text-muted-foreground">({job.scheduleLabel})</span>
+                  </div>
                   <Badge
                     variant={job.status === "running" ? "default" : "secondary"}
                     data-testid={`status-job-${job.id}`}
@@ -109,17 +125,26 @@ export default function AdminJobs() {
                     {job.status === "running" ? "실행 중" : "중지됨"}
                   </Badge>
                 </div>
+                <p className="text-sm text-muted-foreground mt-1">{job.description}</p>
               </CardHeader>
               <CardContent className="space-y-3">
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div className="flex items-center gap-2 text-muted-foreground">
+                <div className="grid grid-cols-2 gap-4 text-sm text-muted-foreground">
+                  <div className="flex items-center gap-2">
                     <Clock className="w-3 h-3" />
                     <span>마지막 실행: {formatDate(job.lastRun)}</span>
                   </div>
-                  <div className="flex items-center gap-2 text-muted-foreground">
+                  <div className="flex items-center gap-2">
                     <Clock className="w-3 h-3" />
                     <span>다음 실행: {formatDate(job.nextRun)}</span>
                   </div>
+                  {job.runCount > 0 && (
+                    <div className="text-xs">
+                      실행 {job.runCount}회
+                      {job.errorCount > 0 && (
+                        <span className="text-destructive ml-2">오류 {job.errorCount}회</span>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {job.lastError && (
@@ -152,16 +177,18 @@ export default function AdminJobs() {
                       중지
                     </Button>
                   )}
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => runNowMutation.mutate(job.id)}
-                    disabled={runNowMutation.isPending}
-                    data-testid={`button-runnow-${job.id}`}
-                  >
-                    <RotateCcw className="w-3 h-3 mr-1" />
-                    즉시 실행
-                  </Button>
+                  {!NO_RUN_NOW.has(job.id) && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => runNowMutation.mutate(job.id)}
+                      disabled={runNowMutation.isPending}
+                      data-testid={`button-runnow-${job.id}`}
+                    >
+                      <RotateCcw className="w-3 h-3 mr-1" />
+                      즉시 실행
+                    </Button>
+                  )}
                 </div>
               </CardContent>
             </Card>

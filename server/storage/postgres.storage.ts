@@ -219,4 +219,15 @@ export class PostgreSQLStorage extends PostgreSQLCoreStorage implements IStorage
     const result = await db.update(schema.tradingPerformance).set(updates).where(eq(schema.tradingPerformance.id, id)).returning();
     return result[0];
   }
+
+  async getSystemConfig(key: string): Promise<string | null> {
+    const result = await db.select().from(schema.systemConfig).where(eq(schema.systemConfig.key, key)).limit(1);
+    return result[0]?.value ?? null;
+  }
+
+  async setSystemConfig(key: string, value: string): Promise<void> {
+    await db.insert(schema.systemConfig)
+      .values({ key, value, updatedAt: new Date() })
+      .onConflictDoUpdate({ target: schema.systemConfig.key, set: { value, updatedAt: new Date() } });
+  }
 }

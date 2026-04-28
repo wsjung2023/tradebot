@@ -250,4 +250,8 @@ export interface IStorage {
   // 에이전트 알림 이력
   createAgentAlertLog(log: InsertAgentAlertLog): Promise<AgentAlertLog>;
   getAgentAlertLogs(userId: string, limit?: number): Promise<AgentAlertLog[]>;
+
+  // 시스템 설정 (잡 상태 영속화 등 키-값 저장소)
+  getSystemConfig(key: string): Promise<string | null>;
+  setSystemConfig(key: string, value: string): Promise<void>;
 }

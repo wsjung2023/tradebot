@@ -13,8 +13,6 @@ import { registerAutoTradingRoutes } from "./autotrading.routes";
 import { registerAdminRoutes } from "./admin.routes";
 import { registerSettingsRoutes } from "./settings.routes";
 import { registerKiwoomAgentRoutes } from "./kiwoom-agent.routes";
-import { balanceRefreshService } from "../services/balance-refresh.service";
-import { autoTradingWorker } from "../auto-trading-worker";
 import { storage } from "../storage";
 import { getOrderSyncService } from "../services/order-sync.service";
 
@@ -31,8 +29,6 @@ export async function registerRoutes(app: Express, httpServer: Server, sessionMi
   registerAdminRoutes(app as any);
   registerSettingsRoutes(app as any);
   registerKiwoomAgentRoutes(app as any);
-
-  balanceRefreshService.start();
 
   const orderSyncService = getOrderSyncService();
   const expireAllPendingOrders = async () => {
