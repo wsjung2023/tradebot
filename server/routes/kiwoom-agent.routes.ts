@@ -1139,15 +1139,5 @@ export function registerKiwoomAgentRoutes(app: Express): void {
   storage.resetStuckProcessingJobs().catch((err) =>
     console.error("[AgentQueue] stuck 잡 리셋 실패:", err)
   );
-
-  // 만료 잡 정리 타이머 — 5분마다 실행
-  const CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
-  setInterval(async () => {
-    try {
-      await storage.cleanupExpiredJobs();
-    } catch (err) {
-      console.error("[AgentQueue] 만료 잡 정리 실패:", err);
-    }
-  }, CLEANUP_INTERVAL_MS);
-  console.log("[AgentQueue] 만료 잡 정리 타이머 시작 (5분 주기)");
+  // 만료 잡 정리는 job-manager.initialize() → agentQueueCleanupService 에서 관리
 }

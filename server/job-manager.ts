@@ -3,6 +3,7 @@ import { autoTradingWorker } from './auto-trading-worker';
 import { storage } from './storage';
 import { balanceRefreshService } from './services/balance-refresh.service';
 import { startAgentDisconnectWatcher, stopAgentDisconnectWatcher } from './jobs/agent-disconnect-watcher';
+import { agentQueueCleanupService } from './services/agent-queue-cleanup.service';
 
 export interface JobInfo {
   id: string;
@@ -32,16 +33,18 @@ interface JobStats {
 
 class JobManager {
   private stats: Map<string, JobStats> = new Map([
-    ['scan',            { intervalMinutes: 30,   lastRun: null, runCount: 0, errorCount: 0, lastError: null }],
-    ['auto-trading',    { intervalMinutes: 1,    lastRun: null, runCount: 0, errorCount: 0, lastError: null }],
-    ['learning',        { intervalMinutes: 1440, lastRun: null, runCount: 0, errorCount: 0, lastError: null }],
-    ['balance-refresh', { intervalMinutes: 5,    lastRun: null, runCount: 0, errorCount: 0, lastError: null }],
-    ['agent-watcher',   { intervalMinutes: 1,    lastRun: null, runCount: 0, errorCount: 0, lastError: null }],
+    ['scan',                 { intervalMinutes: 30,   lastRun: null, runCount: 0, errorCount: 0, lastError: null }],
+    ['auto-trading',         { intervalMinutes: 1,    lastRun: null, runCount: 0, errorCount: 0, lastError: null }],
+    ['learning',             { intervalMinutes: 1440, lastRun: null, runCount: 0, errorCount: 0, lastError: null }],
+    ['balance-refresh',      { intervalMinutes: 5,    lastRun: null, runCount: 0, errorCount: 0, lastError: null }],
+    ['agent-queue-cleanup',  { intervalMinutes: 5,    lastRun: null, runCount: 0, errorCount: 0, lastError: null }],
+    ['agent-watcher',        { intervalMinutes: 1,    lastRun: null, runCount: 0, errorCount: 0, lastError: null }],
   ]);
 
-  // 에이전트 감시 실행 여부 추적 (setInterval 기반이라 별도 플래그 필요)
+  // setInterval 기반 서비스는 별도 플래그로 실행 여부 추적
   private agentWatcherRunning = false;
   private balanceRefreshRunning = false;
+  private agentQueueCleanupRunning = false;
 
   private minutesToCron(minutes: number): string {
     if (minutes < 60) return `*/${minutes} * * * *`;
@@ -60,7 +63,7 @@ class JobManager {
   async initialize(): Promise<void> {
     console.log('[JobManager] 초기화 — DB에서 잡 상태 로드 중...');
 
-    const ids = ['scan', 'auto-trading', 'learning', 'balance-refresh', 'agent-watcher'];
+    const ids = ['scan', 'auto-trading', 'learning', 'balance-refresh', 'agent-queue-cleanup', 'agent-watcher'];
     for (const id of ids) {
       const saved = await storage.getSystemConfig(DB_KEY(id));
       // DB에 'stopped'로 저장된 경우만 건너뜀. 없거나 'running'이면 시작.
@@ -102,6 +105,9 @@ class JobManager {
     } else if (id === 'balance-refresh') {
       balanceRefreshService.start();
       this.balanceRefreshRunning = true;
+    } else if (id === 'agent-queue-cleanup') {
+      agentQueueCleanupService.start();
+      this.agentQueueCleanupRunning = true;
     } else if (id === 'agent-watcher') {
       startAgentDisconnectWatcher();
       this.agentWatcherRunning = true;
@@ -128,6 +134,9 @@ class JobManager {
     } else if (id === 'balance-refresh') {
       balanceRefreshService.stop();
       this.balanceRefreshRunning = false;
+    } else if (id === 'agent-queue-cleanup') {
+      agentQueueCleanupService.stop();
+      this.agentQueueCleanupRunning = false;
     } else if (id === 'agent-watcher') {
       stopAgentDisconnectWatcher();
       this.agentWatcherRunning = false;
@@ -143,6 +152,7 @@ class JobManager {
     if (id === 'auto-trading') return autoTradingWorker.isTradingJobRunning();
     if (id === 'learning') return autoTradingWorker.isLearningJobRunning();
     if (id === 'balance-refresh') return this.balanceRefreshRunning;
+    if (id === 'agent-queue-cleanup') return this.agentQueueCleanupRunning;
     if (id === 'agent-watcher') return this.agentWatcherRunning;
     return false;
   }
@@ -152,8 +162,9 @@ class JobManager {
       { id: 'scan',            name: '스캔 잡',      description: '뒷차기2 조건검색으로 후보 종목 스캔 → candidate_stocks 갱신.' },
       { id: 'auto-trading',    name: '매매 잡',      description: '장중 AI 모델 기반 자동 주문 실행. 활성 모델 없으면 아무것도 안 함.' },
       { id: 'learning',        name: '학습 잡',      description: '거래 성과 분석으로 AI 파라미터 자동 최적화. 최소 50건 필요.' },
-      { id: 'balance-refresh', name: '잔고 자동갱신', description: '장중(KST 08:30~18:00, 월~금) 5분마다 실계좌 잔고 갱신.' },
-      { id: 'agent-watcher',   name: '에이전트 감시', description: '60초마다 집 PC 에이전트 연결 상태 감시. 끊기면 알림 발송.' },
+      { id: 'balance-refresh',     name: '잔고 자동갱신',    description: '장중(KST 08:30~18:00, 월~금) 5분마다 실계좌 잔고 갱신.' },
+      { id: 'agent-queue-cleanup', name: '에이전트 잡 정리', description: '5분마다 kiwoom_agent_jobs 테이블에서 만료된 잡을 삭제.' },
+      { id: 'agent-watcher',       name: '에이전트 감시',    description: '60초마다 집 PC 에이전트 연결 상태 감시. 끊기면 알림 발송.' },
     ];
 
     return defs.map(({ id, name, description }) => {
@@ -219,6 +230,7 @@ class JobManager {
       if (id === 'auto-trading') { await autoTradingWorker.runTradingNow(); return { success: true, message: '매매 사이클 즉시 실행.' }; }
       if (id === 'learning') { await autoTradingWorker.runLearningNow(); return { success: true, message: '학습 사이클 즉시 실행.' }; }
       if (id === 'balance-refresh') { await balanceRefreshService.refreshAllRealAccounts(); return { success: true, message: '잔고 갱신 즉시 실행.' }; }
+      if (id === 'agent-queue-cleanup') { await agentQueueCleanupService.runNow(); return { success: true, message: '에이전트 잡 정리 즉시 실행.' }; }
       return { success: false, message: `[${id}]는 즉시 실행을 지원하지 않습니다.` };
     } catch (err: any) {
       state.errorCount++;
