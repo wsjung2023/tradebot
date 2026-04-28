@@ -24,14 +24,24 @@ function isKstMarketHours(): boolean {
 
 export class BalanceRefreshService {
   private task: cron.ScheduledTask | null = null;
+  private intervalMinutes = 5;
 
-  start() {
+  private buildCron(): string {
+    const m = this.intervalMinutes;
+    if (m < 60) return `*/${m} * * * *`;
+    const h = Math.floor(m / 60);
+    return `0 */${h} * * *`;
+  }
+
+  start(intervalMinutes?: number) {
+    if (intervalMinutes !== undefined) this.intervalMinutes = intervalMinutes;
     if (this.task) {
       console.log('[BalanceRefresh] 이미 실행 중 — 중복 등록 방지');
       return;
     }
-    console.log('[BalanceRefresh] 서비스 시작 — 5분마다 실계좌 잔고 자동 갱신 (KST 08:30~18:00 월~금)');
-    this.task = cron.schedule('*/5 * * * *', async () => {
+    const cronExpr = this.buildCron();
+    console.log(`[BalanceRefresh] 서비스 시작 — ${this.intervalMinutes}분마다 실계좌 잔고 자동 갱신 (KST 08:30~18:00 월~금)`);
+    this.task = cron.schedule(cronExpr, async () => {
       try {
         await this.refreshAllRealAccounts();
       } catch (err: any) {
@@ -47,6 +57,20 @@ export class BalanceRefreshService {
       this.task = null;
       console.log('[BalanceRefresh] 서비스 중지');
     }
+  }
+
+  /** 실행 중이면 즉시 새 주기로 재시작. 중지 중이면 값만 저장. */
+  setIntervalMinutes(minutes: number) {
+    this.intervalMinutes = minutes;
+    if (this.task) {
+      this.task.stop();
+      this.task = null;
+      this.start();
+    }
+  }
+
+  getIntervalMinutes(): number {
+    return this.intervalMinutes;
   }
 
   async refreshAllRealAccounts(): Promise<void> {

@@ -1,5 +1,5 @@
 // agent-disconnect-watcher.ts — 에이전트 연결 끊김/복구 시 이메일/웹훅 알림 크론
-// 매 분 실행. 에이전트가 임계값 이상 응답 없으면 설정된 사용자에게 알림 발송.
+// 매 N초 실행(기본 60초). 에이전트가 임계값 이상 응답 없으면 설정된 사용자에게 알림 발송.
 // 재연결 시 복구 알림도 발송. 알림 상태는 인스턴스 메모리에서 추적.
 import { db } from "../db";
 import * as schema from "@shared/schema";
@@ -57,6 +57,7 @@ interface UserAlertState {
 const userAlertStates = new Map<string, UserAlertState>();
 
 let watcherInterval: ReturnType<typeof setInterval> | null = null;
+let currentIntervalSeconds = 60;
 
 function parseAgentAlertSettings(raw: unknown): AgentAlertSettings | null {
   if (!raw || typeof raw !== "object") return null;
@@ -178,7 +179,6 @@ async function runCheck() {
     const wasAlerted = state.alertedAt !== null;
 
     if (isDisconnected && !wasAlerted) {
-      // 최소 한 채널 성공한 경우에만 alertedAt 기록 (실패 시 다음 루프에서 재시도)
       const result = await sendAgentDisconnectAlert({
         toEmail: settings.email || undefined,
         webhookUrl: settings.webhookUrl,
@@ -202,7 +202,6 @@ async function runCheck() {
     } else if (!isDisconnected && wasAlerted) {
       const disconnectedMs = Date.now() - state.alertedAt!.getTime();
       const disconnectedMinutes = Math.round(disconnectedMs / 60000);
-      // 최소 한 채널 성공한 경우에만 alertedAt 초기화 (실패 시 다음 루프에서 재시도)
       const result = await sendAgentRecoveryAlert({
         toEmail: settings.email || undefined,
         webhookUrl: settings.webhookUrl,
@@ -226,16 +225,21 @@ async function runCheck() {
   }
 }
 
-export function startAgentDisconnectWatcher() {
-  if (watcherInterval) return;
-  console.log("[AgentWatcher] 에이전트 연결 감시 크론 시작 (60초 간격)");
-  watcherInterval = setInterval(async () => {
+function makeInterval(seconds: number): ReturnType<typeof setInterval> {
+  return setInterval(async () => {
     try {
       await runCheck();
     } catch (err) {
       console.error("[AgentWatcher] 크론 실행 오류:", err);
     }
-  }, 60_000);
+  }, seconds * 1000);
+}
+
+export function startAgentDisconnectWatcher(intervalSeconds: number = 60) {
+  if (watcherInterval) return;
+  currentIntervalSeconds = intervalSeconds;
+  console.log(`[AgentWatcher] 에이전트 연결 감시 크론 시작 (${intervalSeconds}초 간격)`);
+  watcherInterval = makeInterval(intervalSeconds);
 }
 
 export function stopAgentDisconnectWatcher() {
@@ -244,6 +248,20 @@ export function stopAgentDisconnectWatcher() {
     watcherInterval = null;
     console.log("[AgentWatcher] 에이전트 연결 감시 크론 중지");
   }
+}
+
+/** 실행 중이면 즉시 새 주기로 재시작. 중지 중이면 값만 저장. */
+export function setAgentWatcherIntervalSeconds(seconds: number) {
+  currentIntervalSeconds = seconds;
+  if (watcherInterval) {
+    clearInterval(watcherInterval);
+    watcherInterval = makeInterval(seconds);
+    console.log(`[AgentWatcher] 감시 주기 변경 → ${seconds}초`);
+  }
+}
+
+export function getAgentWatcherIntervalSeconds(): number {
+  return currentIntervalSeconds;
 }
 
 export function resetUserAlertState(userId: string) {
