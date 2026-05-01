@@ -6,7 +6,7 @@ import { insertKiwoomAccountSchema } from "@shared/schema";
 import { z } from "zod";
 import { callViaAgent, AgentTimeoutError } from "../services/agent-proxy.service";
 import { parseHoldingItem } from "../utils/balance-parser";
-import { isAgentConnected, getAgentLastSeenSecondsAgo } from "./kiwoom-agent.routes";
+import { isAgentConnected, getAgentLastSeenSecondsAgo, getPollingEnabled } from "./kiwoom-agent.routes";
 
 // NOTE: 과거 "에이전트 timeout 시 서버가 직접 키움 REST 호출" fallback이 있었으나
 //       Replit 서버 IP가 키움 OpenAPI 포털에 등록되어 있지 않아 항상 8050(IP 미등록)으로 실패.
@@ -120,11 +120,16 @@ export function registerAccountRoutes(app: Router) {
       const account = await getAuthorizedAccount(user!.id, accountId);
       if (!account) return res.status(404).json({ error: "Account not found" });
 
-      // ── 에이전트 미연결 조기 거절 (15초 기다릴 필요 없음) ──────────────────
-      // 임계값 적응형: 장중(09:00-16:00 KST 평일)에는 60초, 장외에는 360초
-      // 장외 에이전트 idle 폴링 기본값(300초) + 60초 여유를 두어 오판을 방지한다.
-      // 단, 실제 미연결 시 callViaAgent가 15초 timeout을 일으키지 않도록
-      // 장외에서도 360초를 초과한 경우엔 즉시 거절한다.
+      // ── 폴링 스위치 OFF → 즉시 503 (45초 timeout 낭비 방지) ───────────────
+      if (!getPollingEnabled()) {
+        return res.status(503).json({
+          error: "에이전트 폴링이 비활성화되어 있습니다. 설정 페이지에서 에이전트 폴링을 활성화하세요.",
+          errorCode: "POLLING_DISABLED",
+        });
+      }
+
+      // ── 에이전트 미연결 조기 거절 (45초 timeout 낭비 방지) ─────────────────
+      // 장중(09:00-16:00 KST 평일)에는 60초, 장외에는 360초
       const nowKst = new Date(Date.now() + 9 * 60 * 60 * 1000);
       const kstHour = nowKst.getUTCHours();
       const kstDay = nowKst.getUTCDay(); // 0=일, 6=토
