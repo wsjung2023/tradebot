@@ -256,12 +256,12 @@ export function registerKiwoomAgentRoutes(app: Express): void {
       const agentVersionHeader = (req.headers["x-agent-version"] as string | undefined) ?? null;
       touchAgentSeen(agentVersionHeader);
 
-      // 폴링 스위치 OFF 상태면 잡 없음 즉시 반환 + 에이전트에게 5분 대기 지시
-      // retryAfter=300(5분) → 에이전트가 5분에 1번만 폴링 → 요금 95% 감소
-      // account.routes.ts에서 OFF 상태 시 임계값 360초 사용 → 300초 대기와 호환
+      // 폴링 스위치 OFF — 에이전트에게 30초 대기 지시
+      // 30초마다 1회 ping = 분당 1회 → 비용 무시할 수준
+      // 사용자가 ON 누르면 최대 30초 내에 재개 (5분 대기 X)
       if (!_pollingEnabled) {
-        res.setHeader("Retry-After", "300");
-        return res.json({ job: null, pollingDisabled: true, retryAfter: 300 });
+        res.setHeader("Retry-After", "30");
+        return res.json({ job: null, pollingDisabled: true, retryAfter: 30 });
       }
 
       const supportsRaw =
@@ -646,8 +646,8 @@ export function registerKiwoomAgentRoutes(app: Express): void {
     const secondsAgo = _agentLastSeen
       ? Math.round((Date.now() - _agentLastSeen.getTime()) / 1000)
       : null;
-    // 폴링 OFF 상태엔 에이전트가 5분(300초)마다 체크 → 임계값 400초로 완화
-    const connectThreshold = _pollingEnabled ? 60 : 400;
+    // 에이전트는 OFF 상태에서도 30초마다 ping → 임계값 60초로 통일
+    const connectThreshold = 60;
     res.json({
       enabled: _pollingEnabled,
       isAgentConnected: secondsAgo !== null && secondsAgo < connectThreshold,

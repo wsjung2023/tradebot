@@ -129,13 +129,8 @@ export function registerAccountRoutes(app: Router) {
       }
 
       // ── 에이전트 미연결 조기 거절 (45초 timeout 낭비 방지) ─────────────────
-      // 장중(09:00-16:00 KST 평일)에는 60초, 장외에는 360초
-      const nowKst = new Date(Date.now() + 9 * 60 * 60 * 1000);
-      const kstHour = nowKst.getUTCHours();
-      const kstDay = nowKst.getUTCDay(); // 0=일, 6=토
-      const isMarketHours = kstDay >= 1 && kstDay <= 5 && kstHour >= 9 && kstHour < 16;
-      const agentConnectThresholdSec = isMarketHours ? 60 : 360;
-      if (!isAgentConnected(agentConnectThresholdSec)) {
+      // 에이전트는 OFF 상태에서도 30초마다 ping → 임계값 60초면 충분
+      if (!isAgentConnected(60)) {
         const ago = getAgentLastSeenSecondsAgo();
         const agoLabel = ago === null ? "한 번도 폴링 없음" : `마지막 폴링 ${ago}초 전`;
         return res.status(503).json({
