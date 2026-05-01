@@ -256,12 +256,11 @@ export function registerKiwoomAgentRoutes(app: Express): void {
       const agentVersionHeader = (req.headers["x-agent-version"] as string | undefined) ?? null;
       touchAgentSeen(agentVersionHeader);
 
-      // 폴링 스위치 OFF — 에이전트에게 30초 대기 지시
-      // 30초마다 1회 ping = 분당 1회 → 비용 무시할 수준
-      // 사용자가 ON 누르면 최대 30초 내에 재개 (5분 대기 X)
+      // 폴링 스위치 OFF — 에이전트에게 24시간 대기 지시
+      // 에이전트를 재시작하면 즉시 재개 가능
       if (!_pollingEnabled) {
-        res.setHeader("Retry-After", "30");
-        return res.json({ job: null, pollingDisabled: true, retryAfter: 30 });
+        res.setHeader("Retry-After", "86400");
+        return res.json({ job: null, pollingDisabled: true, retryAfter: 86400 });
       }
 
       const supportsRaw =

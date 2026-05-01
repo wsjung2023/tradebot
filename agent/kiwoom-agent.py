@@ -1272,8 +1272,11 @@ def fetch_next_job():
             data = resp.json()
             any_responded = True
 
-            # 서버 폴링 OFF — 이번엔 스킵 (마킹 X — 다음 폴링에서 재시도)
+            # 서버 폴링 OFF — retryAfter 초만큼 대기 후 재시도 (기본 24시간)
             if data.get("pollingDisabled"):
+                retry_secs = int(data.get("retryAfter", 86400))
+                logger.info(f"서버 #{idx+1} 폴링 OFF — {retry_secs//3600}시간 후 재시도 (에이전트 재시작 시 즉시 재개)")
+                time.sleep(retry_secs)
                 continue
 
             all_disabled = False  # 한 곳이라도 ON이면 짧은 interval 유지
