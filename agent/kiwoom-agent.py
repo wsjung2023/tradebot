@@ -1224,15 +1224,16 @@ _job_source_url = {}  # job_id → url 매핑 (결과 전송 시 같은 서버�
 
 # 글로벌 rate-limit 해제 시각 (에포크 초)
 _rate_limited_until: float = 0.0
-# URL별 폴링 비활성화 해제 시각 — 한 서버 OFF가 다른 서버 폴링을 막지 않음
-_polling_disabled_until: dict = {}  # {base_url: float}
+# 모든 URL이 폴링 OFF 상태일 때만 True → 메인 루프 interval 늘림
+_all_urls_disabled: bool = False
 
 
 def fetch_next_job():
-    """REPLIT_URLS 목록을 순서대로 폴링하여 job 반환"""
-    global _current_url_index, _rate_limited_until, _polling_disabled_until
+    """REPLIT_URLS 목록을 순서대로 폴링하여 job 반환.
+    URL별 마킹 없음 — 매 폴링마다 모든 URL 단순 시도.
+    어떤 URL이든 OFF면 빠른 빈 응답이라 비용 무시할 수준."""
+    global _current_url_index, _rate_limited_until, _all_urls_disabled
 
-    # 서버가 429를 반환한 경우 해제 시각까지 대기
     now = time.time()
     if _rate_limited_until > now:
         wait = _rate_limited_until - now
@@ -1240,17 +1241,12 @@ def fetch_next_job():
         time.sleep(min(wait, 60))
         return None
 
+    all_disabled = True
+    any_responded = False
+
     for i in range(len(REPLIT_URLS)):
         idx = (_current_url_index + i) % len(REPLIT_URLS)
         base_url = REPLIT_URLS[idx]
-
-        # URL별 폴링 비활성화 체크 — 이 서버만 스킵, 다른 서버는 계속 폴링
-        disabled_until = _polling_disabled_until.get(base_url, 0.0)
-        if disabled_until > now:
-            remaining = disabled_until - now
-            if int(remaining) % 60 < 20:
-                logger.info(f"[폴링 OFF] 서버 #{idx+1} — {remaining:.0f}초 후 재확인")
-            continue
 
         try:
             url = f"{base_url}/api/kiwoom-agent/jobs/next"
@@ -1265,44 +1261,35 @@ def fetch_next_job():
                 timeout=10
             )
 
-            # 429 Too Many Requests — Retry-After 헤더 또는 기본 60초 대기
             if resp.status_code == 429:
                 retry_after = int(resp.headers.get("Retry-After", "60"))
-                retry_after = max(retry_after, 30)  # 최소 30초
+                retry_after = max(retry_after, 30)
                 _rate_limited_until = time.time() + retry_after
-                logger.warning(
-                    f"서버 #{idx+1} Rate Limit (429) — {retry_after}초 후 재시도 "
-                    f"(AGENT_KEY가 올바른지, 서버가 에이전트 KEY를 인식하는지 확인하세요)"
-                )
-                return None
+                logger.warning(f"서버 #{idx+1} Rate Limit (429) — {retry_after}초 후 재시도")
+                continue  # 이 URL만 스킵, 다른 URL 계속
 
             resp.raise_for_status()
             data = resp.json()
+            any_responded = True
 
-            # 서버 폴링 스위치 OFF — 이 URL만 retryAfter 동안 스킵, 다른 URL은 정상 폴링
+            # 서버 폴링 OFF — 이번엔 스킵 (마킹 X — 다음 폴링에서 재시도)
             if data.get("pollingDisabled"):
-                retry_after = int(data.get("retryAfter", 300))
-                _polling_disabled_until[base_url] = time.time() + retry_after
-                logger.info(
-                    f"[폴링 OFF] 서버 #{idx+1} 스위치 비활성화 — "
-                    f"{retry_after}초({retry_after//60}분) 후 재확인"
-                )
-                continue  # 이 URL만 스킵, 다음 URL 계속 시도
+                continue
+
+            all_disabled = False  # 한 곳이라도 ON이면 짧은 interval 유지
 
             job = data.get("job")
             if job:
-                # 폴링 재개 시 이 URL의 비활성화 타이머 리셋
-                _polling_disabled_until[base_url] = 0.0
                 _current_url_index = (idx + 1) % len(REPLIT_URLS)
                 _job_source_url[job["id"]] = base_url
                 if len(REPLIT_URLS) > 1:
                     logger.info(f"서버 #{idx+1} ({base_url[:40]}...)에서 job #{job['id']} 수신")
                 return job
-            else:
-                # 잡 없음(정상) — 이 URL의 비활성화 타이머 리셋
-                _polling_disabled_until[base_url] = 0.0
         except Exception as e:
             logger.warning(f"서버 #{idx+1} 폴링 오류: {e}")
+
+    # 모든 URL이 응답하고 모두 OFF면 → 메인 루프 interval 늘리기
+    _all_urls_disabled = any_responded and all_disabled
     return None
 
 
@@ -1531,11 +1518,18 @@ def main():
         logger.info(f"계좌별 토큰 발급: {acnt_num}")
         refresh_kiwoom_token(is_mock=False, account_number=acnt_num)
 
+    # 폴링 대상 URL 명시 출력 (.env 설정 검증 — 운영/개발 둘 다 들어있는지 확인)
+    logger.info(f"폴링 대상 URL ({len(REPLIT_URLS)}개):")
+    for i, u in enumerate(REPLIT_URLS):
+        logger.info(f"  [{i+1}] {u}")
     logger.info(f"폴링 시작 — 장중(KST 09:00-16:00 평일) {POLL_INTERVAL}초 / 장외 {POLL_INTERVAL_IDLE}초 — Ctrl+C로 종료")
     consecutive_errors = 0
 
     while True:
+        # 모든 URL이 OFF면 interval 늘리기 (최소 30초) — ON 누르면 다음 폴링에 자동 감지
         interval = get_poll_interval()
+        if _all_urls_disabled:
+            interval = max(interval, 30)
         try:
             job = fetch_next_job()
             if job:
