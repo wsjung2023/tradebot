@@ -252,12 +252,12 @@ export function registerKiwoomAgentRoutes(app: Express): void {
       const agentVersionHeader = (req.headers["x-agent-version"] as string | undefined) ?? null;
       touchAgentSeen(agentVersionHeader);
 
-      // 폴링 스위치 OFF 상태면 잡 없음 즉시 반환 + 에이전트에게 5분 대기 지시
-      // retryAfter=300(5분) → 에이전트가 5분에 1번만 폴링 → 요금 95% 감소
-      // ON으로 전환 시 최대 5분 내 재개 (24시간짜리보다 현실적)
+      // 폴링 스위치 OFF 상태면 잡 없음 즉시 반환 + 에이전트에게 30초 대기 지시
+      // retryAfter=30 → agentLastSeen 갱신 유지(isAgentConnected 60초 임계값 내)
+      // ON으로 전환 시 최대 30초 내 재개
       if (!_pollingEnabled) {
-        res.setHeader("Retry-After", "300");
-        return res.json({ job: null, pollingDisabled: true, retryAfter: 300 });
+        res.setHeader("Retry-After", "30");
+        return res.json({ job: null, pollingDisabled: true, retryAfter: 30 });
       }
 
       const supportsRaw =
@@ -624,8 +624,8 @@ export function registerKiwoomAgentRoutes(app: Express): void {
     const agentKeyConfigured = !!AGENT_KEY;
     const lastSeen = _agentLastSeen ? _agentLastSeen.toISOString() : null;
     const secondsAgo = _agentLastSeen ? Math.round((Date.now() - _agentLastSeen.getTime()) / 1000) : null;
-    // 폴링 OFF 상태엔 에이전트가 5분(300초)마다 체크 → 임계값 400초로 완화
-    const connectThreshold = _pollingEnabled ? 30 : 400;
+    // 폴링 OFF 상태엔 에이전트가 30초마다 체크 → 임계값 90초로 완화
+    const connectThreshold = _pollingEnabled ? 30 : 90;
     const isActive = secondsAgo !== null && secondsAgo < connectThreshold;
     res.json({
       serverUrl,
@@ -642,8 +642,8 @@ export function registerKiwoomAgentRoutes(app: Express): void {
     const secondsAgo = _agentLastSeen
       ? Math.round((Date.now() - _agentLastSeen.getTime()) / 1000)
       : null;
-    // 폴링 OFF 상태엔 에이전트가 5분(300초)마다 체크 → 임계값 400초로 완화
-    const connectThreshold = _pollingEnabled ? 60 : 400;
+    // 폴링 OFF 상태엔 에이전트가 30초마다 체크 → 임계값 90초로 완화
+    const connectThreshold = _pollingEnabled ? 60 : 90;
     res.json({
       enabled: _pollingEnabled,
       isAgentConnected: secondsAgo !== null && secondsAgo < connectThreshold,
