@@ -1224,12 +1224,8 @@ _job_source_url = {}  # job_id → url 매핑 (결과 전송 시 같은 서버�
 
 # 글로벌 rate-limit 해제 시각 (에포크 초)
 _rate_limited_until: float = 0.0
-_polling_disabled_until: float = 0.0  # 서버 폴링 스위치 OFF 시 대기 해제 시각
-
-
-def is_polling_paused() -> bool:
-    """서버가 폴링 비활성화 신호를 보낸 상태인지 확인"""
-    return _polling_disabled_until > time.time()
+# URL별 폴링 비활성화 해제 시각 — 한 서버 OFF가 다른 서버 폴링을 막지 않음
+_polling_disabled_until: dict = {}  # {base_url: float}
 
 
 def fetch_next_job():
@@ -1247,6 +1243,15 @@ def fetch_next_job():
     for i in range(len(REPLIT_URLS)):
         idx = (_current_url_index + i) % len(REPLIT_URLS)
         base_url = REPLIT_URLS[idx]
+
+        # URL별 폴링 비활성화 체크 — 이 서버만 스킵, 다른 서버는 계속 폴링
+        disabled_until = _polling_disabled_until.get(base_url, 0.0)
+        if disabled_until > now:
+            remaining = disabled_until - now
+            if int(remaining) % 60 < 20:
+                logger.info(f"[폴링 OFF] 서버 #{idx+1} — {remaining:.0f}초 후 재확인")
+            continue
+
         try:
             url = f"{base_url}/api/kiwoom-agent/jobs/next"
             resp = requests.get(
@@ -1274,29 +1279,28 @@ def fetch_next_job():
             resp.raise_for_status()
             data = resp.json()
 
-            # 서버 폴링 스위치 OFF — retryAfter 동안 HTTP 요청 없이 대기
-            # 메인 루프에서 is_polling_paused()를 확인하여 실제 요청을 건너뜀
+            # 서버 폴링 스위치 OFF — 이 URL만 retryAfter 동안 스킵, 다른 URL은 정상 폴링
             if data.get("pollingDisabled"):
                 retry_after = int(data.get("retryAfter", 300))
-                _polling_disabled_until = time.time() + retry_after
+                _polling_disabled_until[base_url] = time.time() + retry_after
                 logger.info(
-                    f"[폴링 OFF] 서버 스위치 비활성화됨 — "
-                    f"{retry_after}초({retry_after//60}분) 후 재확인 (이 사이 HTTP 요청 없음)"
+                    f"[폴링 OFF] 서버 #{idx+1} 스위치 비활성화 — "
+                    f"{retry_after}초({retry_after//60}분) 후 재확인"
                 )
-                return None
+                continue  # 이 URL만 스킵, 다음 URL 계속 시도
 
             job = data.get("job")
             if job:
-                # 폴링이 재개된 경우 비활성화 타이머 리셋
-                _polling_disabled_until = 0.0
+                # 폴링 재개 시 이 URL의 비활성화 타이머 리셋
+                _polling_disabled_until[base_url] = 0.0
                 _current_url_index = (idx + 1) % len(REPLIT_URLS)
                 _job_source_url[job["id"]] = base_url
                 if len(REPLIT_URLS) > 1:
                     logger.info(f"서버 #{idx+1} ({base_url[:40]}...)에서 job #{job['id']} 수신")
                 return job
             else:
-                # 잡 없음(정상) — 폴링 비활성화 타이머 리셋
-                _polling_disabled_until = 0.0
+                # 잡 없음(정상) — 이 URL의 비활성화 타이머 리셋
+                _polling_disabled_until[base_url] = 0.0
         except Exception as e:
             logger.warning(f"서버 #{idx+1} 폴링 오류: {e}")
     return None
@@ -1533,14 +1537,6 @@ def main():
     while True:
         interval = get_poll_interval()
         try:
-            # 서버 폴링 스위치 OFF 상태 — HTTP 요청 없이 대기 (요금 절감)
-            if is_polling_paused():
-                remaining = _polling_disabled_until - time.time()
-                if int(remaining) % 300 < interval:  # 5분마다 로그
-                    logger.info(f"[폴링 OFF] 대기 중 — {remaining:.0f}초 남음. 스위치 ON 시 즉시 재개")
-                time.sleep(interval)
-                continue
-
             job = fetch_next_job()
             if job:
                 process_job(job)
