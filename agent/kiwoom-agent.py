@@ -1525,11 +1525,17 @@ def main():
     logger.info(f"폴링 시작 — 장중(KST 09:00-16:00 평일) {POLL_INTERVAL}초 / 장외 {POLL_INTERVAL_IDLE}초 — Ctrl+C로 종료")
     consecutive_errors = 0
 
+    _prev_all_disabled = False
     while True:
-        # 모든 URL이 OFF면 interval 늘리기 (최소 30초) — ON 누르면 다음 폴링에 자동 감지
+        # 모든 URL이 OFF면 24시간 대기 — 에이전트 재시작하거나 24시간 후 자동 재시도
         interval = get_poll_interval()
         if _all_urls_disabled:
-            interval = max(interval, 30)
+            if not _prev_all_disabled:
+                logger.info("서버 폴링 OFF 감지 — 24시간 후 재시도 (에이전트 재시작하면 즉시 재개)")
+            _prev_all_disabled = True
+            interval = 86400  # 24시간
+        else:
+            _prev_all_disabled = False
         try:
             job = fetch_next_job()
             if job:
