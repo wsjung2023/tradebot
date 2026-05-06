@@ -10,11 +10,13 @@ if (!resolvedDatabaseUrl) {
   throw new Error("DATABASE_URL 또는 NEON_DATABASE_URL 이 설정되어야 합니다.");
 }
 
+const isLocalDb = resolvedDatabaseUrl.includes('localhost') || resolvedDatabaseUrl.includes('127.0.0.1');
+
 const poolConfig = {
   connectionString: resolvedDatabaseUrl,
   idleTimeoutMillis: 10000,
   connectionTimeoutMillis: 5000,
-  ssl: { rejectUnauthorized: false },
+  ssl: isLocalDb ? false : { rejectUnauthorized: false },
   keepAlive: true,
   keepAliveInitialDelayMillis: 5000,
 };

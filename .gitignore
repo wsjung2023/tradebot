@@ -13,3 +13,4 @@ agent/.env
 *.pem
 *.key
 artifacts/
+.playwright-mcp/
