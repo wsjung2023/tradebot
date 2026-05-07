@@ -647,17 +647,131 @@ export class TradeExecutorService {
     kiwoomService: KiwoomService,
     aiService: AIService
   ): Promise<void> {
+    const decidedAt = new Date();
+    const dailyKey = this.todayKST();
+    const modelConfig = (model.config as any) || {};
+    const modelSnapshot = {
+      id: model.id,
+      modelName: model.modelName,
+      modelType: model.modelType,
+      aiModelId: modelConfig.aiModelId ?? 'gpt-5.1',
+      accountId: modelConfig.accountId ?? null,
+      config: modelConfig,
+    };
+    const settingsSnapshot = {
+      minAiConfidence: settings.minAiConfidence,
+      requireGoodFinancials: settings.requireGoodFinancials,
+      requireHighLiquidity: settings.requireHighLiquidity,
+      requireMarketIssue: settings.requireMarketIssue,
+      maxDailyTrades: settings.maxDailyTrades,
+      defaultPositionSize: settings.defaultPositionSize,
+      rainbowLineSettings: settings.rainbowLineSettings,
+    };
+
+    const persistCandidateEvaluation = async (
+      accepted: boolean,
+      skipReason: string | null,
+      details: Record<string, unknown>,
+    ) => {
+      if (!candidate.id) return;
+      await storage.updateCandidateEvaluation(candidate.id, {
+        evaluationResult: {
+          accepted,
+          skipReason,
+          decidedAt: decidedAt.toISOString(),
+          dailyKey,
+          modelSnapshot,
+          settingsSnapshot,
+          ...details,
+        },
+        skipReason,
+        evaluatedAt: decidedAt,
+      });
+    };
+
+    const logDecision = async (params: {
+      accepted: boolean;
+      rejectReason: string | null;
+      decisionType: string;
+      qualitativeReason: string;
+      quantitativeReason?: Record<string, unknown>;
+      marketAnalysis?: AiAnalysisResult;
+      currentLine?: number;
+      unitCount?: number;
+    }) => {
+      await storage.createCandidateDecisionLog({
+        modelId: model.id,
+        stockCode: candidate.stockCode,
+        stockName: candidate.stockName || candidate.stockCode,
+        scorecard: params.marketAnalysis
+          ? this.buildCandidateScorecard(params.marketAnalysis)
+          : null,
+        aiDecision: {
+          accepted: params.accepted,
+          decisionType: params.decisionType,
+          qualitativeReason: params.qualitativeReason,
+          quantitativeReason: params.quantitativeReason ?? null,
+          dailyKey,
+          decidedAt: decidedAt.toISOString(),
+          modelSnapshot,
+          settingsSnapshot,
+          currentLine: params.currentLine ?? null,
+          unitCount: params.unitCount ?? null,
+          marketAnalysis: params.marketAnalysis ?? null,
+          candidateContext: {
+            candidateId: candidate.id,
+            source: candidate.source,
+            scannedLine: candidate.scannedLine,
+          },
+        },
+        ladderPlan: null,
+        accepted: params.accepted,
+        rejectReason: params.rejectReason ?? null,
+        strategyVersion: 'v2',
+      });
+
+      await persistCandidateEvaluation(params.accepted, params.rejectReason, {
+        decisionType: params.decisionType,
+        qualitativeReason: params.qualitativeReason,
+        quantitativeReason: params.quantitativeReason ?? null,
+      });
+    };
+
     try {
       const priceData = await kiwoomService.getStockPrice(candidate.stockCode);
       const price = parseFloat(priceData.output?.stck_prpr ?? '0');
-      if (!price) return;
+      if (!price) {
+        await logDecision({
+          accepted: false,
+          rejectReason: 'price_unavailable',
+          decisionType: 'precheck_price_unavailable',
+          qualitativeReason: '현재가를 확보하지 못해 평가를 중단했습니다.',
+        });
+        return;
+      }
       const stock = { code: candidate.stockCode, name: candidate.stockName, price };
 
-      const config = (model.config as any) || {};
-      if (!config.accountId) return;
+      const config = modelConfig;
+      if (!config.accountId) {
+        await logDecision({
+          accepted: false,
+          rejectReason: 'account_not_configured',
+          decisionType: 'precheck_account_not_configured',
+          qualitativeReason: '모델에 연결된 계좌가 없어 평가를 중단했습니다.',
+        });
+        return;
+      }
       const accounts = await storage.getKiwoomAccounts(model.userId);
       const activeAccount = accounts.find((a: any) => a.id === config.accountId);
-      if (!activeAccount) return;
+      if (!activeAccount) {
+        await logDecision({
+          accepted: false,
+          rejectReason: 'account_not_found',
+          decisionType: 'precheck_account_not_found',
+          qualitativeReason: '설정된 계좌를 찾을 수 없어 평가를 중단했습니다.',
+        });
+        return;
+      }
 
       // ── 시장 이슈 종목 필터 ──────────────────────────────────────────────
       if (settings.requireMarketIssue) {
@@ -667,6 +781,13 @@ export class TradeExecutorService {
         if (!hasTodayIssue) {
           console.log(`    ⚠️  시장 이슈 관련 종목 아님 (${stock.code}, ${today}) - 스킵`);
           storage.createEngineNotification({ userId: model.userId, severity: 'info', type: 'SKIP', message: `[스킵] ${candidate.stockName} — 시장이슈 미등록`, payload: { stockCode: candidate.stockCode, stockName: candidate.stockName, skipReason: '시장이슈 미등록' } }).catch(e => console.error('[Notification]', e));
+          await logDecision({
+            accepted: false,
+            rejectReason: 'market_issue_required',
+            decisionType: 'filter_market_issue',
+            qualitativeReason: '당일 장 이슈 종목 조건을 충족하지 못했습니다.',
+            quantitativeReason: { issueDate: today, issueCount: issues.length },
+          });
           return;
         }
         console.log(`    ✅ 시장 이슈 확인됨: ${stock.code}`);
@@ -681,24 +802,56 @@ export class TradeExecutorService {
       if (minConf > 0 && marketAnalysis.confidence < minConf) {
         console.log(`    ⚠️  종합 점수 ${marketAnalysis.confidence.toFixed(1)}% < 최솟값 ${minConf}% - 스킵`);
         storage.createEngineNotification({ userId: model.userId, severity: 'info', type: 'SKIP', message: `[스킵] ${candidate.stockName} — AI신뢰도 미달 (${marketAnalysis.confidence.toFixed(1)}% < ${minConf}%)`, payload: { stockCode: candidate.stockCode, stockName: candidate.stockName, skipReason: 'minAiConf미달', confidence: marketAnalysis.confidence, themeScore: marketAnalysis.themeScore, newsScore: marketAnalysis.newsScore, financialsScore: marketAnalysis.financialsScore, liquidityScore: marketAnalysis.liquidityScore, institutionalScore: marketAnalysis.institutionalScore } }).catch(e => console.error('[Notification]', e));
+        await logDecision({
+          accepted: false,
+          rejectReason: 'min_ai_confidence_not_met',
+          decisionType: 'filter_min_ai_confidence',
+          qualitativeReason: 'AI 종합 점수가 최소 신뢰도 기준을 충족하지 못했습니다.',
+          quantitativeReason: { confidence: marketAnalysis.confidence, minConfidence: minConf },
+          marketAnalysis,
+        });
         return;
       }
       // ── 재무건전성 필터 ──────────────────────────────────────────────────
       if (settings.requireGoodFinancials && !marketAnalysis.hasGoodFinancials) {
         console.log(`    ⚠️  재무건전성 미충족 (financialsScore=${marketAnalysis.financialsScore} < 60) - 스킵`);
         storage.createEngineNotification({ userId: model.userId, severity: 'info', type: 'SKIP', message: `[스킵] ${candidate.stockName} — 재무건전성 미충족 (${marketAnalysis.financialsScore})`, payload: { stockCode: candidate.stockCode, stockName: candidate.stockName, skipReason: '재무필터', financialsScore: marketAnalysis.financialsScore } }).catch(e => console.error('[Notification]', e));
+        await logDecision({
+          accepted: false,
+          rejectReason: 'financials_not_met',
+          decisionType: 'filter_financials',
+          qualitativeReason: '재무건전성 조건을 충족하지 못했습니다.',
+          quantitativeReason: { financialsScore: marketAnalysis.financialsScore, threshold: 60 },
+          marketAnalysis,
+        });
         return;
       }
       // ── 유동성 필터 ─────────────────────────────────────────────────────
       if (settings.requireHighLiquidity && !marketAnalysis.hasHighLiquidity) {
         console.log(`    ⚠️  유동성 미충족 (liquidityScore=${marketAnalysis.liquidityScore} < 40) - 스킵`);
         storage.createEngineNotification({ userId: model.userId, severity: 'info', type: 'SKIP', message: `[스킵] ${candidate.stockName} — 유동성 미충족 (${marketAnalysis.liquidityScore})`, payload: { stockCode: candidate.stockCode, stockName: candidate.stockName, skipReason: '유동성필터', liquidityScore: marketAnalysis.liquidityScore } }).catch(e => console.error('[Notification]', e));
+        await logDecision({
+          accepted: false,
+          rejectReason: 'liquidity_not_met',
+          decisionType: 'filter_liquidity',
+          qualitativeReason: '유동성 조건을 충족하지 못했습니다.',
+          quantitativeReason: { liquidityScore: marketAnalysis.liquidityScore, threshold: 40 },
+          marketAnalysis,
+        });
         return;
       }
       // ── DART 위험공시 — 설정 무관하게 무조건 차단 ────────────────────────
       if (marketAnalysis.dartDangerKeyword) {
         console.log(`    🚫 DART 위험공시 감지 [${marketAnalysis.dartDangerKeyword}] - 매수 차단`);
         storage.createEngineNotification({ userId: model.userId, severity: 'warn', type: 'SKIP', message: `[차단] ${candidate.stockName} — DART 위험공시 [${marketAnalysis.dartDangerKeyword}]`, payload: { stockCode: candidate.stockCode, stockName: candidate.stockName, skipReason: 'DART위험', dartDangerKeyword: marketAnalysis.dartDangerKeyword } }).catch(e => console.error('[Notification]', e));
+        await logDecision({
+          accepted: false,
+          rejectReason: 'dart_danger_disclosure',
+          decisionType: 'filter_dart_danger',
+          qualitativeReason: 'DART 위험 공시가 감지되어 매수를 차단했습니다.',
+          quantitativeReason: { dartDangerKeyword: marketAnalysis.dartDangerKeyword },
+          marketAnalysis,
+        });
         return;
       }
 
@@ -712,23 +865,101 @@ export class TradeExecutorService {
       if (!existingHolding) {
         const unitCount = this.getUnitCountForLine(currentLine, config);
         if (unitCount > 0 && currentLine <= 50) {
+          await logDecision({
+            accepted: true,
+            rejectReason: null,
+            decisionType: 'entry_selected',
+            qualitativeReason: '진입 조건을 충족해 매수 대상으로 선정되었습니다.',
+            quantitativeReason: { currentLine, unitCount, confidence: marketAnalysis.confidence },
+            marketAnalysis,
+            currentLine,
+            unitCount,
+          });
           await this.executeBuy(model, settings, stock, rainbowEval, marketAnalysis, kiwoomService);
+        } else {
+          await logDecision({
+            accepted: false,
+            rejectReason: 'line_or_unit_not_met',
+            decisionType: 'filter_entry_line_or_unit',
+            qualitativeReason: '진입 라인/유닛 조건을 충족하지 못했습니다.',
+            quantitativeReason: { currentLine, unitCount },
+            marketAnalysis,
+            currentLine,
+            unitCount,
+          });
         }
       } else {
         const perfEntry = await storage.getTradingPerformanceByStock(model.id, stock.code);
         const entryLine = perfEntry?.entryRainbowLine ?? candidate.scannedLine ?? 50;
         if (entryLine <= 10) {
           console.log(`    ⏭️  ${stock.code} entryLine=${entryLine} — 최하위 라인, 추가매수 불가`);
+          await logDecision({
+            accepted: false,
+            rejectReason: 'already_holding_lowest_line',
+            decisionType: 'holding_no_additional_buy',
+            qualitativeReason: '이미 보유 중이며 최하위 라인이라 추가매수 대상이 아닙니다.',
+            quantitativeReason: { entryLine, currentLine },
+            marketAnalysis,
+            currentLine,
+          });
         } else {
           const nextLowerLine = entryLine - 10;
           if (currentLine <= nextLowerLine && currentLine >= 10) {
+            await logDecision({
+              accepted: true,
+              rejectReason: null,
+              decisionType: 'holding_additional_buy',
+              qualitativeReason: '보유 종목 추가매수 조건을 충족했습니다.',
+              quantitativeReason: { entryLine, nextLowerLine, currentLine },
+              marketAnalysis,
+              currentLine,
+            });
             await this.executeAdditionalBuy(model, settings, stock, existingHolding, rainbowEval, kiwoomService);
+          } else {
+            await logDecision({
+              accepted: false,
+              rejectReason: 'already_holding_waiting_line',
+              decisionType: 'holding_waiting_for_next_line',
+              qualitativeReason: '보유 종목이며 다음 하단 라인 도달 전이라 추가매수를 보류합니다.',
+              quantitativeReason: { entryLine, nextLowerLine, currentLine },
+              marketAnalysis,
+              currentLine,
+            });
           }
         }
       }
     } catch (err) {
       console.error(`    ❌ evaluateCandidateStock ${candidate.stockCode}:`, err);
+      await logDecision({
+        accepted: false,
+        rejectReason: 'evaluation_exception',
+        decisionType: 'evaluation_exception',
+        qualitativeReason: '평가 중 예외가 발생했습니다.',
+        quantitativeReason: { error: err instanceof Error ? err.message : String(err) },
+      });
     }
+  }
+
+  async manageOpenPositions(
+    model: AiModel,
+    settings: AutoTradingSettings,
+    _activeAccount: any,
+    kiwoomService: KiwoomService,
+    _aiService: AIService
+  ): Promise<void> {
+    // Keep a single exit-management path for now.
+    await this.checkPositionsForExits(model, settings, kiwoomService);
+  }
+
+  private buildCandidateScorecard(analysis: AiAnalysisResult): Record<string, number> {
+    return {
+      themeScore: analysis.themeScore,
+      newsScore: analysis.newsScore,
+      financialsScore: analysis.financialsScore,
+      liquidityScore: analysis.liquidityScore,
+      institutionalScore: analysis.institutionalScore,
+      totalScore: analysis.confidence,
+    };
   }
 
   private getUnitCountForLine(currentLine: number, config: any): number {
@@ -807,7 +1038,7 @@ export class TradeExecutorService {
     }
   }
 
-  async createDefaultSettings(modelId: number): Promise<void> {
+  async createDefaultSettings(modelId: number, _modelType?: string): Promise<void> {
     const defaultRainbowSettings = [
       { line: 10, buyWeight: 100, sellWeight: 0 },
       { line: 20, buyWeight: 90,  sellWeight: 0 },

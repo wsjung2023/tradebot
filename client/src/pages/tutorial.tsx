@@ -3,281 +3,302 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
-  ChevronLeft, ChevronRight, Database, Brain, Filter, ShoppingCart,
-  TrendingDown, GraduationCap, Clock, AlertTriangle, CheckCircle2,
-  ArrowDown, Layers
+  AlertTriangle,
+  Bot,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  GraduationCap,
+  Layers,
+  Monitor,
+  Newspaper,
+  Search,
+  ServerCog,
+  Settings2,
+  SlidersHorizontal,
 } from "lucide-react";
 
-interface FlowStep {
+interface TutorialStep {
   id: number;
   phase: string;
   title: string;
   icon: any;
   color: string;
   trigger: string;
-  description: string;
-  process: { step: string; detail: string }[];
-  decision?: { condition: string; yes: string; no: string };
+  goal: string;
+  operatorAction: string[];
+  systemAction: string[];
+  checkpoints: string[];
+  failCase?: { condition: string; action: string };
   output: string;
-  code?: string;
-  notes?: string[];
 }
 
-const flowSteps: FlowStep[] = [
+const steps: TutorialStep[] = [
   {
     id: 1,
-    phase: "스캔",
-    title: "조건검색 & 후보 수집",
-    icon: Database,
+    phase: "연결",
+    title: "설정 페이지에서 연동 준비",
+    icon: Settings2,
     color: "neon-cyan",
-    trigger: "매 30분 (cron: */30 * * * *)",
-    description: "키움증권 API를 통해 '뒷차기2' 조건을 만족하는 종목을 수집하고, DART 위험공시를 필터링한 후 DB에 저장합니다.",
-    process: [
-      { step: "활성 모델 조회", detail: "DB에서 status='active'인 AI 모델 전체를 가져옵니다" },
-      { step: "키움 에이전트 확인", detail: "각 모델의 계좌로 키움 에이전트 연결 상태를 확인합니다" },
-      { step: "뒷차기2 조건검색 실행", detail: "키움 Open API 조건검색 실행 → 조건 만족 종목 목록 수신" },
-      { step: "DART 위험공시 조회", detail: "각 종목의 최근 공시를 DART API로 조회합니다" },
-      { step: "위험 키워드 필터링", detail: "유상증자·전환사채·횡령·배임·관리종목 등 13종 키워드 포함 시 제외" },
-      { step: "candidate_stocks 저장", detail: "통과한 종목을 DB에 upsert (source='뒷차기2')" },
+    trigger: "최초 1회 / 재시작 후",
+    goal: "실제 주문 가능한 연결 상태를 만든다",
+    operatorAction: [
+      "설정 > 키움증권 API 키(APP KEY/APP SECRET)를 저장한다.",
+      "설정 > 집 PC 에이전트 연결 배지(연결됨/미연결)를 확인한다.",
+      "설정 > 거래 모드(모의투자/실전투자)를 의도대로 맞춘다.",
     ],
-    decision: {
-      condition: "조건검색 결과가 0건인가?",
-      yes: "기존 candidate_stocks 전체 삭제 (초기화)",
-      no: "정상 저장 완료"
+    systemAction: [
+      "서버 URL, 마지막 폴링, 폴링 횟수를 표시한다.",
+      "에이전트 미연결 시 미연결 상태와 점검 안내를 보여준다.",
+    ],
+    checkpoints: [
+      "에이전트 상태가 '연결됨'",
+      "키움 키 저장 완료 토스트 확인",
+    ],
+    failCase: {
+      condition: "에이전트가 미연결 또는 폴링 지연",
+      action: "집 PC 에이전트(.env REPLIT_URLS 포함)부터 복구한 후 진행한다.",
     },
-    output: "candidate_stocks 테이블에 유효 후보 종목 목록 갱신",
-    notes: [
-      "스캔잡은 키움 에이전트가 실행 중이어야 작동합니다",
-      "DART 필터는 스캔 단계와 매수 단계 두 번 적용됩니다",
-    ]
+    output: "연결 준비 완료",
   },
   {
     id: 2,
-    phase: "매매",
-    title: "매매 사이클 시작 & 사전 검증",
-    icon: Clock,
+    phase: "모델",
+    title: "자동매매 모델 생성 및 작동 전환",
+    icon: Bot,
     color: "neon-purple",
-    trigger: "매 1분 (cron: * * * * *)",
-    description: "1분마다 실행되지만, 한국 주식 시장이 열려 있는 평일 09:00~15:30에만 실제 매매 판단을 수행합니다.",
-    process: [
-      { step: "한국장 개장 확인", detail: "isKoreanMarketOpen() → 평일 09:00~15:30 외에는 사이클 종료" },
-      { step: "활성 모델 순회 시작", detail: "status='active' 모델 전체를 차례로 처리" },
-      { step: "autoTradingEnabled 확인", detail: "모델별 사용자 설정 조회 → false이면 해당 모델 건너뜀" },
-      { step: "키움 서비스 초기화", detail: "해당 모델의 계좌 정보로 KiwoomService 인스턴스 획득" },
-      { step: "에이전트 타임아웃 체크", detail: "10분 이내 연속 3회 타임아웃 시 모델 자동 비활성화" },
+    trigger: "새 전략 추가 시",
+    goal: "운영할 전략 모델을 만들고 활성화한다",
+    operatorAction: [
+      "자동매매 > AI 모델 생성 버튼을 누른다.",
+      "전략 유형(모멘텀/가치투자/기술적분석/커스텀)을 선택한다.",
+      "모델 카드의 스위치를 켜서 '작동중'으로 전환한다.",
     ],
-    output: "각 모델별로 청산 판단 → 신규 매수 판단 → 추가매수 판단 순서로 진행",
-    notes: [
-      "모든 모델이 같은 1분 사이클에서 처리됩니다",
-      "에이전트 응답 없음이 10분 내 3회 누적되면 자동 비활성화됩니다",
-    ]
+    systemAction: [
+      "모델별 기본 프리셋(손절 정책/라더/가중치)을 생성한다.",
+      "모델 목록 카드에 수익률/승률/총거래 지표를 표시한다.",
+    ],
+    checkpoints: [
+      "모델 카드가 목록에 생성됨",
+      "스위치 ON 후 상태가 작동중으로 변경됨",
+    ],
+    output: "활성 모델 준비",
   },
   {
     id: 3,
-    phase: "청산",
-    title: "보유 포지션 청산 판단",
-    icon: TrendingDown,
+    phase: "세부설정",
+    title: "모델 상세 설정 저장",
+    icon: SlidersHorizontal,
     color: "neon-green",
-    trigger: "매매 사이클 내 — 신규 매수보다 먼저 실행",
-    description: "보유 중인 모든 포지션을 점검하고, 익절·손절·급등청산·장기보유청산 조건을 순서대로 확인합니다.",
-    process: [
-      { step: "보유 포지션 전체 조회", detail: "해당 모델의 auto_trading_positions에서 보유 종목 가져오기" },
-      { step: "현재가 조회", detail: "키움 에이전트를 통해 각 종목의 실시간 현재가 수신" },
-      { step: "수익률 계산", detail: "profitRate = (현재가 - 평균매수가) / 평균매수가 × 100" },
-      { step: "익절 조건 확인", detail: "profitRate ≥ takeProfitPercent% → 전량 시장가 매도" },
-      { step: "손절 조건 확인", detail: "|profitRate| ≥ stopLoss.percent% (손실 중일 때) → 전량 매도" },
-      { step: "급등 청산 확인", detail: "profitRate ≥ surgeThreshold% → 조기 익절 매도" },
-      { step: "장기보유 청산 확인", detail: "보유일수 ≥ stalePeriodDays 이고 손실 중 → 청산" },
+    trigger: "모델 선택 후",
+    goal: "진입/청산/리스크 기준을 모델별로 확정한다",
+    operatorAction: [
+      "모델 카드를 클릭해 자동매매 설정 카드를 연다.",
+      "계좌(account), maxDailyTrades, AI 최소 신뢰도, 가중치를 조정한다.",
+      "entryLadder, stopLossPolicy, AI 재량 스위치를 설정하고 저장한다.",
     ],
-    code: `청산 우선순위:
-1순위. 익절 (takeProfitPercent)
-2순위. 손절 (stopLoss)
-3순위. 급등 청산 (surgeThreshold)
-4순위. 장기보유 청산 (stalePeriodDays + 손실)`,
-    output: "매도 주문 실행 → auto_trading_positions 업데이트 → 거래 로그 기록",
+    systemAction: [
+      "가중치 합계가 100%가 아니면 저장을 거부한다.",
+      "라더 총 유닛이 종목당 최대 유닛을 초과하면 저장을 거부한다.",
+      "구형 설정 감지 시 전환 안내를 표시한다.",
+    ],
+    checkpoints: [
+      "설정 저장 완료 토스트",
+      "저장 후 값 재조회 시 동일하게 반영됨",
+    ],
+    failCase: {
+      condition: "조건검색식(conditionSearchSequences)이 비어 있음",
+      action: "조건검색식 섹션에서 최소 1개를 추가하지 않으면 스캔이 실행되지 않는다.",
+    },
+    output: "모델별 운용 기준 확정",
   },
   {
     id: 4,
-    phase: "분석",
-    title: "GPT 종합 분석 (comprehensiveAiAnalysis)",
-    icon: Brain,
+    phase: "이슈",
+    title: "시장 이슈 종목 등록(선택)",
+    icon: Newspaper,
     color: "neon-cyan",
-    trigger: "신규 매수 후보 종목 1개당 실행",
-    description: "GPT 호출 2개(analyzeStock, integratedAnalysis)가 병렬로 실행되고, 거래량 기반 점수 2개를 규칙으로 계산합니다.",
-    process: [
-      { step: "candidate_stocks 조회", detail: "현재 DB에 저장된 후보 종목 목록 가져오기 (이미 보유 중인 종목 제외)" },
-      { step: "[병렬] analyzeStock() 호출", detail: "GPT에게 테마/모멘텀/기술적 신호 분석 요청 → themeScore (0~100) 반환" },
-      { step: "[병렬] integratedAnalysis() 호출", detail: "GPT에게 뉴스·DART·PER/PBR/ROE 분석 요청 → newsScore, financialScore (0~100) 반환" },
-      { step: "liquidityScore 계산", detail: "거래량 기준 규칙: ≥500K→80, ≥100K→65, ≥50K→45, 기타→25" },
-      { step: "institutionalScore 계산", detail: "동일 acml_vol로 더 높은 임계값 적용: ≥1M→75, ≥500K→65, ≥100K→55, ≥50K→45, 기타→35 (별도 기관 데이터 없음)" },
-      { step: "가중합산 → confidence", detail: "5개 점수 × 각 슬라이더 가중치(%) → 합산 = confidence (0~100)" },
-      { step: "DART 위험공시 이중확인", detail: "dartDangerKeyword 있으면 이 단계에서도 차단" },
+    trigger: "requireMarketIssue 사용 시",
+    goal: "당일 이슈 종목만 진입하도록 제어한다",
+    operatorAction: [
+      "자동매매 > 시장 이슈 종목 관리에서 날짜를 선택한다.",
+      "종목/유형/영향도를 입력해 등록한다.",
+      "모델 설정에서 requireMarketIssue ON 여부를 결정한다.",
     ],
-    code: `confidence = (
-  themeScore         × themeWeight         (기본 20)
-+ newsScore          × newsWeight          (기본 15)
-+ financialScore     × financialsWeight    (기본 25)
-+ liquidityScore     × liquidityWeight     (기본 20)
-+ institutionalScore × institutionalWeight (기본 20)
-) / totalWeight   ← 슬라이더 합계로 나눔 (자동 정규화)
-
-hasGoodFinancials = financialScore ≥ 60
-hasHighLiquidity  = liquidityScore ≥ 40`,
-    output: "confidence, themeScore, newsScore, financialsScore, liquidityScore, institutionalScore, dartDangerKeyword",
-    notes: [
-      "GPT 모델은 설정 메뉴 → AI 설정에서 선택한 모델을 사용합니다",
-      "병렬 실행이므로 두 GPT 호출이 동시에 진행됩니다",
-    ]
+    systemAction: [
+      "이슈 데이터는 날짜(YYYYMMDD) 기준으로 저장/조회한다.",
+      "requireMarketIssue ON이면 당일 미등록 종목을 SKIP 처리한다.",
+    ],
+    checkpoints: [
+      "테이블에 등록 종목이 보임",
+      "모니터 피드에 시장이슈 미등록 SKIP 사유가 기록됨",
+    ],
+    output: "이슈 기반 진입 필터 구성",
   },
   {
     id: 5,
-    phase: "필터",
-    title: "매수 필터 순차 적용",
-    icon: Filter,
+    phase: "잡제어",
+    title: "배치잡 시작 및 주기 조정",
+    icon: ServerCog,
     color: "neon-purple",
-    trigger: "종목 평가 시작 직후",
-    description: "평가 시작 시 6가지 필터를 순서대로 적용합니다. ①은 GPT 호출 전, ②~⑥은 GPT 분석 후 적용됩니다. 하나라도 탈락하면 해당 종목은 이번 사이클에서 스킵됩니다.",
-    process: [
-      { step: "① 시장이슈 필터", detail: "requireMarketIssue=ON이면 오늘 날짜 market_issues DB에 없는 종목 스킵 — GPT 호출 전 최우선 체크" },
-      { step: "② confidence 최소값 체크", detail: "confidence < minAiConfidence → 스킵 ('⚠️ AI confidence X% < threshold Y%')" },
-      { step: "③ 재무건전성 필터", detail: "requireGoodFinancials=ON 이고 financialScore < 60 → 스킵" },
-      { step: "④ 유동성 필터", detail: "requireHighLiquidity=ON 이고 liquidityScore < 40 → 스킵" },
-      { step: "⑤ DART 위험공시 차단", detail: "dartDangerKeyword 존재 → 설정 무관 무조건 스킵 ('🚫 DART 위험공시 감지')" },
-      { step: "⑥ 레인보우 라인 체크", detail: "currentLine > 50 또는 unitCount = 0 → 매수 조건 미충족" },
-      { step: "[executeBuy 내부] 보유 종목 수", detail: "현재 보유수 ≥ maxPositions → 주문 취소 (레인보우 판단 이후 최종 확인)" },
-      { step: "[executeBuy 내부] 일일 한도", detail: "오늘 자동매매 건수 ≥ maxDailyTrades → 주문 취소" },
+    trigger: "운영 시작 전",
+    goal: "스캔/매매/학습 등 백그라운드 작업을 실행한다",
+    operatorAction: [
+      "배치잡 관리에서 필요한 잡을 시작한다.",
+      "필요 시 분/초/시각 주기를 수정한다.",
+      "테스트 시 즉시 실행 버튼으로 단발 검증한다.",
     ],
-    decision: {
-      condition: "모든 필터 통과?",
-      yes: "매수 주문 실행 단계로 진행",
-      no: "해당 종목 스킵, 다음 후보 종목으로"
-    },
-    output: "통과 시: 매수 실행. 탈락 시: 로그에 사유 기록 후 스킵",
+    systemAction: [
+      "잡 상태, 마지막/다음 실행, 오류 횟수를 표시한다.",
+      "시작/중지 상태와 주기 설정을 DB에 저장해 재시작 후 유지한다.",
+    ],
+    checkpoints: [
+      "대상 잡 상태가 '실행 중'",
+      "다음 실행 시간(nextRun)이 갱신됨",
+    ],
+    output: "자동 실행 루프 가동",
   },
   {
     id: 6,
-    phase: "매수",
-    title: "신규 매수 주문 실행",
-    icon: ShoppingCart,
+    phase: "스캔",
+    title: "후보 종목 수집 사이클",
+    icon: Search,
     color: "neon-green",
-    trigger: "모든 필터 통과 + 레인보우 currentLine ≤ 50",
-    description: "유닛 기반으로 주문 수량을 계산하고 시장가 매수 주문을 실행합니다.",
-    process: [
-      { step: "레인보우 라인 확정", detail: "현재가로 currentLine 계산 (10~50% 중 하나)" },
-      { step: "유닛 수 조회", detail: "lineUnits[currentLine] → 해당 라인 유닛 수 (설정에서 지정)" },
-      { step: "주문 수량 계산", detail: "qty = floor(unitSize × unitCount ÷ 현재가)" },
-      { step: "매수 주문 발행", detail: "키움 에이전트를 통해 시장가 매수 주문 전송" },
-      { step: "포지션 DB 기록", detail: "auto_trading_positions에 entryPrice, entryRainbowLine, entryAiConfidence 저장" },
-      { step: "거래 로그 기록", detail: "themeScore·newsScore·financialsScore·liquidityScore·confidence 전체 기록" },
+    trigger: "스캔 잡 주기 도달",
+    goal: "매수 평가 대상 후보를 최신화한다",
+    operatorAction: [
+      "실시간 모니터에서 후보 종목 수와 스캔 시각을 확인한다.",
+      "후보가 0건이면 조건검색식/에이전트/장시간 여부를 점검한다.",
     ],
-    code: `주문 수량 계산 예시:
-  unitSize = 500,000원
-  lineUnits[30] = 2   (30% 라인 → 2유닛 설정)
-  현재가 = 25,000원
-
-  qty = floor(500,000 × 2 ÷ 25,000) = 40주`,
-    output: "매수 주문 체결 → auto_trading_positions 생성 → auto_trading_logs 기록",
-    notes: [
-      "unitCount가 0이면 해당 라인에서 매수하지 않습니다",
-      "주문 수량이 0이 되는 경우(unitSize < 주가)에도 매수하지 않습니다",
-    ]
+    systemAction: [
+      "장중 + 에이전트 연결 상태에서만 스캔 사이클을 진행한다.",
+      "조건검색식 결과를 수집하고 DART 위험공시 종목을 제외한다.",
+      "최종 후보를 candidate_stocks로 저장한다.",
+    ],
+    checkpoints: [
+      "후보 종목 테이블 갱신",
+      "DART 차단/스킵 사유 로그 확인",
+    ],
+    output: "평가 가능한 후보군 확보",
   },
   {
     id: 7,
-    phase: "추가매수",
-    title: "추가매수 판단 & 실행",
-    icon: ArrowDown,
+    phase: "매매",
+    title: "평가·진입·포지션 관리",
+    icon: Layers,
     color: "neon-cyan",
-    trigger: "기존 보유 종목 대상 — 매매 사이클 내 마지막 단계",
-    description: "이미 보유 중인 종목이 진입 가격보다 더 하락했을 때 추가 매수합니다.",
-    process: [
-      { step: "보유 포지션 조회", detail: "auto_trading_positions에서 현재 보유 종목 목록 가져오기" },
-      { step: "현재 레인보우 라인 계산", detail: "실시간 현재가로 currentLine 재계산" },
-      { step: "추가매수 조건 확인", detail: "entryLine > 10 이고 currentLine ≤ entryLine - 10 이고 currentLine ≥ 10 이면 조건 충족" },
-      { step: "일일 한도 재확인", detail: "maxDailyTrades 초과 여부 재검사" },
-      { step: "유닛 수 조회", detail: "해당 currentLine에 대한 lineUnits 조회" },
-      { step: "주문 수량 계산 & 실행", detail: "동일 유닛 공식으로 수량 계산 후 시장가 매수 주문" },
+    trigger: "매매 잡 주기 도달",
+    goal: "보유 포지션 관리와 신규 진입을 수행한다",
+    operatorAction: [
+      "모니터 피드에서 BUY/SELL/SKIP 사유를 추적한다.",
+      "SKIP이 많으면 minAiConfidence/필터/투기성 허용값을 재조정한다.",
     ],
-    code: `추가매수 조건:
-  조건1: entryLine > 10  (10% 라인 진입 시 추가매수 불가)
-  조건2: currentLine ≤ entryLine - 10
-  조건3: currentLine ≥ 10
-
-  예) 30% 라인에서 최초 매수 (entryLine = 30)
-      → currentLine ≤ 20 이고 ≥ 10 이면 추가매수
-      → 해당 라인(20%)의 lineUnits 수량으로 추가 주문`,
-    output: "추가매수 체결 → auto_trading_positions 업데이트 → 로그 기록",
-    notes: [
-      "같은 라인에 이미 추가매수가 체결된 경우 중복 매수를 방지합니다",
-    ]
+    systemAction: [
+      "보유 포지션은 익절/손절정책/동적청산/AI결정으로 관리한다.",
+      "후보는 시장이슈/신뢰도/재무/유동성/DART/투기성 필터를 통과해야 한다.",
+      "AI 진입정책 승인 시 라더 기반 신규 매수, 이후 스케일인/부분익절을 수행한다.",
+    ],
+    checkpoints: [
+      "매매 결정 피드에 사유와 점수가 함께 기록됨",
+      "포지션/주문 데이터가 누락 없이 반영됨",
+    ],
+    failCase: {
+      condition: "모의 모드인데 실계좌가 선택됨",
+      action: "안전장치로 거래가 차단된다. 거래 모드 또는 계좌 타입을 맞춰야 한다.",
+    },
+    output: "전략 기준 자동 매매 실행",
   },
   {
     id: 8,
     phase: "학습",
-    title: "야간 학습 최적화",
+    title: "학습 잡 실행과 자동 최적화",
     icon: GraduationCap,
-    color: "neon-purple",
-    trigger: "매일 16:00 (cron: 0 16 * * *)",
-    description: "하루 거래 결과를 분석하고, 성과가 낮은 모델은 파라미터를 자동 조정합니다.",
-    process: [
-      { step: "활성 모델 전체 조회", detail: "status='active'인 모든 AI 모델 순회" },
-      { step: "성과 데이터 집계", detail: "totalTrades, winRate(%), totalReturn(%) 계산" },
-      { step: "파라미터 최적화 분석", detail: "LearningService.optimizeModel() 실행 → 권장 파라미터 산출" },
-      { step: "자동 적용", detail: "appliedChanges=true이면 DB에 최적화된 파라미터 자동 업데이트" },
-      { step: "권장사항 출력", detail: "콘솔에 recommendations 배열 출력" },
+    color: "neon-green",
+    trigger: "매일 16:00 / 즉시 실행",
+    goal: "성과 데이터로 다음 사이클 파라미터를 개선한다",
+    operatorAction: [
+      "배치잡 관리에서 학습 잡 시각(기본 16:00)을 확인한다.",
+      "테스트 시 학습 잡 '즉시 실행'으로 결과를 점검한다.",
+      "자동매매 페이지에서 학습 기록/추천 내용을 확인한다.",
     ],
-    output: "AI 모델 파라미터 자동 조정 완료 (또는 현재 설정 유지 권장)",
-    notes: [
-      "학습 결과는 다음 매매 사이클부터 자동 반영됩니다",
-      "appliedChanges=false이면 변경 없이 권장사항만 출력됩니다",
-    ]
+    systemAction: [
+      "ENABLE_ADVANCED_LEARNING=true 일 때만 학습 사이클을 수행한다.",
+      "20건 미만은 추천/기록만 만들고 적용은 하지 않는다.",
+      "50건 이상 + 안전조건 충족 시에만 자동 반영한다.",
+      "가중치/신뢰도/라더/손절정책을 업데이트하고 learning_records에 저장한다.",
+    ],
+    checkpoints: [
+      "학습 실행 후 learning_records가 증가",
+      "적용 조건 충족 시 설정값 변경 로그 확인",
+    ],
+    failCase: {
+      condition: "ENABLE_ADVANCED_LEARNING=false 또는 거래 건수 부족",
+      action: "학습은 skip되거나 추천만 생성된다. 환경변수와 거래 데이터 수를 먼저 확인한다.",
+    },
+    output: "학습 결과 기록 및 조건부 자동 최적화",
+  },
+  {
+    id: 9,
+    phase: "모니터",
+    title: "실시간 운영 점검",
+    icon: Monitor,
+    color: "neon-purple",
+    trigger: "운영 중 상시",
+    goal: "문제를 조기에 감지하고 안전하게 재개한다",
+    operatorAction: [
+      "실시간 모니터에서 엔진 상태 배지와 최근 사이클 시각을 확인한다.",
+      "알림 요약(미확인/경고/긴급)을 우선 처리한다.",
+      "반복 타임아웃 시 잡 중지 후 에이전트 복구 뒤 재개한다.",
+    ],
+    systemAction: [
+      "30초 주기로 잡 상태/후보/결정 피드를 자동 갱신한다.",
+      "에이전트 타임아웃 누적 시 자동 일시중지/쿨다운을 적용할 수 있다.",
+    ],
+    checkpoints: [
+      "엔진 상태가 running으로 유지",
+      "critical/warn 알림이 누적되지 않음",
+    ],
+    output: "안정적인 장중 운영",
   },
 ];
 
-function CodeBlock({ children }: { children: string }) {
-  return (
-    <pre className="bg-muted/40 rounded-md p-3 text-xs font-mono overflow-x-auto whitespace-pre-wrap border border-border/30 mt-2">
-      {children}
-    </pre>
-  );
-}
-
 export default function Tutorial() {
   const [currentStep, setCurrentStep] = useState(0);
-  const step = flowSteps[currentStep];
+  const step = steps[currentStep];
   const Icon = step.icon;
 
   return (
     <div className="p-4 md:p-6 max-w-4xl mx-auto space-y-4" data-testid="text-tutorial-title">
-
-      <div className="mb-4">
-        <h1 className="text-3xl font-bold mb-1">거래 흐름 튜토리얼</h1>
-        <p className="text-muted-foreground text-sm">한 번의 자동매매가 이루어지는 전체 과정 — 스캔부터 청산까지</p>
+      <div>
+        <h1 className="text-3xl font-bold mb-1">튜토리얼</h1>
+        <p className="text-muted-foreground text-sm">
+          최신 UI 기준 운영 흐름입니다. 각 단계에서 화면에서 무엇을 눌러야 하는지 중심으로 구성했습니다.
+        </p>
       </div>
 
-      {/* 전체 플로우 요약 */}
       <Card className="border-border/40">
         <CardContent className="py-4">
           <div className="flex flex-wrap items-center gap-1.5 text-xs">
-            {flowSteps.map((s, i) => {
+            {steps.map((s, i) => {
               const SI = s.icon;
               return (
                 <div key={s.id} className="flex items-center gap-1.5">
                   <button
                     onClick={() => setCurrentStep(i)}
                     data-testid={`button-quick-step-${i + 1}`}
-                    className={`flex items-center gap-1 px-2 py-1 rounded-md border transition-colors ${
+                    className={`flex min-h-11 items-center gap-1 px-2 py-1 rounded-md border transition-colors md:min-h-7 ${
                       i === currentStep
                         ? `bg-[hsl(var(--${s.color}))]/20 border-[hsl(var(--${s.color}))]/50 text-[hsl(var(--${s.color}))]`
                         : i < currentStep
-                          ? 'bg-muted/50 border-border/30 text-muted-foreground'
-                          : 'border-border/30 text-muted-foreground hover:bg-muted/30'
+                          ? "bg-muted/50 border-border/30 text-muted-foreground"
+                          : "border-border/30 text-muted-foreground hover:bg-muted/30"
                     }`}
                   >
                     <SI className="w-3 h-3" />
                     <span>{s.phase}</span>
                   </button>
-                  {i < flowSteps.length - 1 && <ChevronRight className="w-3 h-3 text-muted-foreground" />}
+                  {i < steps.length - 1 && <ChevronRight className="w-3 h-3 text-muted-foreground" />}
                 </div>
               );
             })}
@@ -285,25 +306,6 @@ export default function Tutorial() {
         </CardContent>
       </Card>
 
-      {/* Progress dots */}
-      <div className="flex justify-center gap-2">
-        {flowSteps.map((s, i) => (
-          <button
-            key={i}
-            onClick={() => setCurrentStep(i)}
-            data-testid={`button-step-${i + 1}`}
-            className={`w-2.5 h-2.5 rounded-full transition-all ${
-              i === currentStep
-                ? `bg-[hsl(var(--${s.color}))] scale-125`
-                : i < currentStep
-                  ? 'bg-muted-foreground/50'
-                  : 'bg-muted'
-            }`}
-          />
-        ))}
-      </div>
-
-      {/* Main card */}
       <Card className={`border-[hsl(var(--${step.color}))]/30`}>
         <CardHeader className="pb-3">
           <div className="flex items-start gap-4 flex-wrap">
@@ -313,7 +315,7 @@ export default function Tutorial() {
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap mb-1">
                 <Badge className={`bg-[hsl(var(--${step.color}))]/20 text-[hsl(var(--${step.color}))] border-[hsl(var(--${step.color}))]/30 text-xs`}>
-                  Step {step.id} / {flowSteps.length}
+                  Step {step.id} / {steps.length}
                 </Badge>
                 <Badge variant="outline" className="text-xs">{step.phase}</Badge>
               </div>
@@ -325,72 +327,62 @@ export default function Tutorial() {
             </div>
           </div>
         </CardHeader>
-        <CardContent className="space-y-5">
-          <p className="text-sm text-muted-foreground">{step.description}</p>
 
-          {/* Process steps */}
-          <div className="space-y-2">
-            <p className="text-sm font-semibold">실행 순서</p>
-            <div className="space-y-2">
-              {step.process.map((p, i) => (
-                <div key={i} className="flex items-start gap-3">
-                  <div className={`w-6 h-6 rounded-full bg-[hsl(var(--${step.color}))]/15 flex items-center justify-center shrink-0 mt-0.5`}>
-                    <span className={`text-xs font-bold text-[hsl(var(--${step.color}))]`}>{i + 1}</span>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <span className="text-sm font-medium">{p.step}</span>
-                    <p className="text-xs text-muted-foreground mt-0.5">{p.detail}</p>
-                  </div>
-                </div>
+        <CardContent className="space-y-4">
+          <div className="p-3 rounded-md border border-border/30 bg-muted/20">
+            <p className="text-xs text-muted-foreground mb-1">목표</p>
+            <p className="text-sm">{step.goal}</p>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-3">
+            <div className="p-3 rounded-md border border-border/30 bg-muted/20">
+              <p className="text-sm font-semibold mb-2">운영자 할 일</p>
+              <div className="space-y-1.5">
+                {step.operatorAction.map((item, idx) => (
+                  <p key={idx} className="text-xs text-muted-foreground">{idx + 1}. {item}</p>
+                ))}
+              </div>
+            </div>
+            <div className="p-3 rounded-md border border-border/30 bg-muted/20">
+              <p className="text-sm font-semibold mb-2">시스템 동작</p>
+              <div className="space-y-1.5">
+                {step.systemAction.map((item, idx) => (
+                  <p key={idx} className="text-xs text-muted-foreground">{idx + 1}. {item}</p>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="p-3 rounded-md border border-border/30 bg-muted/20">
+            <p className="text-sm font-semibold mb-2">확인 포인트</p>
+            <div className="space-y-1.5">
+              {step.checkpoints.map((item, idx) => (
+                <p key={idx} className="text-xs text-muted-foreground">{idx + 1}. {item}</p>
               ))}
             </div>
           </div>
 
-          {/* Decision point */}
-          {step.decision && (
-            <div className="p-3 border border-border/40 rounded-md bg-muted/20">
-              <p className="text-xs font-semibold text-muted-foreground mb-2">판단 분기</p>
-              <p className="text-sm font-medium mb-2">{step.decision.condition}</p>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="p-2 bg-green-500/10 border border-green-500/20 rounded-md">
-                  <p className="text-xs text-green-400 font-semibold mb-0.5">YES</p>
-                  <p className="text-xs">{step.decision.yes}</p>
-                </div>
-                <div className="p-2 bg-red-500/10 border border-red-500/20 rounded-md">
-                  <p className="text-xs text-red-400 font-semibold mb-0.5">NO</p>
-                  <p className="text-xs">{step.decision.no}</p>
-                </div>
+          {step.failCase && (
+            <div className="flex items-start gap-2 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-md">
+              <AlertTriangle className="w-4 h-4 text-yellow-500 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-xs font-semibold mb-0.5">실패 분기</p>
+                <p className="text-xs text-muted-foreground">조건: {step.failCase.condition}</p>
+                <p className="text-xs text-muted-foreground">조치: {step.failCase.action}</p>
               </div>
             </div>
           )}
 
-          {/* Code block */}
-          {step.code && <CodeBlock>{step.code}</CodeBlock>}
-
-          {/* Output */}
           <div className="flex items-start gap-2 p-3 bg-[hsl(var(--neon-green))]/10 border border-[hsl(var(--neon-green))]/20 rounded-md">
             <CheckCircle2 className="w-4 h-4 text-[hsl(var(--neon-green))] mt-0.5 shrink-0" />
             <div>
-              <p className="text-xs font-semibold text-[hsl(var(--neon-green))] mb-0.5">출력 결과</p>
+              <p className="text-xs font-semibold text-[hsl(var(--neon-green))] mb-0.5">단계 결과</p>
               <p className="text-xs">{step.output}</p>
             </div>
           </div>
-
-          {/* Notes */}
-          {step.notes && step.notes.length > 0 && (
-            <div className="space-y-1.5">
-              {step.notes.map((n, i) => (
-                <div key={i} className="flex items-start gap-2 p-2.5 bg-yellow-500/10 border border-yellow-500/20 rounded-md">
-                  <AlertTriangle className="w-3.5 h-3.5 text-yellow-500 mt-0.5 shrink-0" />
-                  <p className="text-xs">{n}</p>
-                </div>
-              ))}
-            </div>
-          )}
         </CardContent>
       </Card>
 
-      {/* Navigation */}
       <div className="flex justify-between items-center">
         <Button
           variant="outline"
@@ -403,32 +395,18 @@ export default function Tutorial() {
           이전
         </Button>
 
-        <span className="text-xs text-muted-foreground">{currentStep + 1} / {flowSteps.length}</span>
+        <span className="text-xs text-muted-foreground">{currentStep + 1} / {steps.length}</span>
 
         <Button
-          onClick={() => setCurrentStep(s => Math.min(flowSteps.length - 1, s + 1))}
-          disabled={currentStep === flowSteps.length - 1}
-          className={`gap-2`}
+          onClick={() => setCurrentStep(s => Math.min(steps.length - 1, s + 1))}
+          disabled={currentStep === steps.length - 1}
+          className="gap-2"
           data-testid="button-next-step"
         >
           다음
           <ChevronRight className="w-4 h-4" />
         </Button>
       </div>
-
-      {/* Completion */}
-      {currentStep === flowSteps.length - 1 && (
-        <Card className="border-[hsl(var(--neon-green))]/30 bg-[hsl(var(--neon-green))]/5">
-          <CardContent className="py-6 text-center">
-            <Layers className="w-10 h-10 mx-auto mb-3 text-[hsl(var(--neon-green))]" />
-            <h3 className="text-lg font-bold mb-1">전체 사이클 파악 완료</h3>
-            <p className="text-sm text-muted-foreground">
-              스캔(30분) → GPT분석(1분) → 필터 → 매수 → 청산 → 학습(16시)<br />
-              이 루프가 반복되며 자동매매가 운영됩니다
-            </p>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }

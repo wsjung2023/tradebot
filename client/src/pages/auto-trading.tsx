@@ -104,7 +104,10 @@ export default function AutoTrading() {
 
   const toggleModelMutation = useMutation({
     mutationFn: async ({ id, isActive }: { id: number; isActive: boolean }) => (await apiRequest("PATCH", `/api/ai/models/${id}`, { isActive })).json(),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/ai/models"] }),
+    onSuccess: (_, { isActive }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/ai/models"] });
+      toast({ title: isActive ? "자동매매 활성화됨" : "자동매매 비활성화됨", description: isActive ? "다음 스캔 사이클부터 이 모델이 작동합니다." : "이 모델의 자동매매가 중단됩니다." });
+    },
     onError: (e: any) => toast({ variant: "destructive", title: "상태 변경 실패", description: e.message }),
   });
 

@@ -813,7 +813,10 @@ export class PostgreSQLCoreStorage {
       .innerJoin(schema.kiwoomAccounts, eq(schema.holdings.accountId, schema.kiwoomAccounts.id))
       .where(eq(schema.kiwoomAccounts.userId, userId))
       .orderBy(desc(schema.holdings.updatedAt));
-    return rows;
+    return rows.map((row) => ({
+      ...row,
+      accountName: row.accountName ?? '',
+    }));
   }
 
   async createAssetSnapshot(data: InsertAssetSnapshot): Promise<AssetSnapshot> {

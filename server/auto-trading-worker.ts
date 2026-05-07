@@ -154,30 +154,40 @@ class AutoTradingWorker {
           continue;
         }
         try {
-          await storage.clearCandidateStocks(model.userId, model.id);
-          const results = await this.userKiwoomService.runCondition(model.userId, '30');
-          if (!results?.length) {
-            console.log(`[ScanJob] 모델 ${model.id}: 뒷차기2 결과 0건 — 기존 후보 초기화됨`);
+          const settings = await storage.getAutoTradingSettings(model.id);
+          const conditionSequences: { conditionId: string; name?: string }[] =
+            (settings?.conditionSearchSequences as any) ?? [];
+          if (conditionSequences.length === 0) {
+            console.log(`[ScanJob] ⛔ 모델 ${model.id} 조건검색식 미설정 — 스킵 (설정 탭에서 conditionSearchSequences 구성 필요)`);
             continue;
           }
-          let savedCount = 0;
-          for (const raw of results) {
-            const stock = this.userKiwoomService.normalizeConditionResult(raw);
-            const isDangerous = await this.checkDartDanger(stock.stockCode);
-            if (isDangerous) {
-              console.log(`[ScanJob] 🚫 DART 위험공시: ${stock.stockCode} — 제외`);
+
+          await storage.clearCandidateStocks(model.userId, model.id);
+          let totalSaved = 0;
+          for (const seq of conditionSequences) {
+            const results = await this.userKiwoomService.runCondition(model.userId, seq.conditionId);
+            if (!results?.length) {
+              console.log(`[ScanJob] 모델 ${model.id} 조건[${seq.conditionId}] 결과 0건`);
               continue;
             }
-            await storage.upsertCandidateStock({
-              userId: model.userId,
-              modelId: model.id,
-              stockCode: stock.stockCode,
-              stockName: stock.stockName,
-              source: '뒷차기2',
-            });
-            savedCount++;
+            for (const raw of results) {
+              const stock = this.userKiwoomService.normalizeConditionResult(raw);
+              const isDangerous = await this.checkDartDanger(stock.stockCode);
+              if (isDangerous) {
+                console.log(`[ScanJob] 🚫 DART 위험공시: ${stock.stockCode} — 제외`);
+                continue;
+              }
+              await storage.upsertCandidateStock({
+                userId: model.userId,
+                modelId: model.id,
+                stockCode: stock.stockCode,
+                stockName: stock.stockName,
+                source: seq.name ?? seq.conditionId,
+              });
+              totalSaved++;
+            }
           }
-          console.log(`[ScanJob] ✅ 모델 ${model.id}: ${savedCount}/${results.length} 종목 저장`);
+          console.log(`[ScanJob] ✅ 모델 ${model.id}: ${totalSaved}종목 저장 (${conditionSequences.length}개 조건검색)`);
         } catch (err) {
           console.error(`[ScanJob] ❌ 모델 ${model.id} 스캔 오류:`, err);
         }
@@ -443,7 +453,7 @@ class AutoTradingWorker {
       const settings = await storage.getAutoTradingSettings(model.id);
       if (!settings) {
         console.log(`⚠️  No trading settings for model ${model.id} - creating defaults`);
-        await this.executor.createDefaultSettings(model.id);
+        await this.executor.createDefaultSettings(model.id, (model.config as any)?.modelType);
         return;
       }
 
@@ -460,18 +470,19 @@ class AutoTradingWorker {
         console.warn(`⚠️  주문 동기화 오류 (무시):`, syncErr);
       }
 
-      // ── 손절/익절 체크: 보유 포지션 먼저 점검 ──
+      // ── 1. 포지션 청산 관리: 기존 경로 유지 ──
       try {
         await this.executor.checkPositionsForExits(model, settings, kiwoomService);
-      } catch (exitErr) {
-        console.error(`⚠️  checkPositionsForExits 오류 (무시):`, exitErr);
+      } catch (posErr) {
+        console.error(`⚠️  checkPositionsForExits 오류 (무시):`, posErr);
       }
 
+      // ── 2. 신규 진입 후보 평가 ──
       const candidates = await storage.getCandidateStocks(model.userId, model.id);
       if (!candidates.length) {
         console.log(`  📭 후보 종목 없음 — 30분 스캔 대기 중`);
       } else {
-        console.log(`  📊 후보 종목 ${candidates.length}개 평가 시작`);
+        console.log(`  📊 후보 종목 ${candidates.length}개 진입 평가 시작`);
         for (const candidate of candidates) {
           await this.executor.evaluateCandidateStock(model, settings, candidate, kiwoomService, this.aiService);
         }

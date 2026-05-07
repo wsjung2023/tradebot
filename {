@@ -1,0 +1,1 @@
+main().catch(async (e) = console.error(e); try { await client.end(); } catch {} process.exit(1); });) 

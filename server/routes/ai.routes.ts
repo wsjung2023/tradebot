@@ -381,6 +381,47 @@ export function registerAiRoutes(app: Router) {
     }
   });
 
+  // 학습 요약 (모델별 최신 학습 기록 + 학습 플래그 상태)
+  app.get("/api/ai/learning-summary", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const models = await storage.getAiModels(user!.id);
+
+      const modelSummaries = await Promise.all(
+        models.map(async (model) => {
+          const records = await storage.getLearningRecords(model.id, 1);
+          const latest = records[0] || null;
+          const applied = latest ? Boolean((latest.appliedChanges as any)?.applied) : false;
+          const recommendations = latest ? (((latest.appliedChanges as any)?.recommendations ?? []) as string[]) : [];
+
+          return {
+            modelId: model.id,
+            modelName: model.modelName,
+            isActive: model.isActive,
+            latestRecord: latest
+              ? {
+                  createdAt: latest.createdAt,
+                  totalTrades: latest.totalTrades ?? 0,
+                  winRate: latest.winRate ?? null,
+                  avgReturn: latest.avgReturn ?? null,
+                  applied,
+                  recommendations,
+                }
+              : null,
+          };
+        })
+      );
+
+      res.json({
+        learningEnabled: featureFlags.enableAdvancedLearning,
+        defaultScheduleTime: "16:00",
+        models: modelSummaries,
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // AI 모델 생성
   app.post("/api/ai/models", isAuthenticated, async (req, res) => {
     try {
@@ -475,6 +516,19 @@ export function registerAiRoutes(app: Router) {
 
       const { modelId: _ignore, id: _ignoreId, createdAt: _ignoreCreated, ...safeBody } = req.body;
 
+      // 양수 정수 필드 검증
+      if (safeBody.maxDailyTrades !== undefined) {
+        const v = parseInt(String(safeBody.maxDailyTrades));
+        if (!isFinite(v) || v < 1) return res.status(400).json({ error: '일일 최대 거래 횟수는 1 이상이어야 합니다.' });
+        safeBody.maxDailyTrades = v;
+      }
+      for (const field of ['defaultPositionSize', 'maxPositionSize'] as const) {
+        if (safeBody[field] !== undefined) {
+          const v = parseFloat(String(safeBody[field]));
+          if (!isFinite(v) || v < 1000) return res.status(400).json({ error: `${field}는 1,000원 이상이어야 합니다.` });
+        }
+      }
+
       const weights = [
         parseFloat(safeBody.themeWeight || "0"),
         parseFloat(safeBody.newsWeight || "0"),
@@ -485,6 +539,49 @@ export function registerAiRoutes(app: Router) {
       const weightSum = weights.reduce((a, b) => a + b, 0);
       if (Math.abs(weightSum - 100) > 0.5) {
         return res.status(400).json({ error: `가중치 합계가 100%여야 합니다. (현재: ${weightSum}%)` });
+      }
+
+      // entryLadderSettings 검증
+      if (safeBody.entryLadderSettings !== undefined && safeBody.entryLadderSettings !== null) {
+        const ladder = safeBody.entryLadderSettings;
+        if (!Array.isArray(ladder)) {
+          return res.status(400).json({ error: 'entryLadderSettings는 배열이어야 합니다.' });
+        }
+        const VALID_LINES = new Set([10, 20, 30, 40, 50]);
+        for (const step of ladder) {
+          if (!VALID_LINES.has(step.line)) {
+            return res.status(400).json({ error: `라더 라인은 10/20/30/40/50만 허용됩니다. (입력값: ${step.line})` });
+          }
+          if (typeof step.units !== 'number' || step.units < 0 || step.units > 5) {
+            return res.status(400).json({ error: `라인 ${step.line}: units는 0~5 정수여야 합니다.` });
+          }
+        }
+        const maxUnitsPerStock = safeBody.maxUnitsPerStock ?? 5;
+        const totalUnits = ladder.reduce((sum: number, s: any) => sum + (s.units || 0), 0);
+        if (totalUnits > maxUnitsPerStock) {
+          return res.status(400).json({ error: `라더 총 유닛(${totalUnits})이 maxUnitsPerStock(${maxUnitsPerStock})을 초과합니다.` });
+        }
+      }
+
+      // hardMaxCapitalPerStock >= baseUnitSize 검증
+      if (safeBody.hardMaxCapitalPerStock && safeBody.baseUnitSize) {
+        const hardMax = parseFloat(String(safeBody.hardMaxCapitalPerStock));
+        const baseUnit = parseFloat(String(safeBody.baseUnitSize));
+        if (hardMax < baseUnit) {
+          return res.status(400).json({ error: `hardMaxCapitalPerStock(${hardMax.toLocaleString()})는 baseUnitSize(${baseUnit.toLocaleString()}) 이상이어야 합니다.` });
+        }
+      }
+
+      // stopLossPolicy shape 검증
+      if (safeBody.stopLossPolicy !== undefined && safeBody.stopLossPolicy !== null) {
+        const policy = safeBody.stopLossPolicy;
+        const VALID_MODES = ['disabled', 'soft_ai_first', 'conditional', 'hard'];
+        if (policy.mode && !VALID_MODES.includes(policy.mode)) {
+          return res.status(400).json({ error: `stopLossPolicy.mode는 ${VALID_MODES.join(' / ')} 중 하나여야 합니다.` });
+        }
+        if (policy.hardCutLossPct !== undefined && (typeof policy.hardCutLossPct !== 'number' || policy.hardCutLossPct <= 0 || policy.hardCutLossPct > 50)) {
+          return res.status(400).json({ error: 'stopLossPolicy.hardCutLossPct는 0~50 사이 숫자여야 합니다.' });
+        }
       }
 
       const existing = await storage.getAutoTradingSettings(modelId);

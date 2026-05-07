@@ -41,7 +41,10 @@ export function AutoTradingModelList({ models, isLoading, isToggling, isDeleting
                 <CardDescription className="text-xs md:text-sm line-clamp-2 mt-1">{model.description}</CardDescription>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                <Switch checked={model.isActive} onCheckedChange={(v) => { onToggle(model.id, v); }} disabled={isToggling} data-testid={`switch-model-${model.id}`} onClick={(e) => e.stopPropagation()} />
+                <div className="flex flex-col items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
+                  <span className="text-[10px] text-muted-foreground">{model.isActive ? "작동중" : "중단"}</span>
+                  <Switch checked={model.isActive} onCheckedChange={(v) => { onToggle(model.id, v); }} disabled={isToggling} data-testid={`switch-model-${model.id}`} />
+                </div>
                 <Button size="icon" variant="ghost" onClick={(e) => { e.stopPropagation(); onEdit(model); }} data-testid={`button-edit-model-${model.id}`}>
                   <Pencil className="h-4 w-4" />
                 </Button>

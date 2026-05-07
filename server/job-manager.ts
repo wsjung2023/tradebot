@@ -138,7 +138,13 @@ class JobManager {
         if (!settings) await autoTradingWorker.createDefaultSettingsForModel(model.id);
         const userSettings = await storage.getUserSettings(model.userId);
         if (userSettings) await storage.updateUserSettings(model.userId, { autoTradingEnabled: true });
-        else await storage.createUserSettings({ userId: model.userId, autoTradingEnabled: true });
+        else await storage.createUserSettings({
+          userId: model.userId,
+          tradingMode: 'mock',
+          riskLevel: 'medium',
+          aiModel: 'gpt-5.1',
+          autoTradingEnabled: true,
+        });
       }
       const schedule = this.minutesToCron(state.intervalMinutes);
       autoTradingWorker.startTradingJob(schedule);

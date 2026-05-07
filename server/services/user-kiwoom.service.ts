@@ -2,6 +2,7 @@ import { storage } from "../storage";
 import { decrypt } from "../utils/crypto";
 import { normalizePriceHistoryAsc } from "../utils/chart-normalization";
 import { callViaAgent, AgentTimeoutError } from "./agent-proxy.service";
+import { callAgentDirect, AgentDirectError } from "./agent-direct.service";
 import { createKiwoomService, getKiwoomService, type KiwoomService } from "./kiwoom";
 
 type CachedLegacyService = {
@@ -150,11 +151,25 @@ export class UserKiwoomService {
     throw new Error("에이전트 호출 실패");
   }
 
+  private async callDirect(
+    jobType: string,
+    payload: Record<string, unknown>,
+    timeoutMs = 10000,
+  ): Promise<any> {
+    return callAgentDirect(jobType, payload, timeoutMs);
+  }
+
   async getPrice(userId: string, stockCode: string) {
     try {
-      return await callViaAgent(userId, "price.get", { stockCode });
-    } catch (error) {
-      if (error instanceof AgentTimeoutError) throw error;
+      return await this.callDirect("price.get", { stockCode }, 10000);
+    } catch (directErr) {
+      if (directErr instanceof AgentDirectError) {
+        try {
+          return await callViaAgent(userId, "price.get", { stockCode }, 60000);
+        } catch (error) {
+          if (error instanceof AgentTimeoutError) throw error;
+        }
+      }
       const legacyKiwoom = await this.getLegacyServiceForUser(userId);
       const price = await legacyKiwoom.getStockPrice(stockCode);
       const output = price?.output || {};
@@ -176,9 +191,15 @@ export class UserKiwoomService {
 
   async getOrderbook(userId: string, stockCode: string) {
     try {
-      return await callViaAgent(userId, "orderbook.get", { stockCode });
-    } catch (error) {
-      if (error instanceof AgentTimeoutError) throw error;
+      return await this.callDirect("orderbook.get", { stockCode }, 10000);
+    } catch (directErr) {
+      if (directErr instanceof AgentDirectError) {
+        try {
+          return await callViaAgent(userId, "orderbook.get", { stockCode });
+        } catch (error) {
+          if (error instanceof AgentTimeoutError) throw error;
+        }
+      }
       const legacyKiwoom = await this.getLegacyServiceForUser(userId);
       return legacyKiwoom.getStockOrderbook(stockCode);
     }
@@ -186,9 +207,15 @@ export class UserKiwoomService {
 
   async getChart(userId: string, stockCode: string, period: string = "D", count = 100) {
     try {
-      return await callViaAgent(userId, "chart.get", { stockCode, period, count });
-    } catch (error) {
-      if (error instanceof AgentTimeoutError) throw error;
+      return await this.callDirect("chart.get", { stockCode, period, count }, 10000);
+    } catch (directErr) {
+      if (directErr instanceof AgentDirectError) {
+        try {
+          return await callViaAgent(userId, "chart.get", { stockCode, period, count }, 60000);
+        } catch (error) {
+          if (error instanceof AgentTimeoutError) throw error;
+        }
+      }
       const legacyKiwoom = await this.getLegacyServiceForUser(userId);
       return legacyKiwoom.getStockChart(stockCode, period, count);
     }
@@ -196,9 +223,15 @@ export class UserKiwoomService {
 
   async searchStock(userId: string, keyword: string) {
     try {
-      return await callViaAgent(userId, "stock.search", { keyword });
-    } catch (error) {
-      if (error instanceof AgentTimeoutError) throw error;
+      return await this.callDirect("stock.search", { keyword }, 12000);
+    } catch (directErr) {
+      if (directErr instanceof AgentDirectError) {
+        try {
+          return await callViaAgent(userId, "stock.search", { keyword }, 35000);
+        } catch (error) {
+          if (error instanceof AgentTimeoutError) throw error;
+        }
+      }
       const legacyKiwoom = await this.getLegacyServiceForUser(userId);
       return legacyKiwoom.searchStock(keyword);
     }
@@ -206,9 +239,15 @@ export class UserKiwoomService {
 
   async getStockInfo(userId: string, stockCode: string) {
     try {
-      return await callViaAgent(userId, "stock.info", { stockCode });
-    } catch (error) {
-      if (error instanceof AgentTimeoutError) throw error;
+      return await this.callDirect("stock.info", { stockCode }, 10000);
+    } catch (directErr) {
+      if (directErr instanceof AgentDirectError) {
+        try {
+          return await callViaAgent(userId, "stock.info", { stockCode }, 60000);
+        } catch (error) {
+          if (error instanceof AgentTimeoutError) throw error;
+        }
+      }
       const legacyKiwoom = await this.getLegacyServiceForUser(userId);
       const [info, price] = await Promise.allSettled([
         legacyKiwoom.getStockInfo(stockCode),

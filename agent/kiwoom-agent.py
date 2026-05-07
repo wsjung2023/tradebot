@@ -26,6 +26,7 @@ import threading
 import logging
 import requests
 import websocket
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -56,8 +57,8 @@ KIWOOM_APP_KEY = _APP_KEY_COMMON
 KIWOOM_APP_SECRET = _APP_SECRET_COMMON
 
 KIWOOM_IS_MOCK = os.getenv("KIWOOM_IS_MOCK", "false").lower() == "true"
-POLL_INTERVAL = int(os.getenv("POLL_INTERVAL", "15"))         # 장중 폴링 간격 (초)
-POLL_INTERVAL_IDLE = int(os.getenv("POLL_INTERVAL_IDLE", "20"))   # 장외 폴링 간격 (초, 기본 20초 — 수동 잔고조회가 장외에도 45초 이내 동작)
+POLL_INTERVAL = int(os.getenv("POLL_INTERVAL", "3"))          # 장중 폴링 간격 (초)
+POLL_INTERVAL_IDLE = int(os.getenv("POLL_INTERVAL_IDLE", "3"))    # 장외 폴링 간격 (초)
 
 KST = datetime.timezone(datetime.timedelta(hours=9))
 
@@ -637,11 +638,11 @@ def handle_price_get(payload):
         "stockName": data.get("stk_nm", ""),
         "currentPrice": data.get("cur_prc", "0"),
         "changeRate": data.get("flu_rt", "0"),
-        "change": data.get("prc_diff", "0"),
-        "volume": data.get("acc_trde_qty", "0"),
-        "high": data.get("hgpr", "0"),
-        "low": data.get("lwpr", "0"),
-        "open": data.get("oppr", "0"),
+        "change": data.get("pred_rt", "0"),
+        "volume": data.get("acc_trde_qty", data.get("trde_qty", "0")),
+        "high": data.get("high_pric", data.get("hgpr", "0")),
+        "low": data.get("low_pric", data.get("lwpr", "0")),
+        "open": data.get("open_pric", data.get("oppr", "0")),
         "raw": data,
     }
 
@@ -736,8 +737,9 @@ def handle_stock_search(payload):
             logger.warning(f"stock.search exact lookup 실패: {error}")
 
     try:
+        kw_lower = keyword.lower()
         for stock in ensure_stock_cache():
-            if keyword in stock["code"] or keyword in stock["name"]:
+            if kw_lower in stock["code"].lower() or kw_lower in stock["name"].lower():
                 append_result(stock["code"], stock["name"])
                 if len(results) >= 20:
                     break
@@ -1214,6 +1216,56 @@ JOB_TYPE_ALIASES = {
 }
 SUPPORTED_JOB_TYPES = ",".join(sorted(set([*JOB_HANDLERS.keys(), *JOB_TYPE_ALIASES.keys()])))
 
+DIRECT_HTTP_PORT = int(os.getenv("DIRECT_HTTP_PORT", "5001"))
+
+
+class DirectJobHandler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        if self.path != "/execute":
+            self.send_response(404)
+            self.end_headers()
+            return
+        if self.headers.get("X-Agent-Key", "") != AGENT_KEY:
+            self.send_response(401)
+            self.end_headers()
+            return
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length))
+        except Exception:
+            self.send_response(400)
+            self.end_headers()
+            return
+        raw_job_type = body.get("jobType", "")
+        job_type = JOB_TYPE_ALIASES.get(raw_job_type, raw_job_type)
+        handler = JOB_HANDLERS.get(job_type)
+        if not handler:
+            self._json_response(400, {"error": f"지원하지 않는 작업 타입: {job_type}"})
+            return
+        try:
+            result = handler(body.get("payload", {}))
+            self._json_response(200, {"result": result})
+        except Exception as e:
+            self._json_response(500, {"error": str(e)})
+
+    def _json_response(self, status: int, data: dict):
+        body = json.dumps(data, ensure_ascii=False).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format, *args):
+        pass  # suppress default access log noise
+
+
+def start_direct_http_server():
+    server = HTTPServer(("127.0.0.1", DIRECT_HTTP_PORT), DirectJobHandler)
+    t = threading.Thread(target=server.serve_forever, daemon=True)
+    t.start()
+    logger.info(f"직접 HTTP 서버 시작: http://127.0.0.1:{DIRECT_HTTP_PORT}/execute")
+
 
 # ===== Replit 통신 =====
 
@@ -1481,6 +1533,13 @@ def main():
     logger.info(f"  폴링 간격: {POLL_INTERVAL}초")
     logger.info("=" * 55)
 
+    # 시작 시 종목 캐시 미리 빌드 (첫 검색 지연 방지)
+    try:
+        cache = ensure_stock_cache()
+        logger.info(f"종목 캐시 빌드 완료: {len(cache)}개")
+    except Exception as e:
+        logger.warning(f"종목 캐시 빌드 실패 (검색 시 재시도됨): {e}")
+
     try:
         validate_config()
     except ValueError as e:
@@ -1525,6 +1584,7 @@ def main():
     logger.info(f"폴링 대상 URL ({len(REPLIT_URLS)}개):")
     for i, u in enumerate(REPLIT_URLS):
         logger.info(f"  [{i+1}] {u}")
+    start_direct_http_server()
     logger.info(f"폴링 시작 — 장중(KST 09:00-16:00 평일) {POLL_INTERVAL}초 / 장외 {POLL_INTERVAL_IDLE}초 — Ctrl+C로 종료")
     consecutive_errors = 0
 

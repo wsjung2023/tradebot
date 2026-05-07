@@ -33,6 +33,8 @@ import {
   type AssetSnapshot, type InsertAssetSnapshot,
   type AgentUpdateLog, type InsertAgentUpdateLog,
   type AgentAlertLog, type InsertAgentAlertLog,
+  type CandidateDecisionLog, type InsertCandidateDecisionLog,
+  type PositionDecisionLog, type InsertPositionDecisionLog,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -221,6 +223,22 @@ export interface IStorage {
   getCandidateStocks(userId: string, modelId: number): Promise<CandidateStock[]>;
   clearCandidateStocks(userId: string, modelId: number): Promise<void>;
   updateCandidateStock(id: number, updates: Partial<CandidateStock>): Promise<CandidateStock | undefined>;
+  updateCandidateEvaluation(candidateId: number, updates: Pick<CandidateStock, 'evaluationResult' | 'skipReason' | 'evaluatedAt'>): Promise<CandidateStock | undefined>;
+
+  // 의사결정 로그
+  createCandidateDecisionLog(data: InsertCandidateDecisionLog): Promise<CandidateDecisionLog>;
+  getCandidateDecisionLogsForUser(
+    userId: string,
+    options?: {
+      modelId?: number;
+      accepted?: boolean;
+      from?: Date;
+      to?: Date;
+      limit?: number;
+      offset?: number;
+    },
+  ): Promise<Array<CandidateDecisionLog & { modelName: string; modelType: string }>>;
+  createPositionDecisionLog(data: InsertPositionDecisionLog): Promise<PositionDecisionLog>;
 
   // 전계좌 보유종목
   getAllHoldingsForUser(userId: string): Promise<(Holding & { accountName: string; accountNumber: string })[]>;

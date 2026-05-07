@@ -87,7 +87,7 @@ function IntervalEditor({ job, onSaved }: { job: JobInfo; onSaved: () => void })
       <div className="flex items-center gap-2" data-testid={`interval-editor-${job.id}`}>
         <span className="text-xs text-muted-foreground shrink-0">실행 시각</span>
         <Input
-          className="w-24 h-8 text-sm font-mono text-center"
+          className="w-24 h-11 text-sm font-mono text-center md:h-8"
           value={timeVal}
           onChange={(e) => setTimeVal(e.target.value)}
           placeholder="16:00"
@@ -112,7 +112,7 @@ function IntervalEditor({ job, onSaved }: { job: JobInfo; onSaved: () => void })
       <div className="flex items-center gap-2" data-testid={`interval-editor-${job.id}`}>
         <span className="text-xs text-muted-foreground shrink-0">감시 주기</span>
         <Input
-          className="w-20 h-8 text-sm font-mono text-center"
+          className="w-20 h-11 text-sm font-mono text-center md:h-8"
           value={secondsVal}
           onChange={(e) => setSecondsVal(e.target.value.replace(/\D/g, ""))}
           placeholder="60"
@@ -138,7 +138,7 @@ function IntervalEditor({ job, onSaved }: { job: JobInfo; onSaved: () => void })
     <div className="flex items-center gap-2" data-testid={`interval-editor-${job.id}`}>
       <span className="text-xs text-muted-foreground shrink-0">주기</span>
       <Input
-        className="w-20 h-8 text-sm font-mono text-center tracking-widest"
+        className="w-20 h-11 text-sm font-mono text-center tracking-widest md:h-8"
         value={minutesVal}
         onChange={(e) => {
           const raw = e.target.value.replace(/\D/g, "").slice(0, 6);

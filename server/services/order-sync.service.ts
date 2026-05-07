@@ -76,7 +76,7 @@ export class OrderSyncService {
           kRow.cncl_qty ?? kRow.filled_qty ?? '0',
           10
         ) || 0;
-        const orderQty = parseInt(kRow.ord_qty ?? kRow.order_qty ?? '0', 10) || dbOrder.quantity;
+        const orderQty = parseInt(kRow.ord_qty ?? kRow.order_qty ?? '0', 10) || dbOrder.orderQuantity;
 
         let newStatus: string = dbOrder.orderStatus;
         if (isCancelled && filledQty === 0) {

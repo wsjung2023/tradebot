@@ -483,6 +483,250 @@ ${priceSummary}
       catalysts:       Array.isArray(result.catalysts) ? result.catalysts : [],
     };
   }
+
+  // ==================== Auto-Trading Entry/Position Decisions ====================
+
+  async decideEntryPolicy(params: {
+    stock: { code: string; name: string; price: number };
+    scorecard: Record<string, number>;
+    currentLine: number;
+    modelType: string;
+    settings: {
+      baseUnitSize?: number | null;
+      maxUnitsPerStock?: number | null;
+      aiEntryPolicy?: any;
+      entryLadderSettings?: any;
+      allowAiDoubleDown?: boolean | null;
+    };
+    recentNews?: string;
+  }, aiModel: string = 'gpt-5.1'): Promise<{
+    accepted: boolean;
+    rejectReason?: string;
+    candidateClass?: string;
+    initialLine: number;
+    ladderPlan: { line: number; units: number }[];
+    maxUnits: number;
+    holdStrategy: string;
+    reasoning: string;
+  }> {
+    const { stock, scorecard, currentLine, modelType, settings } = params;
+    const maxUnitsPerStock = settings.maxUnitsPerStock ?? 5;
+    // 라더: 50%(초록 CL 첫 진입) → 더 하락 시 추가매수 (60, 70, 80%)
+    const ladderLines = [50, 60, 70, 80];
+
+    const prompt = `당신은 한국 주식 자동매매 시스템의 진입 결정 AI입니다.
+
+【레인보우 CL 시스템 — 반드시 숙지】
+숫자는 240일 고점 대비 하락률. 숫자가 클수록 더 많이 하락(더 저렴).
+- 10~30%: 🔴 고점 근처(빨강/주황) = 비쌈 → 매수 절대 금지
+- 40~49%: 🟡 주의구간 → 진입 불가
+- 50%: 🟢 초록 CL = 첫 매수 타점 (조건검색으로 걸러진 종목은 이 구간)
+- 60~80%: 🔵 파랑/남색 = 추가 매수 구간 (더 하락할수록 추가매수)
+- 90%+: ⚫ 극단 하락 → 관망
+
+종목 정보:
+- 코드: ${stock.code}, 이름: ${stock.name}, 현재가: ${stock.price.toLocaleString()}원
+- 현재 CL 위치: ${currentLine}% → ${currentLine <= 30 ? '🔴 매수금지(고점)' : currentLine <= 49 ? '🟡 진입불가' : currentLine <= 55 ? '🟢 초록CL(첫매수)' : currentLine <= 80 ? '🔵 파랑(추가매수)' : '⚫ 극단(관망)'}
+- 모델 유형: ${modelType}
+
+후보 점수카드:
+${JSON.stringify(scorecard, null, 2)}
+
+${params.recentNews ? `최근 뉴스 요약:\n${params.recentNews}\n` : ''}
+설정:
+- 최대 보유 유닛: ${maxUnitsPerStock}
+- 라더 진입 가능 라인: ${ladderLines.join(', ')}% (50%서 첫 진입, 더 하락 시 추가매수)
+- AI 추가매수 허용: ${settings.allowAiDoubleDown ?? false}
+- 커스텀 진입 설정: ${JSON.stringify(settings.aiEntryPolicy ?? {})}
+
+판단 기준:
+- currentLine >= 50(초록 CL 이상 하락)이고 totalScore >= 60일 때만 accepted=true
+- currentLine < 50(고점 근처)이면 반드시 accepted=false
+- 라더 계획은 현재선(${currentLine})에서 시작, 더 높은 % 라인(더 하락 시)에 추가 배정
+- 기본 라인당 1유닛, allowAiDoubleDown=true이면 특정 라인에 2유닛 가능
+- 총 유닛 합계 <= maxUnitsPerStock 강제
+
+아래 JSON 형식으로만 응답하세요:
+{
+  "accepted": true/false,
+  "rejectReason": "거부 이유 (accepted=false일 때만)",
+  "candidateClass": "momentum_leader / quality_growth / speculative / avoid",
+  "initialLine": 현재 진입할 라인 번호 (50/60/70/80 중 하나),
+  "ladderPlan": [{"line": 50, "units": 1}, {"line": 60, "units": 1}, ...],
+  "maxUnits": 총 계획 유닛,
+  "holdStrategy": "target_exit / trend_hold / partial_exit / aggressive_cut",
+  "reasoning": "한 줄 판단 근거"
+}`;
+
+    const result = await this.createJsonCompletion([
+      { role: 'system', content: '당신은 한국 주식 자동매매 AI입니다. 반드시 JSON만 응답합니다.' },
+      { role: 'user', content: prompt },
+    ], { model: aiModel, temperature: 0.2 });
+
+    return {
+      accepted: result.accepted ?? false,
+      rejectReason: result.rejectReason,
+      candidateClass: result.candidateClass,
+      initialLine: result.initialLine ?? currentLine,
+      ladderPlan: Array.isArray(result.ladderPlan) ? result.ladderPlan : [],
+      maxUnits: result.maxUnits ?? 1,
+      holdStrategy: result.holdStrategy ?? 'target_exit',
+      reasoning: result.reasoning ?? '',
+    };
+  }
+
+  async decidePositionManagement(params: {
+    stock: { code: string; name: string; price: number };
+    currentLine: number;
+    performance: {
+      entryPrice: number;
+      quantity: number;
+      filledUnits?: number | null;
+      maxUnitsReached?: number | null;
+      entryLadderPlan?: any;
+      filledEntrySteps?: any;
+      holdDecisionSnapshots?: any;
+      plannedExitPolicy?: any;
+    };
+    holdingDays: number;
+    modelType: string;
+    settings: {
+      maxUnitsPerStock?: number | null;
+      stopLossPolicy?: any;
+      aiExitPolicy?: any;
+      allowAiPartialTakeProfit?: boolean | null;
+      allowAiHoldBeyondTarget?: boolean | null;
+    };
+  }, aiModel: string = 'gpt-5.1'): Promise<{
+    action: 'hold' | 'scale_in' | 'partial_exit' | 'full_exit' | 'stop_loss';
+    unitsToAdd?: number;
+    unitsToSell?: number;
+    reasoning: string;
+  }> {
+    const { stock, currentLine, performance, holdingDays, modelType, settings } = params;
+    const pnlPct = ((stock.price - performance.entryPrice) / performance.entryPrice * 100).toFixed(1);
+    const stopLossMode = settings.stopLossPolicy?.mode ?? 'soft_ai_first';
+
+    const prompt = `당신은 보유 포지션을 관리하는 한국 주식 자동매매 AI입니다.
+
+【레인보우 CL 시스템 — 반드시 숙지】
+숫자는 240일 고점 대비 하락률. 숫자가 클수록 더 많이 하락(더 저렴).
+- 50%: 🟢 초록 CL = 최초 진입 타점
+- 60~80%: 🔵 파랑/남색 = 추가 매수(scale_in) 구간, 더 떨어질수록 평단 낮춤
+- 40% 이하: 🟡🔴 주가가 회복된 상태 = 익절(partial/full_exit) 고려 구간
+- 90%+: ⚫ 극단 하락 = 손절(stop_loss) 고려
+
+보유 종목:
+- 코드: ${stock.code}, 이름: ${stock.name}
+- 현재가: ${stock.price.toLocaleString()}원, 진입가: ${performance.entryPrice.toLocaleString()}원
+- 현재 수익률: ${pnlPct}%
+- 현재 CL 위치: ${currentLine}% → ${currentLine <= 40 ? '🟡 회복구간(익절 고려)' : currentLine <= 55 ? '🟢 초록CL' : currentLine <= 80 ? '🔵 파랑(추가매수 구간)' : '⚫ 극단(손절 고려)'}
+- 보유 기간: ${holdingDays}일
+- 현재 보유 유닛: ${performance.filledUnits ?? 1} / 최대 ${settings.maxUnitsPerStock ?? 5}
+- 라더 계획: ${JSON.stringify(performance.entryLadderPlan ?? [])}
+- 체결된 스텝: ${JSON.stringify(performance.filledEntrySteps ?? [])}
+- 이전 보유판단 이력: ${JSON.stringify(performance.holdDecisionSnapshots ?? [])}
+- 계획된 청산 정책: ${JSON.stringify(performance.plannedExitPolicy ?? {})}
+- 손절 모드: ${stopLossMode} (disabled=손절없음, soft_ai_first=AI우선, conditional=조건부, hard=강제)
+- 모델 유형: ${modelType}
+- AI 부분익절 허용: ${settings.allowAiPartialTakeProfit ?? false}
+- AI 목표초과 보유 허용: ${settings.allowAiHoldBeyondTarget ?? false}
+
+판단 원칙:
+- scale_in: CL이 60~80%(파랑 구간) 도달 + 라더 미체결 스텝 존재 + 총유닛 < maxUnits일 때만 가능
+- partial_exit: CL이 40% 이하(회복)이고 allowAiPartialTakeProfit=true일 때 가능
+- full_exit: CL이 30% 이하(충분히 회복)이거나 모멘텀 소진 판단 시
+- stop_loss: stopLossMode=disabled이면 절대 불가, hard이면 손실 >= 7% 시 강제
+- CL이 50~55%(초록 부근)이면 기본적으로 hold
+
+아래 JSON 형식으로만 응답하세요:
+{
+  "action": "hold/scale_in/partial_exit/full_exit/stop_loss",
+  "unitsToAdd": 추가할 유닛 수 (scale_in일 때),
+  "unitsToSell": 매도할 유닛 수 (partial_exit일 때),
+  "reasoning": "한 줄 판단 근거"
+}`;
+
+    const result = await this.createJsonCompletion([
+      { role: 'system', content: '당신은 한국 주식 자동매매 AI입니다. 반드시 JSON만 응답합니다.' },
+      { role: 'user', content: prompt },
+    ], { model: aiModel, temperature: 0.2 });
+
+    return {
+      action: result.action ?? 'hold',
+      unitsToAdd: result.unitsToAdd,
+      unitsToSell: result.unitsToSell,
+      reasoning: result.reasoning ?? '',
+    };
+  }
+
+  async suggestStrategyEvolution(params: {
+    modelType: string;
+    stats: {
+      totalTrades: number;
+      winRate: number;
+      avgReturn: number;
+      maxDrawdown: number;
+    };
+    linePerformance: { line: number; total: number; winRate: number; avgReturn: number; expectancy: number }[];
+    unitPerformance: { units: number; total: number; winRate: number; avgReturn: number }[];
+    currentLadder: { line: number; units: number }[];
+    currentStopLossMode: string;
+  }, aiModel: string = 'gpt-5.1'): Promise<{
+    suggestedLadder: { line: number; units: number }[];
+    suggestedStopLossMode: string;
+    suggestedMaxUnits: number;
+    candidateThresholdAdjust: { minTotalScore?: number; minVolumeScore?: number };
+    reasoning: string;
+  }> {
+    const { stats, linePerformance, unitPerformance, currentLadder, currentStopLossMode, modelType } = params;
+
+    const prompt = `당신은 한국 주식 자동매매 전략 개선 AI입니다.
+
+모델 유형: ${modelType}
+성과 통계:
+- 총 거래: ${stats.totalTrades}건
+- 승률: ${stats.winRate.toFixed(1)}%
+- 평균 수익률: ${stats.avgReturn.toFixed(2)}%
+- 최대 낙폭: ${stats.maxDrawdown.toFixed(1)}%
+
+라인별 성과:
+${linePerformance.map(p => `  ${p.line}%라인: ${p.total}건, 승률${p.winRate.toFixed(0)}%, 기대값${p.expectancy.toFixed(2)}%`).join('\n')}
+
+유닛별 성과:
+${unitPerformance.map(p => `  ${p.units}유닛: ${p.total}건, 승률${p.winRate.toFixed(0)}%, 평균수익${p.avgReturn.toFixed(2)}%`).join('\n')}
+
+현재 라더 계획: ${JSON.stringify(currentLadder)}
+현재 손절 모드: ${currentStopLossMode}
+
+위 데이터를 분석해서 전략을 개선하세요.
+- 기대값(expectancy)이 마이너스인 라인은 units=0으로
+- 2유닛 성과가 1유닛보다 확실히 좋으면 해당 라인 units=2 제안
+- 승률과 낙폭을 고려해 손절 모드 추천
+- candidateThresholdAdjust는 minTotalScore 조정 (±5~10 수준)
+
+JSON으로만 응답:
+{
+  "suggestedLadder": [{"line": 50, "units": 1}, ...],
+  "suggestedStopLossMode": "disabled/soft_ai_first/conditional/hard",
+  "suggestedMaxUnits": 숫자,
+  "candidateThresholdAdjust": {"minTotalScore": 숫자},
+  "reasoning": "한 줄 개선 근거"
+}`;
+
+    const result = await this.createJsonCompletion([
+      { role: 'system', content: '당신은 한국 주식 자동매매 전략 개선 AI입니다. 반드시 JSON만 응답합니다.' },
+      { role: 'user', content: prompt },
+    ], { model: aiModel, temperature: 0.3 });
+
+    return {
+      suggestedLadder: Array.isArray(result.suggestedLadder) ? result.suggestedLadder : currentLadder,
+      suggestedStopLossMode: result.suggestedStopLossMode ?? currentStopLossMode,
+      suggestedMaxUnits: result.suggestedMaxUnits ?? 5,
+      candidateThresholdAdjust: result.candidateThresholdAdjust ?? {},
+      reasoning: result.reasoning ?? '',
+    };
+  }
 }
 
 // ─── 내부 헬퍼 ─────────────────────────────────────────────────────────────

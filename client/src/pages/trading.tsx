@@ -179,7 +179,7 @@ export default function Trading() {
       ...signal,
       chartDate:
         signal.chartDate ||
-        String(signal.createdAt || "").replace(/[-:TZ.]/g, "").slice(0, 8),
+        String(signal.createdAt || "").replace(/-|:|T|Z|\./g, "").slice(0, 8),
       chartPrice:
         typeof signal.currentPrice === "number" && signal.currentPrice > 0
           ? signal.currentPrice
@@ -320,6 +320,7 @@ export default function Trading() {
               height={400}
               period={chartPeriod}
               onPeriodChange={setChartPeriod}
+              defaultShowRainbow={true}
               overlayLine={overlayLine}
               signalDots={normalizedSignalDots}
               formulaSelector={

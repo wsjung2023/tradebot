@@ -9,7 +9,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Monitor, CircleDot, Clock, ArrowDownCircle, ArrowUpCircle, MinusCircle, AlertTriangle, Loader2, Bell, Power } from "lucide-react";
+import { Monitor, CircleDot, Clock, ArrowDownCircle, ArrowUpCircle, MinusCircle, AlertTriangle, Loader2, Bell, Power, GraduationCap } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface JobInfo {
@@ -76,6 +76,28 @@ interface NotifSummary {
   unreadWarn: number;
 }
 
+interface LearningLatestRecord {
+  createdAt: string;
+  totalTrades: number;
+  winRate: string | number | null;
+  avgReturn: string | number | null;
+  applied: boolean;
+  recommendations: string[];
+}
+
+interface LearningModelSummary {
+  modelId: number;
+  modelName: string;
+  isActive: boolean;
+  latestRecord: LearningLatestRecord | null;
+}
+
+interface LearningSummaryResponse {
+  learningEnabled: boolean;
+  defaultScheduleTime: string;
+  models: LearningModelSummary[];
+}
+
 function formatTime(dateStr?: string | null): string {
   if (!dateStr) return "-";
   try {
@@ -94,6 +116,13 @@ function formatDateTime(dateStr?: string | null): string {
   } catch {
     return "-";
   }
+}
+
+function formatPercent(value: string | number | null | undefined, digits = 1): string {
+  if (value === null || value === undefined) return "-";
+  const n = typeof value === "string" ? parseFloat(value) : value;
+  if (!Number.isFinite(n)) return "-";
+  return `${n.toFixed(digits)}%`;
 }
 
 function JobCard({ job }: { job: JobInfo }) {
@@ -172,12 +201,20 @@ export default function Monitoring() {
     refetchInterval: 30_000,
   });
 
+  const { data: learningSummaryData, isLoading: learningSummaryLoading } = useQuery<LearningSummaryResponse>({
+    queryKey: ["/api/ai/learning-summary"],
+    refetchInterval: 60_000,
+  });
+
   const jobs = jobsData ?? [];
   const engineRun = engineData?.run;
   const candidates = candidatesData?.candidates ?? [];
   const decisionTypes = new Set(["BUY", "SELL", "SKIP", "ADDITIONAL_BUY", "EXIT_SELL"]);
   const notifications = (notifData?.notifications ?? []).filter((n) => decisionTypes.has(n.type));
   const summary = summaryData?.summary;
+  const learningModels = learningSummaryData?.models ?? [];
+  const activeLearningModels = learningModels.filter((m) => m.isActive);
+  const learningJob = jobs.find((j) => j.id === "learning");
 
   return (
     <div className="p-3 md:p-6 space-y-4 md:space-y-6">
@@ -240,6 +277,62 @@ export default function Monitoring() {
           </CardContent>
         </Card>
       )}
+
+      <Card data-testid="card-learning-summary">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <GraduationCap className="h-4 w-4" />
+            학습 요약
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex items-center flex-wrap gap-2 text-xs">
+            <Badge variant={learningSummaryData?.learningEnabled ? "default" : "secondary"}>
+              학습 플래그: {learningSummaryData?.learningEnabled ? "ON" : "OFF"}
+            </Badge>
+            <Badge variant="outline">기본 실행시각: {learningSummaryData?.defaultScheduleTime ?? "16:00"}</Badge>
+            <Badge variant={learningJob?.status === "running" ? "default" : "secondary"}>
+              학습 잡: {learningJob?.status === "running" ? "실행중" : "중지"}
+            </Badge>
+            <Badge variant="outline">다음 실행: {learningJob?.nextRun ? formatDateTime(learningJob.nextRun) : "-"}</Badge>
+            <Badge variant="outline">활성 모델: {activeLearningModels.length}개</Badge>
+          </div>
+
+          {learningSummaryLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : activeLearningModels.length === 0 ? (
+            <p className="text-sm text-muted-foreground">활성 모델이 없어서 학습 대상이 없습니다.</p>
+          ) : (
+            <div className="space-y-2">
+              {activeLearningModels.map((m) => {
+                const rec = m.latestRecord;
+                const lastRecommendation = rec?.recommendations?.[0];
+                return (
+                  <div key={m.modelId} className="rounded-md border border-border/40 p-3 space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-medium">{m.modelName}</p>
+                      <Badge variant={rec?.applied ? "default" : "secondary"} className="text-xs">
+                        {rec ? (rec.applied ? "자동반영됨" : "추천만 생성") : "학습기록 없음"}
+                      </Badge>
+                    </div>
+                    <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                      <span>최근 학습: {rec ? formatDateTime(rec.createdAt) : "-"}</span>
+                      <span>거래수: {rec?.totalTrades ?? "-"}</span>
+                      <span>승률: {formatPercent(rec?.winRate, 1)}</span>
+                      <span>평균수익: {formatPercent(rec?.avgReturn, 2)}</span>
+                    </div>
+                    {lastRecommendation && (
+                      <p className="text-xs text-muted-foreground truncate">{lastRecommendation}</p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card>

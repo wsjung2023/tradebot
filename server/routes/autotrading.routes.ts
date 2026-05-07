@@ -39,6 +39,39 @@ export function registerAutoTradingRoutes(app: Router) {
       .optional(),
   });
 
+  const candidateDecisionQuerySchema = z.object({
+    modelId: z.coerce.number().int().positive().optional(),
+    accepted: z
+      .union([
+        z.literal("true"),
+        z.literal("false"),
+        z.literal("1"),
+        z.literal("0"),
+        z.boolean(),
+        z.number().int().min(0).max(1),
+      ])
+      .optional(),
+    from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    limit: z.coerce.number().int().min(1).max(1000).optional(),
+    offset: z.coerce.number().int().min(0).max(5000).optional(),
+  });
+
+  const parseBool = (value: unknown): boolean | undefined => {
+    if (value === undefined) return undefined;
+    return value === true || value === "true" || value === "1" || value === 1;
+  };
+
+  const parseKstDateStart = (dateStr?: string): Date | undefined => {
+    if (!dateStr) return undefined;
+    return new Date(`${dateStr}T00:00:00+09:00`);
+  };
+
+  const parseKstDateEnd = (dateStr?: string): Date | undefined => {
+    if (!dateStr) return undefined;
+    return new Date(`${dateStr}T23:59:59.999+09:00`);
+  };
+
   app.get("/api/auto-trading/engine-status", isAuthenticated, async (req, res) => {
     try {
       const user = getCurrentUser(req);
@@ -132,6 +165,67 @@ export function registerAutoTradingRoutes(app: Router) {
       const user = getCurrentUser(req);
       const candidates = await storage.getAllCandidateStocksForUser(user!.id);
       res.json({ candidates });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/auto-trading/candidate-decisions", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const parsed = candidateDecisionQuerySchema.safeParse(req.query);
+      if (!parsed.success) {
+        return res.status(400).json({
+          error: "invalid_candidate_decision_query",
+          details: parsed.error.flatten(),
+        });
+      }
+
+      const accepted = parseBool(parsed.data.accepted);
+      const from = parseKstDateStart(parsed.data.from);
+      const to = parseKstDateEnd(parsed.data.to);
+
+      if (from && Number.isNaN(from.getTime())) return res.status(400).json({ error: "invalid_from_date" });
+      if (to && Number.isNaN(to.getTime())) return res.status(400).json({ error: "invalid_to_date" });
+      if (from && to && from > to) return res.status(400).json({ error: "invalid_date_range" });
+
+      const logs = await storage.getCandidateDecisionLogsForUser(user!.id, {
+        modelId: parsed.data.modelId,
+        accepted,
+        from,
+        to,
+        limit: parsed.data.limit ?? 200,
+        offset: parsed.data.offset ?? 0,
+      });
+
+      const dailySummaryMap = new Map<string, { total: number; accepted: number; rejected: number }>();
+      for (const row of logs) {
+        const baseTs = row.decidedAt ? new Date(row.decidedAt).getTime() : Date.now();
+        const kstDay = new Date(baseTs + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+        const current = dailySummaryMap.get(kstDay) ?? { total: 0, accepted: 0, rejected: 0 };
+        current.total += 1;
+        if (row.accepted) current.accepted += 1;
+        else current.rejected += 1;
+        dailySummaryMap.set(kstDay, current);
+      }
+
+      const dailySummary = Array.from(dailySummaryMap.entries())
+        .map(([date, value]) => ({ date, ...value }))
+        .sort((a, b) => b.date.localeCompare(a.date));
+
+      res.json({
+        filters: {
+          modelId: parsed.data.modelId ?? null,
+          accepted: accepted ?? null,
+          from: parsed.data.from ?? null,
+          to: parsed.data.to ?? null,
+          limit: parsed.data.limit ?? 200,
+          offset: parsed.data.offset ?? 0,
+        },
+        total: logs.length,
+        logs,
+        dailySummary,
+      });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }

@@ -321,7 +321,32 @@ export const autoTradingSettings = pgTable("auto_trading_settings", {
   stalePeriodDays: integer("stale_period_days").notNull().default(5), // Lower exit if held > 5 days
   surgeThreshold: decimal("surge_threshold", { precision: 5, scale: 2 }).notNull().default('10'), // Raise exit if +10% surge
   volumeSpikeMultiplier: decimal("volume_spike_multiplier", { precision: 5, scale: 2 }).notNull().default('3'), // 3x volume
-  
+
+  // Unit/capital management
+  baseUnitSize: decimal("base_unit_size", { precision: 12, scale: 2 }),
+  maxUnitsPerStock: integer("max_units_per_stock"),
+  hardMaxCapitalPerStock: decimal("hard_max_capital_per_stock", { precision: 12, scale: 2 }),
+
+  // Condition search & ladder
+  conditionSearchSequences: jsonb("condition_search_sequences"),
+  entryLadderSettings: jsonb("entry_ladder_settings"),
+
+  // Candidate scoring
+  candidateScoringWeights: jsonb("candidate_scoring_weights"),
+  candidateThresholds: jsonb("candidate_thresholds"),
+
+  // AI policy overrides
+  aiEntryPolicy: jsonb("ai_entry_policy"),
+  aiExitPolicy: jsonb("ai_exit_policy"),
+  stopLossPolicy: jsonb("stop_loss_policy"),
+  learningPolicy: jsonb("learning_policy"),
+
+  // AI discretion flags
+  allowAiDoubleDown: boolean("allow_ai_double_down"),
+  allowAiPartialTakeProfit: boolean("allow_ai_partial_take_profit"),
+  allowAiHoldBeyondTarget: boolean("allow_ai_hold_beyond_target"),
+  allowSpeculativeLeaderTrades: boolean("allow_speculative_leader_trades"),
+
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -361,7 +386,21 @@ export const tradingPerformance = pgTable("trading_performance", {
   financialsScore: decimal("financials_score", { precision: 5, scale: 2 }),
   liquidityScore: decimal("liquidity_score", { precision: 5, scale: 2 }),
   institutionalScore: decimal("institutional_score", { precision: 5, scale: 2 }),
-  
+
+  // Strategy tracking
+  strategyVersion: text("strategy_version"),
+  entryDecisionSnapshot: jsonb("entry_decision_snapshot"),
+  entryScorecard: jsonb("entry_scorecard"),
+  entryLadderPlan: jsonb("entry_ladder_plan"),
+  filledEntrySteps: jsonb("filled_entry_steps"),
+  filledUnits: integer("filled_units"),
+  maxUnitsReached: integer("max_units_reached"),
+  avgEntryLine: integer("avg_entry_line"),
+  holdDecisionSnapshots: jsonb("hold_decision_snapshots"),
+  exitDecisionSnapshot: jsonb("exit_decision_snapshot"),
+  scaleOutHistory: jsonb("scale_out_history"),
+  plannedExitPolicy: jsonb("planned_exit_policy"),
+
   entryTime: timestamp("entry_time").notNull().defaultNow(),
   exitTime: timestamp("exit_time"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -826,6 +865,42 @@ export const candidateStocks = pgTable("candidate_stocks", {
 export const insertCandidateStockSchema = createInsertSchema(candidateStocks).omit({ id: true, scannedAt: true });
 export type CandidateStock = typeof candidateStocks.$inferSelect;
 export type InsertCandidateStock = z.infer<typeof insertCandidateStockSchema>;
+
+// Candidate evaluation decision log (one row per AI evaluation)
+export const candidateDecisionLogs = pgTable("candidate_decision_logs", {
+  id: serial("id").primaryKey(),
+  modelId: integer("model_id").notNull().references(() => aiModels.id, { onDelete: 'cascade' }),
+  stockCode: text("stock_code").notNull(),
+  stockName: text("stock_name").notNull().default(''),
+  scorecard: jsonb("scorecard"),
+  aiDecision: jsonb("ai_decision"),
+  ladderPlan: jsonb("ladder_plan"),
+  accepted: boolean("accepted").notNull().default(false),
+  rejectReason: text("reject_reason"),
+  strategyVersion: text("strategy_version"),
+  decidedAt: timestamp("decided_at").notNull().defaultNow(),
+});
+
+export const insertCandidateDecisionLogSchema = createInsertSchema(candidateDecisionLogs).omit({ id: true, decidedAt: true });
+export type CandidateDecisionLog = typeof candidateDecisionLogs.$inferSelect;
+export type InsertCandidateDecisionLog = z.infer<typeof insertCandidateDecisionLogSchema>;
+
+// Position management decision log (one row per hold/scale/exit decision)
+export const positionDecisionLogs = pgTable("position_decision_logs", {
+  id: serial("id").primaryKey(),
+  performanceId: integer("performance_id").notNull().references(() => tradingPerformance.id, { onDelete: 'cascade' }),
+  modelId: integer("model_id").notNull().references(() => aiModels.id, { onDelete: 'cascade' }),
+  stockCode: text("stock_code").notNull(),
+  decisionType: text("decision_type").notNull(), // 'hold', 'scale_in', 'partial_exit', 'full_exit', 'stop_loss'
+  aiSnapshot: jsonb("ai_snapshot"),
+  action: jsonb("action"),
+  strategyVersion: text("strategy_version"),
+  decidedAt: timestamp("decided_at").notNull().defaultNow(),
+});
+
+export const insertPositionDecisionLogSchema = createInsertSchema(positionDecisionLogs).omit({ id: true, decidedAt: true });
+export type PositionDecisionLog = typeof positionDecisionLogs.$inferSelect;
+export type InsertPositionDecisionLog = z.infer<typeof insertPositionDecisionLogSchema>;
 
 export const assetSnapshots = pgTable("asset_snapshots", {
   id: serial("id").primaryKey(),

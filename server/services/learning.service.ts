@@ -1,6 +1,7 @@
 // learning.service.ts — AI 자동매매 성과 분석 및 모델 파라미터 자동 최적화 학습 서비스
 import { storage } from '../storage';
 import { TradingPerformance, AiModel, AutoTradingSettings } from '@shared/schema';
+import { getAIService } from './ai.service';
 
 export interface LearningStats {
   totalTrades: number;
@@ -15,9 +16,29 @@ export interface LearningStats {
   maxDrawdown: number;
 }
 
+export interface LinePerformance {
+  line: number;
+  total: number;
+  winRate: number;
+  avgReturn: number;
+  expectancy: number; // avgWin*winRate - avgLoss*(1-winRate)
+  profitFactor: number; // sum(wins) / sum(losses)
+}
+
+export interface UnitPerformance {
+  units: number;
+  total: number;
+  winRate: number;
+  avgReturn: number;
+}
+
 export interface PatternInsights {
   bestEntryLines: { line: number; winRate: number; avgReturn: number }[];
   bestExitLines: { line: number; winRate: number; avgReturn: number }[];
+  linePerformance: LinePerformance[];
+  unitPerformance: UnitPerformance[];
+  suggestedLadderPlan: { line: number; units: number }[];
+  suggestedStopLossMode: string;
   optimalWeights: {
     theme: number;
     news: number;
@@ -178,13 +199,90 @@ export class LearningService {
     // Optimize weights based on correlation with success
     const optimalWeights = this.optimizeWeights(completedTrades);
     const optimalThresholds = this.optimizeThresholds(completedTrades);
+    const linePerformance = this.analyzeLinePerformance(completedTrades);
+    const unitPerformance = this.analyzeUnitPerformance(completedTrades);
+    const suggestedLadderPlan = this.suggestLadderPlan(linePerformance);
+    const suggestedStopLossMode = this.suggestStopLossMode(completedTrades);
 
     return {
       bestEntryLines,
       bestExitLines,
+      linePerformance,
+      unitPerformance,
+      suggestedLadderPlan,
+      suggestedStopLossMode,
       optimalWeights,
       optimalThresholds,
     };
+  }
+
+  private analyzeLinePerformance(trades: TradingPerformance[]): LinePerformance[] {
+    const lineStats = new Map<number, { wins: number; total: number; winReturns: number[]; lossReturns: number[] }>();
+
+    for (const trade of trades) {
+      const line = trade.entryRainbowLine || 50;
+      if (!lineStats.has(line)) {
+        lineStats.set(line, { wins: 0, total: 0, winReturns: [], lossReturns: [] });
+      }
+      const s = lineStats.get(line)!;
+      s.total++;
+      const ret = parseFloat(trade.profitLossRate?.toString() || '0');
+      if (trade.isWin) { s.wins++; s.winReturns.push(ret); }
+      else { s.lossReturns.push(ret); }
+    }
+
+    return Array.from(lineStats.entries()).map(([line, s]) => {
+      const winRate = s.total > 0 ? s.wins / s.total : 0;
+      const avgWin = s.winReturns.length > 0 ? s.winReturns.reduce((a, b) => a + b, 0) / s.winReturns.length : 0;
+      const avgLoss = s.lossReturns.length > 0 ? Math.abs(s.lossReturns.reduce((a, b) => a + b, 0) / s.lossReturns.length) : 0;
+      const avgReturn = (s.winReturns.concat(s.lossReturns)).reduce((a, b) => a + b, 0) / (s.winReturns.length + s.lossReturns.length || 1);
+      const expectancy = avgWin * winRate - avgLoss * (1 - winRate);
+      const sumWins = s.winReturns.reduce((a, b) => a + b, 0);
+      const sumLossAbs = s.lossReturns.reduce((a, b) => a + Math.abs(b), 0);
+      const profitFactor = sumLossAbs > 0 ? sumWins / sumLossAbs : sumWins > 0 ? 999 : 0;
+      return { line, total: s.total, winRate: winRate * 100, avgReturn, expectancy, profitFactor };
+    }).sort((a, b) => a.line - b.line);
+  }
+
+  private analyzeUnitPerformance(trades: TradingPerformance[]): UnitPerformance[] {
+    const unitStats = new Map<number, { wins: number; total: number; returns: number[] }>();
+
+    for (const trade of trades) {
+      const units = trade.filledUnits ?? 1;
+      if (!unitStats.has(units)) unitStats.set(units, { wins: 0, total: 0, returns: [] });
+      const s = unitStats.get(units)!;
+      s.total++;
+      if (trade.isWin) s.wins++;
+      s.returns.push(parseFloat(trade.profitLossRate?.toString() || '0'));
+    }
+
+    return Array.from(unitStats.entries()).map(([units, s]) => ({
+      units,
+      total: s.total,
+      winRate: s.total > 0 ? (s.wins / s.total) * 100 : 0,
+      avgReturn: s.returns.reduce((a, b) => a + b, 0) / (s.returns.length || 1),
+    })).sort((a, b) => a.units - b.units);
+  }
+
+  private suggestLadderPlan(linePerf: LinePerformance[]): { line: number; units: number }[] {
+    const LADDER_LINES = [50, 40, 30, 20, 10];
+    return LADDER_LINES.map(line => {
+      const perf = linePerf.find(p => p.line === line);
+      if (!perf || perf.total < 5) return { line, units: 1 };
+      // Good expectancy at this line → keep 1 unit; negative expectancy → 0 units (skip)
+      return { line, units: perf.expectancy > 0 ? 1 : 0 };
+    });
+  }
+
+  private suggestStopLossMode(trades: TradingPerformance[]): string {
+    if (trades.length < 10) return 'soft_ai_first';
+    const lossTrades = trades.filter(t => !t.isWin);
+    if (lossTrades.length === 0) return 'disabled';
+    const avgLoss = lossTrades.reduce((sum, t) => sum + parseFloat(t.profitLossRate?.toString() || '0'), 0) / lossTrades.length;
+    // Deep average losses → recommend hard stop
+    if (avgLoss < -10) return 'conditional';
+    if (avgLoss < -15) return 'hard';
+    return 'soft_ai_first';
   }
 
   /**
@@ -330,9 +428,13 @@ export class LearningService {
 
       if (shouldApply) {
         try {
-          const settings = await storage.getAutoTradingSettings(modelId);
+          const [settings, model] = await Promise.all([
+            storage.getAutoTradingSettings(modelId),
+            storage.getAiModel(modelId),
+          ]);
           if (settings) {
-            await storage.updateAutoTradingSettings(modelId, {
+            // Base weight/threshold updates
+            const updates: Partial<typeof settings> = {
               themeWeight: patterns.optimalWeights.theme.toFixed(2),
               newsWeight: patterns.optimalWeights.news.toFixed(2),
               financialsWeight: patterns.optimalWeights.financials.toFixed(2),
@@ -341,7 +443,93 @@ export class LearningService {
               minAiConfidence: patterns.optimalThresholds.minAiConfidence.toFixed(2),
               requireGoodFinancials: patterns.optimalThresholds.requireGoodFinancials,
               requireHighLiquidity: patterns.optimalThresholds.requireHighLiquidity,
-            });
+            };
+
+            // Ladder plan update: only apply if suggested plan has meaningful data
+            const activeLadderLines = patterns.suggestedLadderPlan.filter(s => s.units > 0);
+            if (activeLadderLines.length >= 2) {
+              updates.entryLadderSettings = patterns.suggestedLadderPlan as any;
+              recommendations.push(`📊 라더 계획 업데이트: ${activeLadderLines.map(s => `${s.line}%x${s.units}`).join(', ')}`);
+            }
+
+            // Candidate threshold update
+            const existingThresholds = (settings.candidateThresholds as any) ?? {};
+            updates.candidateThresholds = {
+              ...existingThresholds,
+              minTotalScore: patterns.optimalThresholds.minAiConfidence,
+            } as any;
+
+            // Stop loss policy evolution
+            const currentStopPolicy = (settings.stopLossPolicy as any) ?? {};
+            if (currentStopPolicy.mode !== 'hard') {
+              updates.stopLossPolicy = {
+                ...currentStopPolicy,
+                mode: patterns.suggestedStopLossMode,
+              } as any;
+              if (patterns.suggestedStopLossMode !== currentStopPolicy.mode) {
+                recommendations.push(`🔄 손절 모드 변경 권장: ${currentStopPolicy.mode ?? 'soft_ai_first'} → ${patterns.suggestedStopLossMode}`);
+              }
+            }
+
+            // AI strategy evolution suggestions (supplement rule-based changes)
+            try {
+              const modelType = (model?.config as any)?.modelType ?? 'custom';
+              const aiModel = (model?.config as any)?.aiModel ?? 'claude-haiku-4-5-20251001';
+              const aiEvolution = await getAIService().suggestStrategyEvolution({
+                modelType,
+                stats: {
+                  totalTrades: stats.totalTrades,
+                  winRate: stats.winRate,
+                  avgReturn: stats.totalTrades > 0 ? stats.totalReturn / stats.totalTrades : 0,
+                  maxDrawdown: stats.maxDrawdown,
+                },
+                linePerformance: patterns.linePerformance,
+                unitPerformance: patterns.unitPerformance,
+                currentLadder: (settings.entryLadderSettings as any) ?? patterns.suggestedLadderPlan,
+                currentStopLossMode: currentStopPolicy.mode ?? 'soft_ai_first',
+              }, aiModel);
+
+              // Override ladder plan if AI provides a better suggestion
+              if (aiEvolution.suggestedLadder?.length >= 2) {
+                const aiActiveLadder = aiEvolution.suggestedLadder.filter((s: any) => s.units > 0);
+                if (aiActiveLadder.length >= 1) {
+                  updates.entryLadderSettings = aiEvolution.suggestedLadder as any;
+                  recommendations.push(`🤖 AI 라더 제안 적용: ${aiActiveLadder.map((s: any) => `${s.line}%x${s.units}`).join(', ')}`);
+                }
+              }
+
+              // Override stop loss mode if AI suggests different (but never downgrade hard to softer)
+              if (aiEvolution.suggestedStopLossMode && currentStopPolicy.mode !== 'hard') {
+                updates.stopLossPolicy = {
+                  ...(updates.stopLossPolicy as any ?? currentStopPolicy),
+                  mode: aiEvolution.suggestedStopLossMode,
+                } as any;
+                recommendations.push(`🤖 AI 손절 모드 제안: ${aiEvolution.suggestedStopLossMode}`);
+              }
+
+              // Apply AI-suggested max units
+              if (aiEvolution.suggestedMaxUnits && aiEvolution.suggestedMaxUnits > 0) {
+                (updates as any).maxUnitsPerStock = String(aiEvolution.suggestedMaxUnits);
+                recommendations.push(`🤖 AI 최대 유닛 제안: ${aiEvolution.suggestedMaxUnits}`);
+              }
+
+              // Merge AI-suggested candidate threshold adjustments
+              if (aiEvolution.candidateThresholdAdjust) {
+                updates.candidateThresholds = {
+                  ...(updates.candidateThresholds as any),
+                  ...aiEvolution.candidateThresholdAdjust,
+                } as any;
+              }
+
+              if (aiEvolution.reasoning) {
+                recommendations.push(`🤖 AI 근거: ${aiEvolution.reasoning}`);
+              }
+            } catch (aiErr) {
+              console.error('[LearningService] suggestStrategyEvolution failed:', aiErr);
+              recommendations.push('⚠️  AI 전략 제안 실패 (규칙 기반 최적화만 적용)');
+            }
+
+            await storage.updateAutoTradingSettings(modelId, updates);
 
             // Update model stats
             await storage.updateAiModel(modelId, {
@@ -351,7 +539,7 @@ export class LearningService {
             });
 
             appliedChanges = true;
-            recommendations.push('✅ 최적화 파라미터 자동 적용 완료');
+            recommendations.push('✅ 최적화 파라미터 자동 적용 완료 (가중치, 임계치, 라더, 손절정책)');
           }
         } catch (error) {
           console.error('Failed to apply optimizations:', error);
@@ -434,6 +622,13 @@ export class LearningService {
         { line: 80, winRate: 0, avgReturn: 0 },
         { line: 60, winRate: 0, avgReturn: 0 },
       ],
+      linePerformance: [],
+      unitPerformance: [],
+      suggestedLadderPlan: [
+        { line: 50, units: 1 }, { line: 40, units: 1 }, { line: 30, units: 1 },
+        { line: 20, units: 1 }, { line: 10, units: 1 },
+      ],
+      suggestedStopLossMode: 'soft_ai_first',
       optimalWeights: {
         theme: 20,
         news: 15,

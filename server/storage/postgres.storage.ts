@@ -1,5 +1,5 @@
 // postgres.storage.ts — 조건식/차트수식/관심종목시그널/재무/자동매매/성과 CRUD. PostgreSQLCoreStorage 확장
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, gte, lte } from 'drizzle-orm';
 import { db } from '../db';
 import * as schema from '@shared/schema';
 import type { IStorage } from './interface';
@@ -12,6 +12,9 @@ import type {
   MarketIssue, InsertMarketIssue,
   AutoTradingSettings, InsertAutoTradingSettings,
   TradingPerformance, InsertTradingPerformance,
+  CandidateStock,
+  CandidateDecisionLog, InsertCandidateDecisionLog,
+  PositionDecisionLog, InsertPositionDecisionLog,
 } from '@shared/schema';
 import { PostgreSQLCoreStorage } from './postgres-core.storage';
 
@@ -217,6 +220,66 @@ export class PostgreSQLStorage extends PostgreSQLCoreStorage implements IStorage
 
   async updateTradingPerformance(id: number, updates: Partial<TradingPerformance>): Promise<TradingPerformance | undefined> {
     const result = await db.update(schema.tradingPerformance).set(updates).where(eq(schema.tradingPerformance.id, id)).returning();
+    return result[0];
+  }
+
+  async updateCandidateEvaluation(candidateId: number, updates: Pick<CandidateStock, 'evaluationResult' | 'skipReason' | 'evaluatedAt'>): Promise<CandidateStock | undefined> {
+    const result = await db.update(schema.candidateStocks).set(updates).where(eq(schema.candidateStocks.id, candidateId)).returning();
+    return result[0];
+  }
+
+  async createCandidateDecisionLog(data: InsertCandidateDecisionLog): Promise<CandidateDecisionLog> {
+    const result = await db.insert(schema.candidateDecisionLogs).values([data]).returning();
+    return result[0];
+  }
+
+  async getCandidateDecisionLogsForUser(
+    userId: string,
+    options?: {
+      modelId?: number;
+      accepted?: boolean;
+      from?: Date;
+      to?: Date;
+      limit?: number;
+      offset?: number;
+    },
+  ): Promise<Array<CandidateDecisionLog & { modelName: string; modelType: string }>> {
+    const filters = [eq(schema.aiModels.userId, userId)];
+    if (options?.modelId) filters.push(eq(schema.candidateDecisionLogs.modelId, options.modelId));
+    if (typeof options?.accepted === 'boolean') filters.push(eq(schema.candidateDecisionLogs.accepted, options.accepted));
+    if (options?.from) filters.push(gte(schema.candidateDecisionLogs.decidedAt, options.from));
+    if (options?.to) filters.push(lte(schema.candidateDecisionLogs.decidedAt, options.to));
+
+    const whereClause = filters.length === 1 ? filters[0] : and(filters[0], ...filters.slice(1));
+
+    const rows = await db
+      .select({
+        id: schema.candidateDecisionLogs.id,
+        modelId: schema.candidateDecisionLogs.modelId,
+        stockCode: schema.candidateDecisionLogs.stockCode,
+        stockName: schema.candidateDecisionLogs.stockName,
+        scorecard: schema.candidateDecisionLogs.scorecard,
+        aiDecision: schema.candidateDecisionLogs.aiDecision,
+        ladderPlan: schema.candidateDecisionLogs.ladderPlan,
+        accepted: schema.candidateDecisionLogs.accepted,
+        rejectReason: schema.candidateDecisionLogs.rejectReason,
+        strategyVersion: schema.candidateDecisionLogs.strategyVersion,
+        decidedAt: schema.candidateDecisionLogs.decidedAt,
+        modelName: schema.aiModels.modelName,
+        modelType: schema.aiModels.modelType,
+      })
+      .from(schema.candidateDecisionLogs)
+      .innerJoin(schema.aiModels, eq(schema.candidateDecisionLogs.modelId, schema.aiModels.id))
+      .where(whereClause)
+      .orderBy(desc(schema.candidateDecisionLogs.decidedAt))
+      .limit(options?.limit ?? 200)
+      .offset(options?.offset ?? 0);
+
+    return rows as Array<CandidateDecisionLog & { modelName: string; modelType: string }>;
+  }
+
+  async createPositionDecisionLog(data: InsertPositionDecisionLog): Promise<PositionDecisionLog> {
+    const result = await db.insert(schema.positionDecisionLogs).values([data]).returning();
     return result[0];
   }
 

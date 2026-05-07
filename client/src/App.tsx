@@ -27,6 +27,7 @@ import ChartFormulaEditor from "@/pages/chart-formula-editor";
 import BackAttackScan from "@/pages/backattack-scan";
 import AdminJobs from "@/pages/admin-jobs";
 import Monitoring from "@/pages/monitoring";
+import CandidateDecisions from "@/pages/candidate-decisions";
 
 function ProtectedRoute({ component: Component, ...rest }: any) {
   const { data: user, isLoading, isError, error } = useQuery<{ user: any }>({
@@ -97,6 +98,7 @@ function AuthenticatedRouter() {
               <Route path="/backattack-scan" component={BackAttackScan} />
               <Route path="/settings" component={Settings} />
               <Route path="/monitoring" component={Monitoring} />
+              <Route path="/candidate-decisions" component={CandidateDecisions} />
               <Route path="/admin-jobs" component={AdminJobs} />
               <Route component={NotFound} />
             </Switch>

@@ -2,9 +2,20 @@ import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
-  Clock, Brain, TrendingUp, Filter, ShoppingCart, TrendingDown,
-  GraduationCap, Settings2, Database, Cpu, Zap, AlertTriangle,
-  ChevronDown, ChevronRight, BarChart3, Layers
+  Activity,
+  AlertTriangle,
+  Bot,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  GraduationCap,
+  Newspaper,
+  Search,
+  ServerCog,
+  Settings2,
+  ShieldAlert,
+  SlidersHorizontal,
+  Workflow,
 } from "lucide-react";
 
 interface Section {
@@ -16,26 +27,41 @@ interface Section {
 }
 
 const sections: Section[] = [
-  { id: "architecture", title: "전체 아키텍처", icon: Layers, color: "neon-cyan", badge: "개요" },
-  { id: "scan", title: "스캔 배치잡 (30분 주기)", icon: Database, color: "neon-purple", badge: "CRON" },
-  { id: "trading", title: "매매 배치잡 (1분 주기)", icon: Zap, color: "neon-green", badge: "CRON" },
-  { id: "gpt", title: "GPT 분석 프로세스", icon: Brain, color: "neon-cyan", badge: "AI" },
-  { id: "confidence", title: "신뢰도(Confidence) 산출", icon: BarChart3, color: "neon-purple", badge: "산식" },
-  { id: "filter", title: "매수 필터 체계", icon: Filter, color: "neon-green", badge: "필터" },
-  { id: "rainbow", title: "레인보우 라인 체계", icon: TrendingUp, color: "neon-cyan", badge: "진입" },
-  { id: "buy", title: "매수 / 추가매수 로직", icon: ShoppingCart, color: "neon-purple", badge: "매수" },
-  { id: "sell", title: "청산 로직", icon: TrendingDown, color: "neon-green", badge: "매도" },
-  { id: "learning", title: "야간 학습 사이클 (매일 16:00)", icon: GraduationCap, color: "neon-cyan", badge: "학습" },
-  { id: "settings", title: "설정 파라미터 전체 목록", icon: Settings2, color: "neon-purple", badge: "설정" },
-  { id: "accounts", title: "계좌 구성 & 제어 방법", icon: Cpu, color: "neon-green", badge: "계좌" },
+  { id: "preflight", title: "시작 전 확인", icon: CheckCircle2, color: "neon-green", badge: "필수" },
+  { id: "model", title: "모델 생성/활성화", icon: Bot, color: "neon-cyan", badge: "자동매매" },
+  { id: "settings", title: "모델 상세 설정", icon: SlidersHorizontal, color: "neon-purple", badge: "핵심" },
+  { id: "scan", title: "후보 스캔 조건", icon: Search, color: "neon-green", badge: "중요" },
+  { id: "issue", title: "시장 이슈 연동", icon: Newspaper, color: "neon-cyan", badge: "옵션" },
+  { id: "jobs", title: "배치잡 제어", icon: ServerCog, color: "neon-purple", badge: "운영" },
+  { id: "monitor", title: "실시간 모니터링", icon: Activity, color: "neon-green", badge: "운영" },
+  { id: "runtime", title: "실행 동작 규칙", icon: Workflow, color: "neon-cyan", badge: "로직" },
+  { id: "learning", title: "학습 시점/방식", icon: GraduationCap, color: "neon-purple", badge: "중요" },
+  { id: "safety", title: "안전장치/주의사항", icon: ShieldAlert, color: "neon-cyan", badge: "리스크" },
 ];
 
-function Row({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
+function SectionCard({ id, title, icon: Icon, color, badge, children }: Section & { children: React.ReactNode }) {
+  const [open, setOpen] = useState(true);
   return (
-    <div className="flex justify-between items-start gap-4 py-1.5 border-b border-border/30 last:border-0">
-      <span className="text-sm text-muted-foreground shrink-0">{label}</span>
-      <span className={`text-sm text-right ${mono ? "font-mono" : ""}`}>{value}</span>
-    </div>
+    <Card className={`border-[hsl(var(--${color}))]/25`} id={id}>
+      <CardHeader
+        className="cursor-pointer select-none flex flex-row items-center justify-between gap-2 pb-3 flex-wrap"
+        onClick={() => setOpen(v => !v)}
+      >
+        <div className="flex items-center gap-3">
+          <div className={`w-9 h-9 rounded-full bg-[hsl(var(--${color}))]/15 flex items-center justify-center shrink-0`}>
+            <Icon className={`w-4 h-4 text-[hsl(var(--${color}))]`} />
+          </div>
+          <CardTitle className="text-base">{title}</CardTitle>
+          {badge && (
+            <Badge variant="outline" className={`text-[hsl(var(--${color}))] border-[hsl(var(--${color}))]/40 text-xs`}>
+              {badge}
+            </Badge>
+          )}
+        </div>
+        {open ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
+      </CardHeader>
+      {open && <CardContent className="space-y-4 pt-0">{children}</CardContent>}
+    </Card>
   );
 }
 
@@ -47,25 +73,12 @@ function Code({ children }: { children: string }) {
   );
 }
 
-function SectionCard({ id, title, icon: Icon, color, badge, children }: Section & { children: React.ReactNode }) {
-  const [open, setOpen] = useState(true);
+function Row({ label, value }: { label: string; value: string }) {
   return (
-    <Card className={`border-[hsl(var(--${color}))]/25`} id={id}>
-      <CardHeader
-        className="cursor-pointer select-none flex flex-row items-center justify-between gap-2 pb-3 flex-wrap"
-        onClick={() => setOpen(o => !o)}
-      >
-        <div className="flex items-center gap-3">
-          <div className={`w-9 h-9 rounded-full bg-[hsl(var(--${color}))]/15 flex items-center justify-center shrink-0`}>
-            <Icon className={`w-4 h-4 text-[hsl(var(--${color}))]`} />
-          </div>
-          <CardTitle className="text-base">{title}</CardTitle>
-          {badge && <Badge variant="outline" className={`text-[hsl(var(--${color}))] border-[hsl(var(--${color}))]/40 text-xs`}>{badge}</Badge>}
-        </div>
-        {open ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
-      </CardHeader>
-      {open && <CardContent className="space-y-4 pt-0">{children}</CardContent>}
-    </Card>
+    <div className="flex justify-between items-start gap-4 py-1.5 border-b border-border/30 last:border-0">
+      <span className="text-sm text-muted-foreground shrink-0">{label}</span>
+      <span className="text-sm text-right">{value}</span>
+    </div>
   );
 }
 
@@ -81,301 +94,149 @@ function Warn({ children }: { children: React.ReactNode }) {
 export default function Guide() {
   return (
     <div className="p-4 md:p-6 max-w-4xl mx-auto space-y-5" data-testid="text-guide-title">
-
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold mb-1">시스템 운영 매뉴얼</h1>
-        <p className="text-muted-foreground text-sm">키움 AI 자동매매 플랫폼 — 실제 작동 방식 완전 기술서</p>
+      <div>
+        <h1 className="text-3xl font-bold mb-1">사용 가이드</h1>
+        <p className="text-muted-foreground text-sm">
+          현재 앱의 실제 UI/기능 기준으로 정리한 운영 가이드입니다. 화면 이름과 설정 항목을 그대로 따라가면 됩니다.
+        </p>
       </div>
 
-      {/* ── 1. 전체 아키텍처 ── */}
       <SectionCard {...sections[0]}>
-        <p className="text-sm text-muted-foreground">세 개의 독립 cron 잡이 서버에서 상시 실행됩니다. 배치잡은 서버 시작 시 자동으로 켜지지 않으며, 자동매매 페이지에서 직접 시작해야 합니다.</p>
-        <Code>{`[스캔잡]    매 30분  →  뒷차기2 조건검색 → DART 필터 → candidate_stocks DB 저장
-[매매잡]    매  1분  →  후보종목 → 레인보우 → GPT분석 → confidence → 매수/청산
-[학습잡]    매일 16:00 →  AI모델 성과분석 → 파라미터 자동 최적화`}</Code>
-        <div className="grid md:grid-cols-3 gap-3">
+        <div className="grid md:grid-cols-2 gap-3">
           {[
-            { t: "키움 에이전트", d: "PC에서 실행되는 키움 Open API 프록시. 서버와 HTTP로 통신하며 실시간 시세·주문을 처리" },
-            { t: "서버 (Node.js)", d: "cron 스케줄러, GPT 호출, DART 조회, 레인보우 계산, 주문 실행 모두 서버에서 처리" },
-            { t: "PostgreSQL", d: "candidate_stocks, auto_trading_positions, auto_trading_logs, ai_models 등 핵심 테이블 보관" },
-          ].map(({ t, d }) => (
-            <div key={t} className="p-3 bg-muted/30 rounded-md border border-border/30">
-              <p className="text-sm font-semibold mb-1">{t}</p>
-              <p className="text-xs text-muted-foreground">{d}</p>
+            "설정 > 키움증권 API 키(APP KEY/SECRET) 저장",
+            "설정 > 집 PC 에이전트 연결 상태가 '연결됨'",
+            "설정 > 거래 모드(모의/실전) 의도대로 설정",
+            "자동매매 > 모델에 계좌(accountId) 지정",
+            "배치잡 관리 > 스캔/매매 잡 상태 확인",
+            "실시간 모니터 > 엔진 상태 및 최근 피드 확인",
+          ].map(item => (
+            <div key={item} className="p-3 bg-muted/30 rounded-md border border-border/30 text-sm">
+              {item}
             </div>
           ))}
         </div>
       </SectionCard>
 
-      {/* ── 2. 스캔 배치잡 ── */}
       <SectionCard {...sections[1]}>
-        <p className="text-sm text-muted-foreground">30분마다 키움 조건검색을 실행하고, 위험 공시가 없는 종목만 후보로 DB에 저장합니다.</p>
-        <Code>{`1. 활성 AI 모델 전체 조회 (status = 'active')
-2. 각 모델의 키움 계좌로 조건검색 실행 (뒷차기2)
-3. 결과 종목 순회:
-   a. DART API 조회 → 위험 공시 키워드 포함 시 제외
-   b. 통과 종목 → candidate_stocks 테이블에 upsert (source = '뒷차기2')
-4. 조건검색 결과 0건이면 기존 후보 전체 삭제 (초기화)`}</Code>
-        <div className="p-3 bg-muted/30 rounded-md border border-border/30">
-          <p className="text-sm font-semibold mb-2">DART 위험 공시 차단 키워드 (13종)</p>
-          <div className="flex flex-wrap gap-1.5">
-            {['유상증자','전환사채','신주인수권부사채','횡령','배임','관리종목','상장폐지','영업정지','파산','회생절차','불성실공시','투자경고','투자위험'].map(k => (
-              <Badge key={k} variant="outline" className="text-xs text-red-500 border-red-500/30">{k}</Badge>
-            ))}
-          </div>
-        </div>
+        <Code>{`자동매매 페이지 기본 순서
+1) [AI 모델 생성] 클릭
+2) 전략 유형 선택 (모멘텀 / 가치투자 / 기술적분석 / 커스텀)
+3) 최대 보유 종목, 손절/익절 기본값 입력
+4) 모델 카드의 스위치를 켜서 작동중 상태로 전환
+5) 모델 카드 클릭 후 상세 설정 카드 진입`}</Code>
+        <Warn>
+          모델이 활성화돼 있어도 계좌 미지정, 조건검색식 미설정, 에이전트 미연결이면 실제 매매는 실행되지 않습니다.
+        </Warn>
       </SectionCard>
 
-      {/* ── 3. 매매 배치잡 ── */}
       <SectionCard {...sections[2]}>
-        <p className="text-sm text-muted-foreground">매 1분마다 실행되며, 평일 09:00–15:30 (한국 주식 시장 개장 시간) 에만 실제 매매 판단을 수행합니다.</p>
-        <Code>{`[1분 사이클 — 활성 모델 순회]
-1. 한국장 개장 여부 확인 (isKoreanMarketOpen)
-2. 모델별 autoTradingEnabled 확인 → false면 건너뜀
-3. 계좌·API키 확인 → 미설정 시 건너뜀
-4. 주문 동기화: 오래된 pending 만료 + 오늘 체결 상태 업데이트
-5. ─── checkPositionsForExits() ───
-   보유 포지션 전체 조회 → 각 종목 현재가 조회
-   → 익절/손절/급등청산/장기보유청산 조건 확인 → 매도 주문
-6. ─── candidate_stocks 조회 ───
-   후보 없으면 "30분 스캔 대기 중" 로그 출력
-7. ─── evaluateCandidateStock() (후보 종목별) ───
-   ① requireMarketIssue 필터
-   ② comprehensiveAiAnalysis() 호출 (GPT 2개 + 거래량 점수)
-   ③ minAiConfidence / requireGoodFinancials / requireHighLiquidity / DART 필터
-   ④ 레인보우 라인 계산
-   ⑤ 미보유 종목: unitCount > 0 && currentLine ≤ 50 → executeBuy()
-      기보유 종목: 추가매수 조건 충족 시 → executeAdditionalBuy()
-      (maxPositions / maxDailyTrades는 executeBuy 내부에서 최종 확인)`}</Code>
-        <Warn>시장이 닫혀 있는 시간에도 잡 자체는 실행되지만 매매 로직은 건너뜁니다. 잡 실행 ≠ 매매 실행.</Warn>
-      </SectionCard>
-
-      {/* ── 4. GPT 분석 ── */}
-      <SectionCard {...sections[3]}>
-        <p className="text-sm text-muted-foreground">후보 종목 1개당 GPT 호출 2개가 병렬로 실행됩니다. 설정 → AI 모델에서 선택한 GPT 모델을 사용합니다.</p>
-        <Code>{`병렬 실행:
-  [A] aiService.analyzeStock()
-      입력: stockCode, stockName, currentPrice, rainbowChart (레인보우 차트 결과)
-      GPT가 분석: 테마적합성, 모멘텀, 기술적 신호
-      출력: themeScore (0~100)
-      ※ 거래량(volume)은 직접 입력되지 않음. rainbowChart 데이터에 포함된 정보로 판단
-
-  [B] aiService.integratedAnalysis()
-      입력: stockCode, stockName, currentPrice, financialRatios, priceHistory(20일), news(10개), dartFilings(30일)
-      GPT가 분석: 뉴스 센티멘트, 재무 건전성
-      출력: newsScore (0~100), financialScore (0~100)
-
-[C] 규칙 기반 (GPT 미사용):
-  liquidityScore    거래량 기준
-    ≥ 500,000주 → 80점
-    ≥ 100,000주 → 65점
-    ≥  50,000주 → 45점
-    그 외       → 25점
-
-  institutionalScore  동일한 acml_vol(당일 누적 거래량)을 더 높은 임계값으로 재평가
-    ≥ 1,000,000주 → 75점
-    ≥   500,000주 → 65점
-    ≥   100,000주 → 55점
-    ≥    50,000주 → 45점
-    그 외          → 35점
-
-※ liquidityScore와 institutionalScore 모두 동일한 거래량(acml_vol) 변수 사용
-   institutionalScore는 별도 기관 데이터가 없고, 임계값만 더 높게 설정됨`}</Code>
-      </SectionCard>
-
-      {/* ── 5. Confidence 산출 ── */}
-      <SectionCard {...sections[4]}>
-        <p className="text-sm text-muted-foreground">5개 점수를 자동매매 설정의 "AI 분석 가중치" 슬라이더 값으로 가중합산합니다. 합계가 100이 아니어도 totalWeight로 나눠 자동 정규화됩니다.</p>
-        <Code>{`totalWeight = themeWeight + newsWeight + financialsWeight + liquidityWeight + institutionalWeight
-
-confidence = (
-  themeScore         × themeWeight         [기본: 20]
-+ newsScore          × newsWeight          [기본: 15]
-+ financialScore     × financialsWeight    [기본: 25]
-+ liquidityScore     × liquidityWeight     [기본: 20]
-+ institutionalScore × institutionalWeight [기본: 20]
-) / totalWeight
-
-결과 범위: 0 ~ 100 (clamp)
-
-※ 슬라이더 합계가 100이 아니어도 totalWeight로 나누므로 정규화됨
-   예) 가중치 합이 80이면 denominator=80으로 나눔`}</Code>
         <div className="space-y-1">
-          <Row label="hasGoodFinancials 판정" value="financialScore ≥ 60 이면 true" />
-          <Row label="hasHighLiquidity 판정" value="liquidityScore ≥ 40 이면 true" />
+          <Row label="기본 전략 설정" value="maxPositions, CL 손절(legacy), 익절, unitSize, lineUnits" />
+          <Row label="자동매매 설정" value="maxDailyTrades, 동적청산, AI 최소 신뢰도, 가중치(합계 100)" />
+          <Row label="유닛/라더" value="baseUnitSize, maxUnitsPerStock, 5단계 entryLadder" />
+          <Row label="손절 정책" value="disabled / soft_ai_first / conditional / hard" />
+          <Row label="조건검색식" value="conditionSearchSequences (비어 있으면 스캔 스킵)" />
+          <Row label="AI 재량 스위치" value="추가매수/부분익절/목표초과보유/투기성허용" />
         </div>
       </SectionCard>
 
-      {/* ── 6. 매수 필터 ── */}
+      <SectionCard {...sections[3]}>
+        <p className="text-sm text-muted-foreground">후보 스캔은 모델별 조건검색식 목록으로 실행됩니다.</p>
+        <Code>{`스캔 실행 조건
+- 한국장 시간
+- 에이전트 연결됨(최근 폴링)
+- 모델 accountId 설정됨
+- conditionSearchSequences 1개 이상
+
+스캔 처리
+- 조건검색식별 결과 수집
+- DART 위험공시 키워드 종목 제외
+- candidate_stocks upsert`}</Code>
+      </SectionCard>
+
+      <SectionCard {...sections[4]}>
+        <p className="text-sm text-muted-foreground">
+          자동매매 페이지의 "시장 이슈 종목 관리"에서 날짜별 종목을 등록할 수 있습니다.
+        </p>
+        <Code>{`requireMarketIssue = ON 일 때
+- 당일(issueDate=YYYYMMDD) market_issues에 등록된 종목만 진입 평가
+- 미등록 종목은 SKIP 알림으로 기록`}</Code>
+      </SectionCard>
+
       <SectionCard {...sections[5]}>
-        <p className="text-sm text-muted-foreground">아래 필터를 순서대로 통과해야 매수 진행. 하나라도 실패하면 해당 종목 스킵. requireMarketIssue는 GPT 호출 전, 나머지는 GPT 분석 후 순서대로 적용됩니다.</p>
-        <div className="space-y-2">
-          {[
-            { k: "requireMarketIssue", v: "ON이면 오늘 날짜 시장이슈(market_issues)에 등록된 종목만 통과 — 가장 먼저 체크" },
-            { k: "minAiConfidence", v: "confidence < 설정값이면 스킵. 0이면 비활성 (GPT 분석 직후 체크)" },
-            { k: "requireGoodFinancials", v: "ON이면 financialScore < 60인 종목 매수 차단" },
-            { k: "requireHighLiquidity", v: "ON이면 liquidityScore < 40인 종목 매수 차단" },
-            { k: "DART 위험공시", v: "dartDangerKeyword 있으면 무조건 매수 차단 (스캔 + 매수 이중 확인)" },
-            { k: "레인보우 라인 > 50%", v: "currentLine > 50 이거나 unitCount = 0이면 매수 안 함" },
-            { k: "maxPositions", v: "executeBuy() 내부에서 체크 — 보유 종목 수 ≥ 설정값이면 주문 취소" },
-            { k: "maxDailyTrades", v: "executeBuy() 내부에서 체크 — 오늘 자동매매 건수 ≥ 설정값이면 주문 취소" },
-          ].map(({ k, v }) => (
-            <div key={k} className="flex items-start gap-2 p-2.5 bg-muted/30 rounded-md border border-border/30">
-              <Badge variant="outline" className="text-xs shrink-0 font-mono">{k}</Badge>
-              <p className="text-xs text-muted-foreground">{v}</p>
-            </div>
-          ))}
-        </div>
+        <Code>{`배치잡 관리 페이지에서 가능한 작업
+- 잡 시작/중지
+- 즉시 실행 (일부 잡 제외)
+- 주기 변경 (분/초/특정 시각)
+
+특징
+- 상태와 주기 설정은 DB에 저장
+- 서버 재시작 후에도 유지`}</Code>
       </SectionCard>
 
-      {/* ── 7. 레인보우 라인 ── */}
       <SectionCard {...sections[6]}>
-        <p className="text-sm text-muted-foreground">레인보우 라인은 240일 구간의 고점-저점 범위 내에서 현재가가 어느 위치인지를 10% 단위로 나타냅니다. 낮을수록 저점권.</p>
-        <Code>{`[레인보우 라인 계산]
-range        = 구간최고가 - 구간최저가  (RainbowChartAnalyzer 240일 기준)
-currentPct   = (현재가 - 구간최저가) / range × 100
-currentLine  = round(currentPct / 10) × 10   (클램프: 최소 10, 최대 100)
-
-→ 결과: 10, 20, 30, 40, 50, 60, 70, 80, 90, 100
-
-자동매매 설정 > "레인보우 라인 설정"에서 라인별 유닛 수 지정:
-  예) 10% 라인 → 3유닛, 20% 라인 → 2유닛, 30% 라인 → 1유닛
-
-매수 조건: currentLine ≤ 50 이고 해당 라인 유닛 수 > 0`}</Code>
-        <div className="grid grid-cols-5 gap-1.5">
-          {[10,20,30,40,50,60,70,80,90,100].map(l => (
-            <div key={l} className={`p-2 rounded-md text-center text-xs border ${l <= 50 ? 'border-green-500/30 bg-green-500/10 text-green-400' : 'border-border/30 bg-muted/30 text-muted-foreground'}`}>
-              {l}%<br/><span className="text-[10px]">{l <= 50 ? '매수권' : '관망'}</span>
-            </div>
-          ))}
-        </div>
+        <Code>{`실시간 모니터 페이지
+- 엔진 상태(run state, last cycle)
+- 잡 상태 카드(실행/정지, 마지막/다음 실행, 오류 횟수)
+- 후보 종목 테이블(라인/평가/스킵 사유)
+- 매매 결정 피드(BUY/SELL/SKIP/ADDITIONAL_BUY/EXIT_SELL)
+- 알림 요약(미확인, 경고, 긴급)`}</Code>
       </SectionCard>
 
-      {/* ── 8. 매수 / 추가매수 ── */}
       <SectionCard {...sections[7]}>
-        <Code>{`[신규 매수]
-주문 수량 = floor( unitSize × unitCount(currentLine) ÷ 현재가 )
-
-  unitSize  : 1유닛당 금액 (원), 자동매매 설정에서 지정
-  unitCount : lineUnits[currentLine] ?? 1  (미설정 라인은 1유닛)
-  예) unitSize=500,000 / unitCount=2 / 주가=25,000
-      → floor(500,000 × 2 ÷ 25,000) = 40주
-
-[추가매수]
-  조건1: entryLine > 10  (10% 라인에서 진입했으면 추가매수 불가)
-  조건2: currentLine ≤ entryLine - 10  (한 단계 더 내려가야 함)
-  조건3: currentLine ≥ 10  (최하위 라인 이상이어야 함)
-  예) 30%에 진입 → currentLine ≤ 20 이고 ≥ 10 이면 추가매수
-  수량: 동일 유닛 공식 적용 (해당 currentLine의 unitCount 기준)`}</Code>
-        <Warn>같은 종목에 이미 보유 중이면 추가매수 조건이 충족될 때만 추가 주문합니다. 동일 라인에 중복 추가매수는 발생하지 않습니다.</Warn>
+        <Code>{`매매 사이클 핵심 흐름
+1) 보유 포지션 관리(익절/손절정책/동적청산/AI결정)
+2) 후보 종목 평가
+  - requireMarketIssue
+  - minAiConfidence
+  - 재무/유동성 필터
+  - DART 위험공시 차단(항상)
+  - 투기성 필터(allowSpeculativeLeaderTrades OFF 시)
+3) AI 진입 정책(decideEntryPolicy) 승인 시 라더 매수
+4) 스케일인/부분익절/전량청산은 정책/AI결정에 따라 실행`}</Code>
       </SectionCard>
 
-      {/* ── 9. 청산 로직 ── */}
       <SectionCard {...sections[8]}>
-        <Code>{`[청산 우선순위 — 1분 사이클마다 보유 종목 전체 점검]
+        <Code>{`학습 잡 실행 시점
+- 기본: 매일 16:00 (배치잡 관리에서 시각 변경 가능)
+- 즉시 실행: 배치잡 관리 > 학습 잡 > 즉시 실행
 
-1. 익절 (takeProfitPercent)
-   수익률 ≥ takeProfitPercent% → 전량 시장가 매도
+학습이 실제 동작하는 조건
+- ENABLE_ADVANCED_LEARNING=true 일 때만 실행
+- false이면 학습 사이클 자체가 skip
 
-2. 손절 (stopLoss)
-   수익률 < 0 이고 |수익률| ≥ stopLoss.percent% → 전량 시장가 매도
-   (stopLoss.color 설정으로 특정 레인보우 색 이하 시 손절 가능)
+학습 데이터 기준
+- 20건 미만: 통계/기록만 생성, 최적화 적용 안 함
+- 50건 미만: autoApply=true여도 자동 반영 안 함
+- 50건 이상: 안전조건 충족 시 자동 반영
 
-3. 급등 청산 (surgeThreshold)
-   수익률 ≥ surgeThreshold% → 익절 유사 청산
-   (takeProfitPercent와 별도로 빠른 급등 시 조기 매도)
+자동 반영 안전조건(autoApply)
+- 승률 >= 45%
+- 총 수익률 > 0
+- 최대 낙폭 < 30%
+- 거래 수 >= 50
 
-4. 장기보유 청산 (stalePeriodDays)
-   보유 일수 ≥ stalePeriodDays 이고 손실 중 → 청산`}</Code>
+학습 결과 저장
+- learning_records에 추천/적용여부 기록
+- 적용 시 가중치/임계치/라더/손절정책 등을 업데이트`}</Code>
       </SectionCard>
 
-      {/* ── 10. 학습 ── */}
       <SectionCard {...sections[9]}>
-        <p className="text-sm text-muted-foreground">매일 오후 4시에 자동 실행됩니다. 별도로 조작할 필요 없음.</p>
-        <Code>{`[학습 사이클 — LearningService.optimizeModel()]
-1. 활성 AI 모델 전체 조회
-2. 각 모델별 완료 트레이드에서 성과 데이터 집계:
-   - totalTrades, winRate(%), totalReturn(%)
-   - bestEntryLines / bestExitLines (라인별 승률·수익)
-3. totalTrades < 20이면 데이터 부족 → 변경 없이 종료
-4. 권장사항(recommendations) 생성:
-   - winRate < 50%: "진입 기준 강화 필요" + 최고 승률 라인 제안
-   - winRate ≥ 70%: "우수! 현재 전략 유지"
-   - 손익비 낮으면 "목표가 상향 조정 권장"
-5. 파라미터 제안:
-   - minAiConfidence = round(승리 트레이드의 평균 confidence)
-6. autoApply=true이면 DB에 즉시 적용 (appliedChanges=true)
-   autoApply=false이면 권장사항만 출력하고 적용 안 함`}</Code>
+        <div className="space-y-1">
+          <Row label="모의/실전 안전장치" value="모의 모드 + 실계좌 조합이면 거래 차단" />
+          <Row label="에이전트 타임아웃 누적" value="자동 일시중지 + 쿨다운 상태로 전환 가능" />
+          <Row label="가중치 합계 검증" value="AI 가중치 합이 100% 아니면 저장 거부" />
+          <Row label="라더 유닛 검증" value="라더 총 유닛이 종목당 최대 유닛 초과 시 저장 거부" />
+        </div>
+        <Warn>
+          에이전트가 끊긴 상태에서 잡만 실행하면 SKIP/오류가 누적됩니다. 먼저 설정 페이지에서 에이전트 연결 복구 후 재개하세요.
+        </Warn>
       </SectionCard>
 
-      {/* ── 11. 설정 파라미터 ── */}
-      <SectionCard {...sections[10]}>
-        <div className="space-y-4">
-          <div>
-            <p className="text-sm font-semibold mb-2">자동매매 기본 설정</p>
-            <div className="space-y-0.5">
-              <Row label="unitSize" value="1유닛당 투자금액 (원)" />
-              <Row label="lineUnits[N]" value="레인보우 N% 라인에서 매수할 유닛 수" />
-              <Row label="maxPositions" value="최대 동시 보유 종목 수" />
-              <Row label="maxDailyTrades" value="일일 최대 자동매매 건수" />
-              <Row label="takeProfitPercent" value="익절 기준 수익률 (%)" />
-              <Row label="stopLoss.percent" value="손절 기준 손실률 (%)" />
-              <Row label="surgeThreshold" value="급등 청산 기준 수익률 (%)" />
-              <Row label="stalePeriodDays" value="장기보유 청산 기준 일수" />
-            </div>
-          </div>
-          <div>
-            <p className="text-sm font-semibold mb-2">AI 분석 가중치 (합계 = 100%)</p>
-            <div className="space-y-0.5">
-              <Row label="themeWeight" value="GPT 테마/모멘텀 점수 비중 (기본 20%)" />
-              <Row label="newsWeight" value="GPT 뉴스 센티멘트 점수 비중 (기본 15%)" />
-              <Row label="financialsWeight" value="GPT 재무 점수 비중 (기본 25%)" />
-              <Row label="liquidityWeight" value="거래량 유동성 점수 비중 (기본 20%)" />
-              <Row label="institutionalWeight" value="거래량 기반 기관수급 점수 비중 (기본 20%) — 별도 기관 데이터 없이 acml_vol로 산출" />
-            </div>
-          </div>
-          <div>
-            <p className="text-sm font-semibold mb-2">매수 필터 설정</p>
-            <div className="space-y-0.5">
-              <Row label="requireMarketIssue" value="ON: 오늘 시장이슈 DB에 등록된 종목만 매수 허용 (기본 OFF)" />
-              <Row label="minAiConfidence" value="이 값 미만 confidence면 매수 스킵 (0=비활성)" />
-              <Row label="requireGoodFinancials" value="ON: financialScore < 60 종목 제외" />
-              <Row label="requireHighLiquidity" value="ON: liquidityScore < 40 종목 제외" />
-            </div>
-          </div>
-          <div>
-            <p className="text-sm font-semibold mb-2">전역 AI 설정 (설정 메뉴)</p>
-            <div className="space-y-0.5">
-              <Row label="GPT 모델" value="GPT 분석에 사용할 OpenAI 모델 선택" />
-            </div>
-          </div>
-        </div>
-      </SectionCard>
-
-      {/* ── 12. 계좌 ── */}
-      <SectionCard {...sections[11]}>
-        <div className="space-y-2">
-          <p className="text-sm font-semibold">등록 계좌</p>
-          <div className="space-y-0.5">
-            <Row label="실계좌 1 (id=17)" value="59190647" mono />
-            <Row label="실계좌 2 (id=18)" value="51342627" mono />
-            <Row label="실계좌 3 (id=19)" value="39083177" mono />
-            <Row label="모의계좌 (id=20)" value="81208166" mono />
-          </div>
-        </div>
-        <div className="space-y-2">
-          <p className="text-sm font-semibold">배치잡 제어 방법</p>
-          <Code>{`자동매매 메뉴 > Job 제어 패널
-  [스캔잡 시작]    → 30분 주기 조건검색 시작
-  [매매잡 시작]    → 1분 주기 매매 사이클 시작
-  [학습잡 시작]    → 매일 16:00 학습 시작
-  [즉시 실행]      → 지금 당장 1회 실행
-
-※ 서버 재시작 시 잡은 자동으로 켜지지 않음 — 수동 시작 필요`}</Code>
-        </div>
-        <Warn>키움 에이전트(PC 프로그램)가 실행 중이어야 실제 시세 조회·주문이 작동합니다. 에이전트 없이 잡을 시작하면 AgentTimeoutError가 연속 3회 이후 해당 모델 자동 비활성화됩니다.</Warn>
-      </SectionCard>
-
+      <div className="pt-1 text-xs text-muted-foreground">
+        안내 기준: 현재 코드의 `자동매매`, `설정`, `배치잡 관리`, `실시간 모니터` 화면 동작.
+      </div>
     </div>
   );
 }
