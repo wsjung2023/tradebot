@@ -278,6 +278,26 @@ export class PostgreSQLStorage extends PostgreSQLCoreStorage implements IStorage
     return rows as Array<CandidateDecisionLog & { modelName: string; modelType: string }>;
   }
 
+  async getLatestCandidateDecision(
+    modelId: number,
+    stockCode: string,
+    since?: Date,
+  ): Promise<CandidateDecisionLog | undefined> {
+    const filters = [
+      eq(schema.candidateDecisionLogs.modelId, modelId),
+      eq(schema.candidateDecisionLogs.stockCode, stockCode),
+    ];
+    if (since) filters.push(gte(schema.candidateDecisionLogs.decidedAt, since));
+    const whereClause = filters.length === 1 ? filters[0] : and(filters[0], ...filters.slice(1));
+    const rows = await db
+      .select()
+      .from(schema.candidateDecisionLogs)
+      .where(whereClause)
+      .orderBy(desc(schema.candidateDecisionLogs.decidedAt))
+      .limit(1);
+    return rows[0];
+  }
+
   async createPositionDecisionLog(data: InsertPositionDecisionLog): Promise<PositionDecisionLog> {
     const result = await db.insert(schema.positionDecisionLogs).values([data]).returning();
     return result[0];

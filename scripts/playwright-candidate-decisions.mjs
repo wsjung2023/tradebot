@@ -21,15 +21,27 @@ async function ensureTestAccount() {
 async function login(page) {
   await ensureTestAccount();
   await page.goto(`${BASE_URL}/login`, { waitUntil: "domcontentloaded" });
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(800);
 
   const emailInput = page.locator('[data-testid="input-email"]');
-  if (!(await emailInput.isVisible({ timeout: 3000 }).catch(() => false))) return;
+  const loginFormVisible = await emailInput.isVisible({ timeout: 15000 }).catch(() => false);
+  if (!loginFormVisible) {
+    const currentUrl = page.url();
+    if (currentUrl.includes("/login")) {
+      throw new Error(`login form not visible on /login (url=${currentUrl})`);
+    }
+    return;
+  }
 
   await emailInput.fill(EMAIL);
   await page.locator('[data-testid="input-password"]').fill(PASSWORD);
   await page.locator('button[type="submit"]').first().click();
-  await page.waitForFunction(() => !window.location.pathname.startsWith("/login"), { timeout: 10000 }).catch(() => {});
+  await page.waitForFunction(() => !window.location.pathname.startsWith("/login"), { timeout: 15000 }).catch(() => {});
+  await page.waitForTimeout(500);
+
+  if (page.url().includes("/login")) {
+    throw new Error(`login failed for ${EMAIL}`);
+  }
 }
 
 async function run() {

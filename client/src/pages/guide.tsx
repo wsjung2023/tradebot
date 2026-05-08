@@ -137,6 +137,7 @@ export default function Guide() {
           <Row label="유닛/라더" value="baseUnitSize, maxUnitsPerStock, 5단계 entryLadder" />
           <Row label="손절 정책" value="disabled / soft_ai_first / conditional / hard" />
           <Row label="조건검색식" value="conditionSearchSequences (비어 있으면 스캔 스킵)" />
+          <Row label="후보 재평가 쿨다운" value="aiEntryPolicy.candidateDecisionCooldownMode: 120분 / 하루 3회(09:10,13:30,15:10) / 하루 1회" />
           <Row label="AI 재량 스위치" value="추가매수/부분익절/목표초과보유/투기성허용" />
         </div>
       </SectionCard>
@@ -181,6 +182,7 @@ export default function Guide() {
 - 잡 상태 카드(실행/정지, 마지막/다음 실행, 오류 횟수)
 - 후보 종목 테이블(라인/평가/스킵 사유)
 - 매매 결정 피드(BUY/SELL/SKIP/ADDITIONAL_BUY/EXIT_SELL)
+- 계산 근거: confidence=(theme*w1 + news*w2 + financials*w3 + liquidity*w4 + institutional*w5)/(w1+w2+w3+w4+w5)
 - 알림 요약(미확인, 경고, 긴급)`}</Code>
       </SectionCard>
 
@@ -188,6 +190,7 @@ export default function Guide() {
         <Code>{`매매 사이클 핵심 흐름
 1) 보유 포지션 관리(익절/손절정책/동적청산/AI결정)
 2) 후보 종목 평가
+  - 후보 재평가 쿨다운 윈도우(120분 / 하루3회 / 하루1회) 내 동일 종목 중복 평가 스킵
   - requireMarketIssue
   - minAiConfidence
   - 재무/유동성 필터

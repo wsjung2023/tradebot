@@ -50,7 +50,11 @@ export async function registerRoutes(app: Express, httpServer: Server, sessionMi
 
   httpServer.on("upgrade", (request, socket, head) => {
     if (!request.url?.startsWith("/ws/market")) {
-      socket.destroy();
+      // IMPORTANT:
+      // Do not destroy non-market upgrades here.
+      // In development, Vite HMR uses its own websocket upgrade path
+      // (e.g. "/?token=..."), and force-destroying it causes blank/flaky UI.
+      // Simply return so other upgrade handlers can process it.
       return;
     }
 

@@ -20,9 +20,16 @@ export function log(message: string, source = "express") {
 }
 
 export async function setupVite(app: Express, server: Server) {
+  const devPort = parseInt(process.env.PORT || "5000", 10);
   const serverOptions = {
     middlewareMode: true,
-    hmr: { server },
+    hmr: {
+      server,
+      host: "127.0.0.1",
+      protocol: "ws" as const,
+      clientPort: devPort,
+      port: devPort,
+    },
     allowedHosts: true as const,
   };
 
@@ -33,7 +40,13 @@ export async function setupVite(app: Express, server: Server) {
       ...viteLogger,
       error: (msg, options) => {
         viteLogger.error(msg, options);
-        process.exit(1);
+        // Do not terminate dev server on blocked/invalid requests.
+        // Keep Vite's security block in place but preserve availability.
+        const text = typeof msg === "string" ? msg : String(msg);
+        if (text.includes("outside of Vite serving allow list")) {
+          return;
+        }
+        // For other Vite errors, log only (no hard exit).
       },
     },
     server: serverOptions,

@@ -211,6 +211,15 @@ export default function CandidateDecisions() {
                   const quantitativeReason = (aiDecision.quantitativeReason as Record<string, unknown> | undefined) ?? null;
                   const modelSnapshot = (aiDecision.modelSnapshot as Record<string, any> | undefined) ?? null;
                   const settingsSnapshot = (aiDecision.settingsSnapshot as Record<string, any> | undefined) ?? null;
+                  const cooldownMode = settingsSnapshot?.aiEntryPolicy?.candidateDecisionCooldownMode;
+                  const cooldownModeLabel =
+                    cooldownMode === "daily_three_slots"
+                      ? "하루 3회 (09:10/13:30/15:10)"
+                      : cooldownMode === "daily_once"
+                        ? "하루 1회"
+                        : cooldownMode === "interval_120m"
+                          ? "120분"
+                          : "-";
                   return (
                     <TableRow key={log.id} data-testid={`row-candidate-decision-${log.id}`}>
                       <TableCell className="text-xs text-muted-foreground">{formatDateTime(log.decidedAt)}</TableCell>
@@ -239,6 +248,7 @@ export default function CandidateDecisions() {
                         <div>AI 모델: {modelSnapshot?.aiModelId ?? "-"}</div>
                         <div>최소 신뢰도: {String(settingsSnapshot?.minAiConfidence ?? "-")}</div>
                         <div>시장 이슈 필수: {String(settingsSnapshot?.requireMarketIssue ?? "-")}</div>
+                        <div>재평가 쿨다운: {cooldownModeLabel}</div>
                       </TableCell>
                     </TableRow>
                   );

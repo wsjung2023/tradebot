@@ -749,18 +749,49 @@ export class PostgreSQLCoreStorage {
   }
 
   async upsertCandidateStock(data: InsertCandidateStock): Promise<CandidateStock> {
-    const result = await db.insert(schema.candidateStocks).values(data)
-      .onConflictDoUpdate({
-        target: [schema.candidateStocks.userId, schema.candidateStocks.modelId, schema.candidateStocks.stockCode],
-        set: {
-          stockName: data.stockName,
-          scannedLine: data.scannedLine,
-          scannedAt: new Date(),
-          source: data.source,
-        },
-      })
-      .returning();
-    return result[0];
+    try {
+      const result = await db.insert(schema.candidateStocks).values(data)
+        .onConflictDoUpdate({
+          target: [schema.candidateStocks.userId, schema.candidateStocks.modelId, schema.candidateStocks.stockCode],
+          set: {
+            stockName: data.stockName,
+            scannedLine: data.scannedLine,
+            scannedAt: new Date(),
+            source: data.source,
+          },
+        })
+        .returning();
+      return result[0];
+    } catch (err: any) {
+      // Some environments are missing the unique constraint required by ON CONFLICT.
+      // Fallback to read-then-update/insert so candidate sync still works.
+      if (err?.code !== '42P10') throw err;
+
+      const existing = await db.select({ id: schema.candidateStocks.id })
+        .from(schema.candidateStocks)
+        .where(and(
+          eq(schema.candidateStocks.userId, data.userId),
+          eq(schema.candidateStocks.modelId, data.modelId),
+          eq(schema.candidateStocks.stockCode, data.stockCode),
+        ))
+        .limit(1);
+
+      if (existing[0]?.id) {
+        const updated = await db.update(schema.candidateStocks)
+          .set({
+            stockName: data.stockName,
+            scannedLine: data.scannedLine,
+            scannedAt: new Date(),
+            source: data.source,
+          })
+          .where(eq(schema.candidateStocks.id, existing[0].id))
+          .returning();
+        return updated[0];
+      }
+
+      const inserted = await db.insert(schema.candidateStocks).values(data).returning();
+      return inserted[0];
+    }
   }
 
   async getAllCandidateStocksForUser(userId: string): Promise<CandidateStock[]> {

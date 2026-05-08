@@ -52,30 +52,34 @@ async function login(page) {
   await ensureTestAccount();
 
   await page.goto(`${BASE_URL}/login`, { waitUntil: 'domcontentloaded' });
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(800);
 
   const emailInput = page.locator('[data-testid="input-email"]');
-  if (!(await emailInput.isVisible({ timeout: 3000 }).catch(() => false))) {
-    console.log('  ℹ️  로그인 페이지 없음 — 이미 로그인 상태로 간주');
+  const loginFormVisible = await emailInput.isVisible({ timeout: 15000 }).catch(() => false);
+  if (!loginFormVisible) {
+    const currentUrl = page.url();
+    if (currentUrl.includes('/login')) {
+      throw new Error(`login form not visible on /login (url=${currentUrl})`);
+    }
+    console.log('  [INFO] already authenticated session detected');
     return;
   }
+
   await emailInput.fill(EMAIL);
   await page.locator('[data-testid="input-password"]').fill(PASSWORD);
   await page.locator('button[type="submit"]').first().click();
 
-  // 로그인 완료 대기 — URL이 /login이 아닌 곳으로 이동할 때까지
   await page.waitForFunction(
     () => !window.location.pathname.startsWith('/login') && !window.location.pathname.startsWith('/register'),
-    { timeout: 10000 }
+    { timeout: 15000 }
   ).catch(() => {});
   await page.waitForTimeout(500);
-  console.log(`  ℹ️  로그인 후 URL: ${page.url()}`);
+  console.log(`  [INFO] login result URL: ${page.url()}`);
 
   if (page.url().includes('/login')) {
-    throw new Error(`로그인 실패 — ${EMAIL} 계정으로 로그인되지 않음`);
+    throw new Error(`login failed for ${EMAIL}`);
   }
 }
-
 // ─────────────────────────────────────────────────────────────
 // TC-1: 모델 생성 다이얼로그 — modelType 변경 시 설명 업데이트
 // ─────────────────────────────────────────────────────────────

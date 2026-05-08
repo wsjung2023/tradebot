@@ -24,6 +24,16 @@ interface JobInfo {
   errorCount: number;
   lastError: string | null;
   isCurrentlyExecuting: boolean;
+  learningRuntime?: {
+    featureEnabled: boolean;
+    lastTriggeredAt: string | null;
+    lastCompletedAt: string | null;
+    lastOutcome: "executed" | "skipped" | "error" | null;
+    lastReason: string | null;
+    lastError: string | null;
+    lastActiveModelCount: number | null;
+    lastOptimizedModelCount: number | null;
+  };
 }
 
 const NO_RUN_NOW = new Set(["agent-watcher"]);
@@ -38,6 +48,22 @@ function parseMinutes(s: string): number | null {
   const n = parseInt(s.replace(/^0+/, "") || "0", 10);
   if (isNaN(n) || n < 1 || n > 10080) return null;
   return n;
+}
+
+function getLearningOutcomeLabel(runtime?: JobInfo["learningRuntime"]): string {
+  if (!runtime?.lastOutcome) return "대기";
+  if (runtime.lastOutcome === "executed") return "실행";
+  if (runtime.lastOutcome === "skipped") return "스킵";
+  return "오류";
+}
+
+function getLearningReasonLabel(reason?: string | null): string {
+  if (!reason) return "-";
+  if (reason === "feature_flag_disabled") return "학습 기능 플래그 OFF";
+  if (reason === "no_active_models") return "활성 모델 없음";
+  if (reason === "previous_cycle_still_running") return "이전 학습 사이클 실행 중";
+  if (reason === "learning_cycle_exception") return "학습 사이클 예외";
+  return reason;
 }
 
 function IntervalEditor({ job, onSaved }: { job: JobInfo; onSaved: () => void }) {
@@ -289,6 +315,43 @@ export default function AdminJobs() {
                     </div>
                   )}
                 </div>
+
+                {job.id === "learning" && job.learningRuntime && (
+                  <div className="rounded-md border bg-muted/30 p-3 space-y-2 text-xs">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Badge variant={job.learningRuntime.featureEnabled ? "default" : "secondary"}>
+                        학습 플래그: {job.learningRuntime.featureEnabled ? "ON" : "OFF"}
+                      </Badge>
+                      <Badge
+                        variant={
+                          job.learningRuntime.lastOutcome === "error"
+                            ? "destructive"
+                            : job.learningRuntime.lastOutcome === "executed"
+                              ? "default"
+                              : "secondary"
+                        }
+                      >
+                        실동작: {getLearningOutcomeLabel(job.learningRuntime)}
+                      </Badge>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-muted-foreground">
+                      <div>최근 트리거: {formatDate(job.learningRuntime.lastTriggeredAt)}</div>
+                      <div>최근 완료: {formatDate(job.learningRuntime.lastCompletedAt)}</div>
+                      <div>사유: {getLearningReasonLabel(job.learningRuntime.lastReason)}</div>
+                      <div>
+                        처리 모델: {job.learningRuntime.lastOptimizedModelCount ?? 0}
+                        {job.learningRuntime.lastActiveModelCount !== null
+                          ? ` / 활성 ${job.learningRuntime.lastActiveModelCount}`
+                          : ""}
+                      </div>
+                    </div>
+                    {job.learningRuntime.lastError && (
+                      <div className="text-destructive">
+                        학습 오류: {job.learningRuntime.lastError}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {job.lastError && (
                   <div className="flex items-start gap-2 text-sm text-destructive bg-destructive/10 rounded-md p-2">

@@ -1,4 +1,5 @@
-@echo off
+﻿@echo off
+chcp 65001 >nul
 echo TradeBot 전체 재시작 중...
 schtasks /End /TN "TradeBot-Server" 2>nul
 schtasks /End /TN "TradeBot-Agent" 2>nul

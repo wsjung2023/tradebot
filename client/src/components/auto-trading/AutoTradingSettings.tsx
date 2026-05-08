@@ -25,6 +25,35 @@ interface Props {
   onAccountChange: (accountId: number | null) => void;
 }
 
+const LADDER_LINES = [50, 40, 30, 20, 10] as const;
+const COOLDOWN_MODES = [
+  { value: "interval_120m", label: "120분" },
+  { value: "daily_three_slots", label: "하루 3회 (09:10 / 13:30 / 15:10)" },
+  { value: "daily_once", label: "하루 1회" },
+] as const;
+
+function clampUnit(value: unknown): number {
+  const n = Number.parseInt(String(value ?? ""), 10);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(5, n));
+}
+
+function lineUnitsToEntryLadder(lineUnits: Record<number, number> | null | undefined) {
+  return LADDER_LINES.map((line) => ({
+    line,
+    units: clampUnit(lineUnits?.[line] ?? 1),
+  }));
+}
+
+function entryLadderToLineUnits(entryLadder: { line: number; units: number }[]) {
+  const map: Record<number, number> = {};
+  for (const line of LADDER_LINES) {
+    const step = entryLadder.find((row) => row.line === line);
+    map[line] = clampUnit(step?.units ?? 1);
+  }
+  return map;
+}
+
 export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: Props) {
   const { toast } = useToast();
 
@@ -50,6 +79,7 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
       setCfgUnitSize(String(modelConfig.unitSize ?? 500000));
       if (modelConfig.lineUnits && typeof modelConfig.lineUnits === 'object') {
         setCfgLineUnits(modelConfig.lineUnits);
+        setEntryLadder(lineUnitsToEntryLadder(modelConfig.lineUnits));
       }
     }
   }, [modelConfig]);
@@ -148,7 +178,12 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
   const [allowAiPartialTakeProfit, setAllowAiPartialTakeProfit] = useState(false);
   const [allowAiHoldBeyondTarget, setAllowAiHoldBeyondTarget] = useState(false);
   const [allowSpeculativeLeaderTrades, setAllowSpeculativeLeaderTrades] = useState(false);
+  const [candidateDecisionCooldownMode, setCandidateDecisionCooldownMode] = useState<"interval_120m" | "daily_three_slots" | "daily_once">("interval_120m");
   const [conditionSequences, setConditionSequences] = useState<{ conditionId: string; name: string }[]>([]);
+
+  useEffect(() => {
+    setCfgLineUnits(entryLadderToLineUnits(entryLadder));
+  }, [entryLadder]);
 
   // 키움 조건검색식 목록 (에이전트 연결 시 로드)
   const { data: kiwoomConditions = [] } = useQuery<{ condition_index: number; condition_name: string }[]>({
@@ -189,15 +224,22 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
       if (settings.entryLadderSettings && Array.isArray(settings.entryLadderSettings)) {
         setEntryLadder(settings.entryLadderSettings as any);
       }
+      if (modelConfig?.lineUnits && typeof modelConfig.lineUnits === "object") {
+        setEntryLadder(lineUnitsToEntryLadder(modelConfig.lineUnits));
+      }
       setAllowAiDoubleDown(settings.allowAiDoubleDown ?? false);
       setAllowAiPartialTakeProfit(settings.allowAiPartialTakeProfit ?? false);
       setAllowAiHoldBeyondTarget(settings.allowAiHoldBeyondTarget ?? false);
       setAllowSpeculativeLeaderTrades(settings.allowSpeculativeLeaderTrades ?? false);
+      const storedCooldownMode = (settings.aiEntryPolicy as any)?.candidateDecisionCooldownMode;
+      if (storedCooldownMode === "daily_three_slots" || storedCooldownMode === "daily_once" || storedCooldownMode === "interval_120m") {
+        setCandidateDecisionCooldownMode(storedCooldownMode);
+      }
       if (settings.conditionSearchSequences && Array.isArray(settings.conditionSearchSequences)) {
         setConditionSequences(settings.conditionSearchSequences as any);
       }
     }
-  }, [settings]);
+  }, [settings, modelConfig]);
 
   useEffect(() => {
     if (modelConfig?.accountId) {
@@ -236,6 +278,23 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
       return;
     }
 
+    const syncedLineUnits = entryLadderToLineUnits(entryLadder);
+    setCfgLineUnits(syncedLineUnits);
+    void apiRequest("PATCH", `/api/ai/models/${modelId}`, {
+      config: {
+        ...(modelConfig || {}),
+        lineUnits: syncedLineUnits,
+      },
+    }).then(() => {
+      queryClient.invalidateQueries({ queryKey: ["/api/ai/models"] });
+    }).catch((e: any) => {
+      toast({
+        variant: "destructive",
+        title: "라인별 유닛 동기화 실패",
+        description: e?.message ?? "이전 형식(lineUnits) 동기화에 실패했습니다.",
+      });
+    });
+
     saveMutation.mutate({
       defaultPositionSize,
       maxPositionSize,
@@ -263,6 +322,10 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
       allowAiPartialTakeProfit,
       allowAiHoldBeyondTarget,
       allowSpeculativeLeaderTrades,
+      aiEntryPolicy: {
+        ...((settings?.aiEntryPolicy as any) ?? {}),
+        candidateDecisionCooldownMode,
+      },
       conditionSearchSequences: conditionSequences,
     });
   };
@@ -406,33 +469,6 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
             <p className="text-xs text-muted-foreground">매수 시 1유닛 기준 금액 (유닛 수 x 이 금액 = 매수금액)</p>
           </div>
 
-          {/* 라인별 유닛 수 */}
-          <div className="space-y-2">
-            <Label className="text-xs text-muted-foreground">라인별 유닛 수 (매수 가능 라인)</Label>
-            <div className="grid grid-cols-5 gap-2">
-              {[10, 20, 30, 40, 50].map((line) => (
-                <div key={line} className="space-y-1">
-                  <Label className="text-xs text-center block text-muted-foreground">{line}%</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    max={10}
-                    value={cfgLineUnits[line] ?? 1}
-                    onChange={(e) => {
-                      const v = parseInt(e.target.value) || 0;
-                      setCfgLineUnits(prev => ({ ...prev, [line]: v }));
-                    }}
-                    className="text-center"
-                    data-testid={`input-cfg-line-units-${line}`}
-                  />
-                </div>
-              ))}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              레인보우 라인별 신규/추가매수 유닛 수. 0이면 해당 라인에서 매수하지 않음
-            </p>
-          </div>
-
           <Button
             onClick={handleConfigSave}
             disabled={configSaveMutation.isPending}
@@ -462,29 +498,6 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
         </div>
 
         <div className="border-t pt-4 space-y-3">
-          <Label className="text-sm font-semibold">매매 금액</Label>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">기본 매매금액</Label>
-              <Input
-                type="number"
-                value={defaultPositionSize}
-                onChange={(e) => setDefaultPositionSize(e.target.value)}
-                data-testid="input-default-position-size"
-              />
-              <span className="text-xs text-muted-foreground">{formatKRW(defaultPositionSize)}</span>
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">최대 매매금액</Label>
-              <Input
-                type="number"
-                value={maxPositionSize}
-                onChange={(e) => setMaxPositionSize(e.target.value)}
-                data-testid="input-max-position-size"
-              />
-              <span className="text-xs text-muted-foreground">{formatKRW(maxPositionSize)}</span>
-            </div>
-          </div>
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">일일 최대 거래 횟수</Label>
             <Input
@@ -494,6 +507,34 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
               data-testid="input-max-daily-trades"
             />
           </div>
+          <details className="rounded-md border border-border/60 p-3">
+            <summary className="cursor-pointer text-sm font-medium">고급(예비값): 기본/최대 매매금액</summary>
+            <p className="mt-2 text-xs text-muted-foreground">
+              현재는 유닛 기반 설정이 우선이며, 아래 값은 예비 계산 경로에서 사용됩니다.
+            </p>
+            <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">기본 매매금액</Label>
+                <Input
+                  type="number"
+                  value={defaultPositionSize}
+                  onChange={(e) => setDefaultPositionSize(e.target.value)}
+                  data-testid="input-default-position-size"
+                />
+                <span className="text-xs text-muted-foreground">{formatKRW(defaultPositionSize)}</span>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">최대 매매금액</Label>
+                <Input
+                  type="number"
+                  value={maxPositionSize}
+                  onChange={(e) => setMaxPositionSize(e.target.value)}
+                  data-testid="input-max-position-size"
+                />
+                <span className="text-xs text-muted-foreground">{formatKRW(maxPositionSize)}</span>
+              </div>
+            </div>
+          </details>
         </div>
 
         <div className="border-t pt-4 space-y-3">
@@ -686,6 +727,9 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
           <Label className="text-sm font-semibold flex items-center gap-1.5">
             <SlidersHorizontal className="h-4 w-4" />5단계 분할매수 라더
           </Label>
+          <p className="text-xs text-muted-foreground">
+            저장 시 <code className="font-mono">entryLadderSettings</code>와 이전 형식 <code className="font-mono">lineUnits</code>가 함께 동기화됩니다.
+          </p>
           <p className="text-xs text-muted-foreground">각 CL라인 도달 시 진입할 유닛 수. 0이면 해당 라인에서 매수 안 함. AI가 2유닛을 제안할 수 있습니다 (AI 추가매수 허용 시).</p>
           <div className="grid grid-cols-5 gap-2">
             {entryLadder.map((step, idx) => (
@@ -736,6 +780,27 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
               </div>
             </div>
           )}
+        </div>
+
+        {/* ── 조건검색식 설정 ── */}
+        <div className="border-t pt-4 space-y-3">
+          <Label className="text-sm font-semibold">선정/탈락 재평가 쿨다운</Label>
+          <Select
+            value={candidateDecisionCooldownMode}
+            onValueChange={(value) => setCandidateDecisionCooldownMode(value as "interval_120m" | "daily_three_slots" | "daily_once")}
+          >
+            <SelectTrigger data-testid="select-candidate-cooldown-mode">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {COOLDOWN_MODES.map((mode) => (
+                <SelectItem key={mode.value} value={mode.value}>{mode.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            같은 종목은 선택한 주기 안에서 한 번만 재평가합니다. 중복 로그 폭증을 줄이고 판단 일관성을 높입니다.
+          </p>
         </div>
 
         {/* ── 조건검색식 설정 ── */}

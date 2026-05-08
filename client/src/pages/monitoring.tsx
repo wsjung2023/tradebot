@@ -55,8 +55,29 @@ interface NotificationPayload {
   newsScore?: number;
   financialsScore?: number;
   liquidityScore?: number;
+  institutionalScore?: number;
   skipReason?: string;
   profitLoss?: number;
+  confidenceBreakdown?: {
+    weights?: {
+      theme?: number;
+      news?: number;
+      financials?: number;
+      liquidity?: number;
+      institutional?: number;
+    };
+    scores?: {
+      theme?: number;
+      news?: number;
+      financials?: number;
+      liquidity?: number;
+      institutional?: number;
+    };
+    weightedSum?: number;
+    denominator?: number;
+    calculatedConfidence?: number;
+    minAiConfidence?: number;
+  };
 }
 
 interface EngineNotification {
@@ -425,17 +446,35 @@ export default function Monitoring() {
                         </div>
                         <p className="text-sm">{n.message}</p>
                         {payload && (
-                          <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                            {payload.confidence != null && <span>신뢰도: {Number(payload.confidence).toFixed(1)}%</span>}
-                            {payload.themeScore != null && <span>테마: {payload.themeScore}</span>}
-                            {payload.newsScore != null && <span>뉴스: {payload.newsScore}</span>}
-                            {payload.financialsScore != null && <span>재무: {payload.financialsScore}</span>}
-                            {payload.liquidityScore != null && <span>유동성: {payload.liquidityScore}</span>}
-                            {payload.skipReason && <span className="font-medium">{payload.skipReason}</span>}
-                            {payload.profitLoss != null && (
-                              <span className={Number(payload.profitLoss) > 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}>
-                                P/L: {Number(payload.profitLoss) > 0 ? "+" : ""}{Number(payload.profitLoss).toLocaleString()}원
-                              </span>
+                          <div className="space-y-1.5">
+                            <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                              {payload.confidence != null && <span>신뢰도: {Number(payload.confidence).toFixed(1)}%</span>}
+                              {payload.themeScore != null && <span>테마: {payload.themeScore}</span>}
+                              {payload.newsScore != null && <span>뉴스: {payload.newsScore}</span>}
+                              {payload.financialsScore != null && <span>재무: {payload.financialsScore}</span>}
+                              {payload.liquidityScore != null && <span>유동성: {payload.liquidityScore}</span>}
+                              {payload.institutionalScore != null && <span>기관수급: {payload.institutionalScore}</span>}
+                              {payload.skipReason && <span className="font-medium">{payload.skipReason}</span>}
+                              {payload.profitLoss != null && (
+                                <span className={Number(payload.profitLoss) > 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}>
+                                  P/L: {Number(payload.profitLoss) > 0 ? "+" : ""}{Number(payload.profitLoss).toLocaleString()}원
+                                </span>
+                              )}
+                            </div>
+                            {payload.confidenceBreakdown?.weights && payload.confidenceBreakdown?.scores && (
+                              <div className="text-[11px] text-muted-foreground rounded border px-2 py-1">
+                                <span className="font-medium">계산 근거:</span>{" "}
+                                {`(${payload.confidenceBreakdown.scores.theme ?? 0}×${payload.confidenceBreakdown.weights.theme ?? 0} + `}
+                                {`${payload.confidenceBreakdown.scores.news ?? 0}×${payload.confidenceBreakdown.weights.news ?? 0} + `}
+                                {`${payload.confidenceBreakdown.scores.financials ?? 0}×${payload.confidenceBreakdown.weights.financials ?? 0} + `}
+                                {`${payload.confidenceBreakdown.scores.liquidity ?? 0}×${payload.confidenceBreakdown.weights.liquidity ?? 0} + `}
+                                {`${payload.confidenceBreakdown.scores.institutional ?? 0}×${payload.confidenceBreakdown.weights.institutional ?? 0}) / `}
+                                {`${payload.confidenceBreakdown.denominator ?? 100}`}
+                                {` = ${(payload.confidenceBreakdown.calculatedConfidence ?? payload.confidence ?? 0).toFixed(2)}%`}
+                                {payload.confidenceBreakdown.minAiConfidence != null && (
+                                  <span>{` (최소 ${payload.confidenceBreakdown.minAiConfidence}%)`}</span>
+                                )}
+                              </div>
                             )}
                           </div>
                         )}

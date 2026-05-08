@@ -36,6 +36,21 @@ interface DashboardHolding {
   profitLossRate: string;
 }
 
+interface DashboardOrder {
+  id: number;
+  stockCode: string;
+  stockName: string;
+  orderType: "buy" | "sell";
+  orderStatus: "pending" | "partial" | "completed" | "cancelled";
+  orderPrice: string | number | null;
+  orderQuantity: number;
+  executedPrice: string | number | null;
+  executedQuantity: number;
+  createdAt: string;
+}
+
+const DASHBOARD_ACCOUNT_STORAGE_KEY = "dashboard:lastSelectedAccountId";
+
 export default function Dashboard() {
   const { toast } = useToast();
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
@@ -52,8 +67,8 @@ export default function Dashboard() {
     enabled: !!selectedAccountId,
   });
 
-  const { data: recentTrades = [] } = useQuery<any[]>({
-    queryKey: ['/api/accounts', selectedAccountId, 'trades'],
+  const { data: recentTrades = [] } = useQuery<DashboardOrder[]>({
+    queryKey: ['/api/accounts', selectedAccountId, 'orders?limit=5'],
     enabled: !!selectedAccountId,
   });
 
@@ -84,10 +99,45 @@ export default function Dashboard() {
   const selectedAccount = accounts?.find((a: any) => a.id === selectedAccountId);
 
   useEffect(() => {
-    if (!selectedAccountId && accounts?.length > 0 && !accountsLoading) {
-      setSelectedAccountId(accounts[0].id);
+    if (accountsLoading) return;
+    if (!accounts || accounts.length === 0) {
+      setSelectedAccountId(null);
+      return;
     }
-  }, [accounts, accountsLoading, selectedAccountId]);
+
+    if (selectedAccountId != null && accounts.some((acc) => acc.id === selectedAccountId)) {
+      return;
+    }
+
+    let nextAccountId: number | null = null;
+    if (typeof window !== "undefined") {
+      const saved = window.localStorage.getItem(DASHBOARD_ACCOUNT_STORAGE_KEY);
+      const parsed = saved ? parseInt(saved, 10) : NaN;
+      if (Number.isFinite(parsed) && accounts.some((acc) => acc.id === parsed)) {
+        nextAccountId = parsed;
+      }
+    }
+
+    if (nextAccountId == null && settings?.tradingMode) {
+      const sameMode = accounts.find((acc) => acc.accountType === settings.tradingMode);
+      if (sameMode) nextAccountId = sameMode.id;
+    }
+
+    if (nextAccountId == null) {
+      nextAccountId = accounts[0].id;
+    }
+
+    setSelectedAccountId(nextAccountId);
+  }, [accounts, accountsLoading, selectedAccountId, settings?.tradingMode]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (selectedAccountId == null) {
+      window.localStorage.removeItem(DASHBOARD_ACCOUNT_STORAGE_KEY);
+      return;
+    }
+    window.localStorage.setItem(DASHBOARD_ACCOUNT_STORAGE_KEY, String(selectedAccountId));
+  }, [selectedAccountId]);
 
   // 계좌 선택되면 자동으로 잔고 조회 (계좌 전환 및 유형 변경 시에도 재조회)
   useEffect(() => {
@@ -562,24 +612,27 @@ export default function Dashboard() {
           <CardContent>
             {recentTrades && recentTrades.length > 0 ? (
               <div className="space-y-3">
-                {recentTrades.map((trade: any) => (
+                {recentTrades.map((trade) => (
                   <div key={trade.id} className="flex items-center justify-between p-3 bg-muted rounded-lg">
                     <div>
                       <p className="text-sm font-semibold">{trade.stockName} ({trade.stockCode})</p>
                       <p className="text-xs text-muted-foreground">
-                        {trade.side === 'buy' ? '매수' : '매도'} {trade.quantity}주 @ {parseInt(trade.price).toLocaleString()}원
+                        {trade.orderType === 'buy' ? '매수' : '매도'} {trade.orderQuantity}주
+                        {" @ "}
+                        {(trade.executedPrice ?? trade.orderPrice)
+                          ? Number(trade.executedPrice ?? trade.orderPrice).toLocaleString("ko-KR")
+                          : "-"}
+                        원
                       </p>
                     </div>
                     <div className="text-right">
                       <p className="text-sm font-semibold">
-                        {trade.profit >= 0 ? (
-                          <span className="text-green-600 dark:text-green-400">+{parseInt(trade.profit).toLocaleString()}</span>
-                        ) : (
-                          <span className="text-red-600 dark:text-red-400">{parseInt(trade.profit).toLocaleString()}</span>
-                        )}원
+                        {trade.orderStatus === "completed" ? "체결완료" :
+                         trade.orderStatus === "partial" ? "부분체결" :
+                         trade.orderStatus === "pending" ? "대기" : "취소"}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        {trade.profitRate >= 0 ? '+' : ''}{(trade.profitRate * 100).toFixed(2)}%
+                        {new Date(trade.createdAt).toLocaleString("ko-KR")}
                       </p>
                     </div>
                   </div>

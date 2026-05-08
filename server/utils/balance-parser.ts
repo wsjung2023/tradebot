@@ -48,9 +48,11 @@ export function cleanStr(v: unknown): string {
  * 실계좌(stk_cd, pur_pric, …)와 모의계좌(acnt_pdno, pchs_avg_pric, …) 양쪽을 지원한다.
  */
 export function parseHoldingItem(item: HoldingRawItem): ParsedHolding {
+  const rawCode = String(item.acnt_pdno || item.pdno || item.stk_cd || item.stockCode || "");
+  const normalizedCode = rawCode.replace(/^A/i, "").replace(/\s+/g, "");
   return {
     stockCode:
-      String(item.acnt_pdno || item.pdno || item.stk_cd || item.stockCode || ""),
+      normalizedCode,
     stockName:
       String(item.prdt_name || item.stk_nm || item.stockName || ""),
     quantity:

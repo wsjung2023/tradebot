@@ -29,7 +29,13 @@ import websocket
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from dotenv import load_dotenv
 
-load_dotenv()
+# Load both project-root .env and agent/.env.
+# This prevents missing per-account keys when the agent is started from `agent/`.
+_AGENT_DIR = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_ENV = os.path.abspath(os.path.join(_AGENT_DIR, "..", ".env"))
+_AGENT_ENV = os.path.join(_AGENT_DIR, ".env")
+load_dotenv(_PROJECT_ENV, override=False)
+load_dotenv(_AGENT_ENV, override=False)
 
 # 에이전트 파일 자체의 MD5 해시 (앞 8자리) — 버전 식별용
 # 서버의 /api/kiwoom-agent/version 해시와 비교해 업데이트 여부 확인
@@ -72,6 +78,14 @@ def get_poll_interval() -> int:
 # 계좌번호별 앱키 저장소 (서버에서 수신)
 # { "59190647": {"appKey": "...", "appSecret": "..."}, ... }
 ACCOUNT_KEYS = {}
+
+
+def normalize_account_number(account_number):
+    """계좌번호 정규화: 숫자만 남기고 앞 8자리 사용."""
+    if account_number is None:
+        return ""
+    digits = "".join(ch for ch in str(account_number) if ch.isdigit())
+    return digits[:8]
 
 logging.basicConfig(
     level=logging.INFO,
@@ -126,6 +140,7 @@ def _resolve_account_key_name(account_number):
     키움 계좌번호는 10자리(예: 5919064711)이지만 ACCOUNT_KEYS는 8자리(59190647)로 저장됨.
     정확히 일치 → 앞 8자리 short 순서로 시도.
     """
+    account_number = normalize_account_number(account_number)
     if not account_number:
         return None
     if account_number in ACCOUNT_KEYS:
@@ -144,6 +159,25 @@ def _get_account_appkey(account_number):
         ak = ACCOUNT_KEYS[key_name]
         return ak["appKey"], ak["appSecret"]
     return KIWOOM_APP_KEY_REAL, KIWOOM_APP_SECRET_REAL
+
+
+def load_local_account_keys():
+    """로컬 .env의 KIWOOM_KEY_{계좌8자리} / KIWOOM_SECRET_{계좌8자리}를 ACCOUNT_KEYS로 적재."""
+    loaded = 0
+    for k, v in os.environ.items():
+        if not k.startswith("KIWOOM_KEY_"):
+            continue
+        suffix = k[len("KIWOOM_KEY_"):].strip()
+        normalized = normalize_account_number(suffix)
+        if len(normalized) != 8:
+            continue
+        secret = os.getenv(f"KIWOOM_SECRET_{normalized}", "")
+        if not v or not secret:
+            continue
+        ACCOUNT_KEYS[normalized] = {"appKey": v, "appSecret": secret}
+        loaded += 1
+    if loaded:
+        logger.info(f"로컬 계좌별 앱키 로드: {sorted(ACCOUNT_KEYS.keys())}")
 
 
 def refresh_kiwoom_token(is_mock=False, account_number=None):
@@ -767,9 +801,14 @@ def handle_stock_search(payload):
 def handle_balance_get(payload):
     """계좌 잔고 조회 — kt00018 (계좌평가잔고내역)"""
     account_type = payload.get("accountType", "real")
-    account_number = payload.get("accountNumber", "")
+    account_number = normalize_account_number(payload.get("accountNumber", ""))
     is_mock = account_type == "mock"
     acnt = account_number if not is_mock else None
+    if not is_mock:
+        if not acnt:
+            raise ValueError("실계좌 balance.get: accountNumber 누락/형식 오류")
+        if not _resolve_account_key_name(acnt):
+            raise ValueError(f"실계좌 balance.get: 계좌별 앱키 미설정 ({acnt})")
     dmst_stex_tp = "%" if is_mock else "KRX"
     body = {
         "qry_tp": "2",
@@ -792,10 +831,15 @@ def handle_balance_get(payload):
 
 def handle_order_buy(payload):
     """매수 주문 — kt10000"""
-    account_number = payload.get("accountNumber", "")
+    account_number = normalize_account_number(payload.get("accountNumber", ""))
     account_type = payload.get("accountType", "real")
     is_mock = account_type == "mock"
     acnt = account_number if not is_mock else None
+    if not is_mock:
+        if not acnt:
+            raise ValueError("실계좌 order.buy: accountNumber 누락/형식 오류")
+        if not _resolve_account_key_name(acnt):
+            raise ValueError(f"실계좌 order.buy: 계좌별 앱키 미설정 ({acnt})")
     ord_tp = "2" if payload.get("orderType") == "limit" else "1"
     body = {
         "stk_cd": payload.get("stockCode"),
@@ -811,10 +855,15 @@ def handle_order_buy(payload):
 
 def handle_order_sell(payload):
     """매도 주문 — kt10000"""
-    account_number = payload.get("accountNumber", "")
+    account_number = normalize_account_number(payload.get("accountNumber", ""))
     account_type = payload.get("accountType", "real")
     is_mock = account_type == "mock"
     acnt = account_number if not is_mock else None
+    if not is_mock:
+        if not acnt:
+            raise ValueError("실계좌 order.sell: accountNumber 누락/형식 오류")
+        if not _resolve_account_key_name(acnt):
+            raise ValueError(f"실계좌 order.sell: 계좌별 앱키 미설정 ({acnt})")
     ord_tp = "2" if payload.get("orderType") == "limit" else "1"
     body = {
         "stk_cd": payload.get("stockCode"),
@@ -1546,6 +1595,9 @@ def main():
         logger.error(str(e))
         return
 
+    # Load local per-account keys before deciding whether server key fetch is needed.
+    load_local_account_keys()
+
     # ──────────────────────────────────────────────────────────────────────
     # ⚠️  앱키 수신 로직 — 변경 금지 (재발 방지 2025)
     # ──────────────────────────────────────────────────────────────────────
@@ -1567,7 +1619,8 @@ def main():
     # ──────────────────────────────────────────────────────────────────────
     _has_real_specific = bool(os.getenv("KIWOOM_APP_KEY_REAL"))
     _has_mock_specific = bool(os.getenv("KIWOOM_APP_KEY_MOCK"))
-    if not _has_real_specific or not _has_mock_specific:
+    _has_account_specific = len(ACCOUNT_KEYS) > 0
+    if not _has_real_specific or not _has_mock_specific or not _has_account_specific:
         fetch_appkeys_from_server()
     else:
         logger.info("로컬 .env 전용 앱키 사용 (실계좌/모의계좌 분리됨)")
@@ -1636,3 +1689,4 @@ if __name__ == "__main__":
             _restart_count += 1
             logger.error(f"에이전트 오류로 재시작 (#{_restart_count}): {e}")
             time.sleep(10)
+

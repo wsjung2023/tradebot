@@ -1,4 +1,4 @@
-// autotrading.routes.ts — 백어택2 자동 스캔 및 자동매매 관련 라우터 (레인보우 차트 + AI 분석 통합)
+// autotrading.routes.ts - auto-trading related routes
 import type { Router } from "express";
 import { storage } from "../storage";
 import { isAuthenticated, getCurrentUser } from "../auth";
@@ -233,25 +233,26 @@ export function registerAutoTradingRoutes(app: Router) {
 
   /**
    * POST /api/auto-trading/backattack-scan
-   * 뒷차기2 조건식으로 종목 조회 → 레인보우 차트 분석
-   * - stockCodes 전달 시 해당 종목 분석
-   * - 없으면 에이전트로 뒷차기2(seq=30) 조건검색 실행
-   * - 2차 필터(CL 40-60% + CL폭 10%) 제거 → 전체 종목 반환 + isRecommended 플래그
+   * Run backattack scan:
+   * - If stockCodes are provided, analyze those symbols.
+   * - Otherwise run condition search by seq (default: 30).
+   * - Return all analyzed symbols with recommendation metadata.
    */
   app.post("/api/auto-trading/backattack-scan", isAuthenticated, async (req, res) => {
     try {
       const user = getCurrentUser(req);
-      if (!user) return res.status(401).json({ error: "인증이 필요합니다" });
+      if (!user) return res.status(401).json({ error: "인증이 필요합니다." });
 
       let { stockCodes, conditionSeq } = req.body as { stockCodes?: string[]; conditionSeq?: string };
+      const effectiveSeq = (conditionSeq || "30").trim();
       const conditionName = "뒷차기2";
 
-      // 조건검색 결과에서 가져온 원본 데이터 (종목명, 현재가 등 포함)
+      // 원본 조건검색 결과(종목명/현재가/등락률 포함)
       let conditionResultFull: any[] = [];
 
-      // stockCodes가 없으면 에이전트로 조건검색 실행 (기본: 뒷차기2 seq=30)
+      // stockCodes 미전달 시 에이전트로 조건검색 실행
       if (!stockCodes || stockCodes.length === 0) {
-        const seq = conditionSeq || "30";
+        const seq = effectiveSeq;
         console.log(`[backattack-scan] stockCodes 없음 → 에이전트 condition.run(seq=${seq}) 실행`);
         try {
           const conditionResult = await callViaAgent(user.id, "condition.run", { seq }, 30000);
@@ -266,17 +267,18 @@ export function registerAutoTradingRoutes(app: Router) {
               message: `${conditionName} 조건에 현재 매칭된 종목이 없습니다.`,
               conditionName, totalMatches: 0, processedCount: 0,
               recommendationCount: 0, stocks: [],
+              sync: { syncedModels: 0, syncedCandidates: 0 },
             });
           }
         } catch (agentErr: any) {
           if (agentErr instanceof AgentTimeoutError) {
             return res.status(503).json({ error: `에이전트 응답 없음: ${agentErr.message}` });
           }
-          return res.status(500).json({ error: `조건검색 실패: ${agentErr.message}` });
+          return res.status(500).json({ error: `조건검색 실행 실패: ${agentErr.message}` });
         }
       }
 
-      // 종목명·가격 맵 (조건검색 결과에서 추출)
+      // 보조 메타 맵
       const nameByCode: Record<string, string> = {};
       const priceByCode: Record<string, number> = {};
       const changeRateByCode: Record<string, number> = {};
@@ -284,8 +286,6 @@ export function registerAutoTradingRoutes(app: Router) {
         const code = item.stock_code || item.stck_cd || item.code;
         const name = item.stock_name || item.stck_nm || item.name;
         const price = Number(item.current_price || item.stck_prpr || item.cur_prc || 0);
-        // Kiwoom WebSocket 조건검색 chng_rt는 0.001% 단위 (-10020 = -10.02%)
-        // REST prdy_ctrt는 이미 % 단위 (-10.02). abs > 100이면 1000으로 나눔
         const rawRate = Number(item.change_rate || item.prdy_ctrt || 0);
         const changeRate = Math.abs(rawRate) > 100 ? rawRate / 1000 : rawRate;
         if (code) {
@@ -295,7 +295,7 @@ export function registerAutoTradingRoutes(app: Router) {
         }
       }
 
-      const stockList = stockCodes.map((code: string) => ({
+      const stockList = (stockCodes || []).map((code: string) => ({
         stock_code: code,
         stock_name: nameByCode[code] || code,
       }));
@@ -318,23 +318,21 @@ export function registerAutoTradingRoutes(app: Router) {
           }
 
           const rainbowResult = RainbowChartAnalyzer.analyze(stockCode, normalized, 240);
-          const { currentPosition, signals, recommendation, clWidth, CL, lines } = rainbowResult;
+          const { currentPosition, signals, recommendation, clWidth, CL } = rainbowResult;
 
-          // 2차 필터 기준 (레이블용, 필터링은 하지 않음)
           const isInBuyZone = currentPosition >= 40 && currentPosition <= 60;
           const hasGoodCLWidth = clWidth >= 10;
           const isRecommended = isInBuyZone && hasGoodCLWidth;
 
           if (isRecommended) recommendationCount++;
 
-          // 현재가: 조건검색 결과 → 차트 최신 종가 순으로 폴백
           const currentPrice = priceByCode[stockCode] || rainbowResult.current;
           const changeRate = changeRateByCode[stockCode] || 0;
 
           console.log(
             `[backattack-scan] ${stockName}(${stockCode}) ` +
             `CL위치=${currentPosition.toFixed(1)}% CL폭=${clWidth.toFixed(1)}% ` +
-            `CL=₩${CL.toLocaleString('ko-KR')} → ${isRecommended ? '추천' : '참고'}`
+            `CL=${CL.toLocaleString('ko-KR')} → ${isRecommended ? '추천' : '참고'}`
           );
 
           stocks.push({
@@ -374,19 +372,65 @@ export function registerAutoTradingRoutes(app: Router) {
         }
       }
 
-      // 추천 종목 먼저, 그 안에서 CL 위치가 50%에 가까운 순
+      // 추천 종목 우선 정렬
       stocks.sort((a, b) => {
         if (a.isRecommended !== b.isRecommended) return a.isRecommended ? -1 : 1;
         return Math.abs(a.currentPosition - 50) - Math.abs(b.currentPosition - 50);
       });
 
+      // 핵심: 수동 스캔 결과를 자동매매 후보(candidate_stocks)와 동기화
+      let syncedModels = 0;
+      let syncedCandidates = 0;
+      try {
+        const activeModels = await storage.getActiveAiModels();
+        const userModels = activeModels.filter((m) => m.userId === user.id);
+
+        for (const model of userModels) {
+          const settings = await storage.getAutoTradingSettings(model.id);
+          const conditionSequences: Array<{ conditionId?: string | number; name?: string }> =
+            (settings?.conditionSearchSequences as any) ?? [];
+
+          const matchedSequence = conditionSequences.find(
+            (seq) => String(seq?.conditionId ?? "").trim() === effectiveSeq,
+          );
+          if (!matchedSequence) continue;
+
+          await storage.clearCandidateStocks(user.id, model.id);
+
+          for (const row of stockList) {
+            const code = String(row.stock_code || "").trim();
+            if (!code) continue;
+            await storage.upsertCandidateStock({
+              userId: user.id,
+              modelId: model.id,
+              stockCode: code,
+              stockName: row.stock_name || code,
+              source: matchedSequence.name || effectiveSeq,
+            });
+            syncedCandidates++;
+          }
+
+          syncedModels++;
+          console.log(
+            `[backattack-scan] 후보 동기화 완료 user=${user.id} model=${model.id} seq=${effectiveSeq} count=${stockList.length}`,
+          );
+        }
+      } catch (syncErr: any) {
+        console.error(`[backattack-scan] 후보 동기화 오류: ${syncErr?.message || syncErr}`);
+      }
+
       res.json({
         message: "뒷차기2 스캔 완료",
         conditionName,
+        conditionSeq: effectiveSeq,
         totalMatches: stockList.length,
         processedCount,
         recommendationCount,
         errorCount: errors.length,
+        sync: {
+          syncedModels,
+          syncedCandidates,
+        },
         stocks,
         errors: errors.length > 0 ? errors : undefined,
       });

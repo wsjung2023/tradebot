@@ -20,6 +20,19 @@ const DART_DANGER_KEYWORDS = [
   '영업정지', '파산', '회생절차', '불성실공시', '투자경고', '투자위험',
 ];
 
+type LearningCycleOutcome = 'executed' | 'skipped' | 'error' | null;
+
+export interface LearningRuntimeStatus {
+  featureEnabled: boolean;
+  lastTriggeredAt: Date | null;
+  lastCompletedAt: Date | null;
+  lastOutcome: LearningCycleOutcome;
+  lastReason: string | null;
+  lastError: string | null;
+  lastActiveModelCount: number | null;
+  lastOptimizedModelCount: number | null;
+}
+
 class AutoTradingWorker {
   private isRunning = false;
   private readonly featureFlags = getFeatureFlags();
@@ -42,6 +55,16 @@ class AutoTradingWorker {
   private readonly agentTimeoutThreshold = 3;
   private readonly agentTimeoutCooldownMs = 5 * 60 * 1000;
   private agentTimeoutCounters = new Map<string, { count: number; firstAt: number }>();
+  private learningRuntime: LearningRuntimeStatus = {
+    featureEnabled: this.featureFlags.enableAdvancedLearning,
+    lastTriggeredAt: null,
+    lastCompletedAt: null,
+    lastOutcome: null,
+    lastReason: null,
+    lastError: null,
+    lastActiveModelCount: null,
+    lastOptimizedModelCount: null,
+  };
 
   private clearAgentTimeoutCounter(userId: string) {
     this.agentTimeoutCounters.delete(userId);
@@ -240,6 +263,9 @@ class AutoTradingWorker {
   isLearningJobRunning(): boolean { return this.learningJob !== null; }
   async runTradingNow(): Promise<void> { await this.executeTradingCycle(); }
   async runLearningNow(): Promise<void> { await this.executeLearningCycleWrapper(); }
+  getLearningRuntimeStatus(): LearningRuntimeStatus {
+    return { ...this.learningRuntime };
+  }
 
   async createDefaultSettingsForModel(modelId: number): Promise<void> {
     await this.executor.createDefaultSettings(modelId);
@@ -472,7 +498,7 @@ class AutoTradingWorker {
 
       // ── 1. 포지션 청산 관리: 기존 경로 유지 ──
       try {
-        await this.executor.checkPositionsForExits(model, settings, kiwoomService);
+        await this.executor.checkPositionsForExits(model, settings, kiwoomService, this.aiService);
       } catch (posErr) {
         console.error(`⚠️  checkPositionsForExits 오류 (무시):`, posErr);
       }
@@ -595,33 +621,83 @@ class AutoTradingWorker {
   // ─── Learning Cycle (매일 장 마감 후 16:00 실행) ───────────────────────
 
   private async executeLearningCycleWrapper() {
-    if (this.isLearningRunning) { console.log('⏭️  Skipping learning cycle - previous still running'); return; }
+    this.learningRuntime.lastTriggeredAt = new Date();
+    this.learningRuntime.featureEnabled = this.featureFlags.enableAdvancedLearning;
+    if (this.isLearningRunning) {
+      console.log('⏭️  Skipping learning cycle - previous still running');
+      this.learningRuntime.lastCompletedAt = new Date();
+      this.learningRuntime.lastOutcome = 'skipped';
+      this.learningRuntime.lastReason = 'previous_cycle_still_running';
+      this.learningRuntime.lastError = null;
+      this.learningRuntime.lastActiveModelCount = null;
+      this.learningRuntime.lastOptimizedModelCount = null;
+      return;
+    }
     this.isLearningRunning = true;
-    try { await this.executeLearningCycle(); }
-    finally { this.isLearningRunning = false; }
+    try {
+      const result = await this.executeLearningCycle();
+      this.learningRuntime.lastCompletedAt = new Date();
+      this.learningRuntime.lastOutcome = result.outcome;
+      this.learningRuntime.lastReason = result.reason ?? null;
+      this.learningRuntime.lastError = result.errorMessage ?? null;
+      this.learningRuntime.lastActiveModelCount = result.activeModelCount;
+      this.learningRuntime.lastOptimizedModelCount = result.optimizedModelCount;
+    } finally {
+      this.isLearningRunning = false;
+    }
   }
 
   private async executeLearningCycle() {
     if (!this.featureFlags.enableAdvancedLearning) {
       console.log('\n🎓 Advanced learning disabled by feature flag (ENABLE_ADVANCED_LEARNING)');
-      return;
+      return {
+        outcome: 'skipped' as const,
+        reason: 'feature_flag_disabled',
+        activeModelCount: 0,
+        optimizedModelCount: 0,
+      };
     }
 
     console.log('\n🎓 Starting learning optimization cycle...');
     try {
       const activeModels = await storage.getActiveAiModels();
-      if (activeModels.length === 0) { console.log('📭 No active AI models found'); return; }
+      if (activeModels.length === 0) {
+        console.log('📭 No active AI models found');
+        return {
+          outcome: 'skipped' as const,
+          reason: 'no_active_models',
+          activeModelCount: 0,
+          optimizedModelCount: 0,
+        };
+      }
       console.log(`📊 Analyzing ${activeModels.length} active model(s)...`);
-      for (const model of activeModels) await this.optimizeModel(model);
+      let optimizedModelCount = 0;
+      for (const model of activeModels) {
+        const ok = await this.optimizeModel(model);
+        if (ok) optimizedModelCount += 1;
+      }
       console.log('✅ Learning optimization cycle completed\n');
+      return {
+        outcome: 'executed' as const,
+        reason: null,
+        activeModelCount: activeModels.length,
+        optimizedModelCount,
+      };
     } catch (error: any) {
       this.learningErrorCount++;
       this.lastLearningError = error?.message || 'unknown learning error';
       console.error('❌ Error in learning cycle:', error);
+      return {
+        outcome: 'error' as const,
+        reason: 'learning_cycle_exception',
+        errorMessage: this.lastLearningError,
+        activeModelCount: 0,
+        optimizedModelCount: 0,
+      };
     }
   }
 
-  private async optimizeModel(model: AiModel) {
+  private async optimizeModel(model: AiModel): Promise<boolean> {
     console.log(`\n🧠 Learning from model: ${model.modelName} (ID: ${model.id})`);
     try {
       const result = await this.learningService.optimizeModel(model.id, true);
@@ -629,8 +705,10 @@ class AutoTradingWorker {
       console.log(`  📈 Stats: ${s.totalTrades} trades | winRate ${s.winRate.toFixed(1)}% | return ${s.totalReturn.toFixed(2)}%`);
       if (result.appliedChanges) console.log(`  ✅ Optimized parameters applied automatically`);
       result.recommendations.forEach((rec: string) => console.log(`  💡 ${rec}`));
+      return true;
     } catch (error) {
       console.error(`  ❌ Error optimizing model ${model.id}:`, error);
+      return false;
     }
   }
 }

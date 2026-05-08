@@ -22,6 +22,16 @@ export interface JobInfo {
   errorCount: number;
   lastError: string | null;
   isCurrentlyExecuting: boolean;
+  learningRuntime?: {
+    featureEnabled: boolean;
+    lastTriggeredAt: Date | null;
+    lastCompletedAt: Date | null;
+    lastOutcome: 'executed' | 'skipped' | 'error' | null;
+    lastReason: string | null;
+    lastError: string | null;
+    lastActiveModelCount: number | null;
+    lastOptimizedModelCount: number | null;
+  };
 }
 
 const DB_STATE_KEY = (id: string) => `job_state_${id}`;
@@ -225,7 +235,7 @@ class JobManager {
     const defs = [
       { id: 'scan',            name: '스캔 잡',      description: '뒷차기2 조건검색으로 후보 종목 스캔 → candidate_stocks 갱신. 장중에만 실행.' },
       { id: 'auto-trading',    name: '매매 잡',      description: '장중 AI 모델 기반 자동 주문 실행. 활성 모델 없으면 아무것도 안 함.' },
-      { id: 'learning',        name: '학습 잡',      description: '거래 성과 분석으로 AI 파라미터 자동 최적화. 최소 50건 필요.' },
+      { id: 'learning',        name: '학습 잡',      description: '거래 성과 분석으로 AI 파라미터 자동 최적화 (자동 적용은 50건 이상 필요).' },
       { id: 'balance-refresh',     name: '잔고 자동갱신',    description: '장중(KST 08:30~18:00, 월~금) 실계좌 잔고 갱신.' },
       { id: 'agent-queue-cleanup', name: '에이전트 잡 정리', description: 'kiwoom_agent_jobs 테이블에서 만료된 잡을 주기적으로 삭제.' },
       { id: 'agent-watcher',       name: '에이전트 감시',    description: '집 PC 에이전트 연결 상태 감시. 끊기면 알림 발송.' },
@@ -234,7 +244,7 @@ class JobManager {
     return defs.map(({ id, name, description }) => {
       const state = this.stats.get(id)!;
       const running = this.isRunning(id);
-      return {
+      const baseInfo: JobInfo = {
         id,
         name,
         description,
@@ -253,6 +263,22 @@ class JobManager {
         lastError: state.lastError,
         isCurrentlyExecuting: false,
       };
+
+      if (id === 'learning') {
+        const runtime = autoTradingWorker.getLearningRuntimeStatus();
+        baseInfo.learningRuntime = {
+          featureEnabled: runtime.featureEnabled,
+          lastTriggeredAt: runtime.lastTriggeredAt,
+          lastCompletedAt: runtime.lastCompletedAt,
+          lastOutcome: runtime.lastOutcome,
+          lastReason: runtime.lastReason,
+          lastError: runtime.lastError,
+          lastActiveModelCount: runtime.lastActiveModelCount,
+          lastOptimizedModelCount: runtime.lastOptimizedModelCount,
+        };
+      }
+
+      return baseInfo;
     });
   }
 

@@ -10,6 +10,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Badge } from "@/components/ui/badge";
 import { Plus, Save, ChevronDown } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
+import type { KiwoomAccount } from "@shared/schema";
 
 interface Props {
   mode?: 'create' | 'edit';
@@ -19,6 +20,8 @@ interface Props {
   stopLossColor: 'green' | 'blue';
   stopLossPercent: string;
   takeProfitPercent: string;
+  selectedAccountId: string;
+  accounts: KiwoomAccount[];
   isPending: boolean;
   onOpenChange: (v: boolean) => void;
   onModelNameChange: (v: string) => void;
@@ -28,6 +31,7 @@ interface Props {
   onStopLossColorChange: (v: 'green' | 'blue') => void;
   onStopLossChange: (v: string) => void;
   onTakeProfitChange: (v: string) => void;
+  onAccountChange: (v: string) => void;
   onCreate: () => void;
   onUpdate?: () => void;
 }
@@ -74,10 +78,10 @@ const CL_COLOR_LABELS: Record<'green' | 'blue', string> = {
 export function AutoTradingModelDialog({
   mode = 'create',
   open, modelName, modelType, description,
-  maxPositions, stopLossColor, stopLossPercent, takeProfitPercent,
+  maxPositions, stopLossColor, stopLossPercent, takeProfitPercent, selectedAccountId, accounts,
   isPending, onOpenChange, onModelNameChange, onModelTypeChange,
   onDescriptionChange, onMaxPositionsChange,
-  onStopLossColorChange, onStopLossChange, onTakeProfitChange,
+  onStopLossColorChange, onStopLossChange, onTakeProfitChange, onAccountChange,
   onCreate, onUpdate,
 }: Props) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -124,6 +128,23 @@ export function AutoTradingModelDialog({
         <div className="space-y-2">
           <Label>설명</Label>
           <Textarea placeholder="전략 설명" value={description} onChange={(e) => onDescriptionChange(e.target.value)} rows={2} data-testid="input-model-description" />
+        </div>
+
+        <div className="space-y-2">
+          <Label>매매 계좌</Label>
+          <Select value={selectedAccountId} onValueChange={onAccountChange}>
+            <SelectTrigger data-testid={isEdit ? "select-edit-account" : "select-create-account"}>
+              <SelectValue placeholder="계좌를 선택하세요" />
+            </SelectTrigger>
+            <SelectContent>
+              {accounts.filter((a) => a.isActive).map((a) => (
+                <SelectItem key={a.id} value={String(a.id)}>
+                  {a.accountNumber} {a.accountType === "mock" ? "(모의)" : "(실전)"}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">선택한 계좌가 모델 설정(config.accountId)에 저장됩니다.</p>
         </div>
 
         {/* 최대 보유 종목 */}

@@ -33,6 +33,8 @@ export type AiAnalysisResult = {
   institutionalScore: number;
 };
 
+type CandidateDecisionCooldownMode = 'interval_120m' | 'daily_three_slots' | 'daily_once';
+
 // CL선 색 기준: 파랑(blue)=10~20, 초록(green)=30~50, 노랑(yellow)=60~70, 빨강(red)=80~100
 function getRainbowColor(line: number): 'blue' | 'green' | 'yellow' | 'red' {
   if (line <= 20) return 'blue';
@@ -42,6 +44,9 @@ function getRainbowColor(line: number): 'blue' | 'green' | 'yellow' | 'red' {
 }
 
 export class TradeExecutorService {
+  private normalizeStockCode(code: string | null | undefined): string {
+    return String(code ?? "").trim().replace(/^A/i, "");
+  }
 
   // ── 오늘 KST 기준 자동매매 매수 주문 횟수 조회 ──
   private async countTodayAutoTrades(accountId: number): Promise<number> {
@@ -60,6 +65,118 @@ export class TradeExecutorService {
   private todayKST(): string {
     const d = new Date(Date.now() + 9 * 3600000);
     return d.toISOString().slice(0, 10).replace(/-/g, '');
+  }
+
+  private getAiWeights(settings: AutoTradingSettings) {
+    return {
+      theme: parseFloat(settings.themeWeight?.toString() ?? '20'),
+      news: parseFloat(settings.newsWeight?.toString() ?? '15'),
+      financials: parseFloat(settings.financialsWeight?.toString() ?? '25'),
+      liquidity: parseFloat(settings.liquidityWeight?.toString() ?? '20'),
+      institutional: parseFloat(settings.institutionalWeight?.toString() ?? '20'),
+    };
+  }
+
+  private buildConfidenceBreakdown(settings: AutoTradingSettings, analysis: AiAnalysisResult) {
+    const weights = this.getAiWeights(settings);
+    const weighted = {
+      theme: analysis.themeScore * weights.theme,
+      news: analysis.newsScore * weights.news,
+      financials: analysis.financialsScore * weights.financials,
+      liquidity: analysis.liquidityScore * weights.liquidity,
+      institutional: analysis.institutionalScore * weights.institutional,
+    };
+    const denominator = weights.theme + weights.news + weights.financials + weights.liquidity + weights.institutional || 100;
+    const weightedSum = weighted.theme + weighted.news + weighted.financials + weighted.liquidity + weighted.institutional;
+    const calculatedConfidence = Math.min(100, Math.max(0, weightedSum / denominator));
+
+    return {
+      weights,
+      scores: {
+        theme: analysis.themeScore,
+        news: analysis.newsScore,
+        financials: analysis.financialsScore,
+        liquidity: analysis.liquidityScore,
+        institutional: analysis.institutionalScore,
+      },
+      weighted,
+      denominator,
+      weightedSum: Number(weightedSum.toFixed(2)),
+      calculatedConfidence: Number(calculatedConfidence.toFixed(2)),
+      minAiConfidence: parseFloat(settings.minAiConfidence?.toString() ?? '0'),
+    };
+  }
+
+  private getDecisionCooldownMode(settings: AutoTradingSettings): CandidateDecisionCooldownMode {
+    const mode = (settings.aiEntryPolicy as any)?.candidateDecisionCooldownMode;
+    if (mode === 'daily_three_slots' || mode === 'daily_once' || mode === 'interval_120m') {
+      return mode;
+    }
+    return 'interval_120m';
+  }
+
+  private getKstDayStart(base: Date): Date {
+    const kst = new Date(base.getTime() + 9 * 60 * 60 * 1000);
+    const year = kst.getUTCFullYear();
+    const month = kst.getUTCMonth();
+    const day = kst.getUTCDate();
+    return new Date(Date.UTC(year, month, day, -9, 0, 0, 0));
+  }
+
+  private getKstDate(base: Date, hour: number, minute: number): Date {
+    const kst = new Date(base.getTime() + 9 * 60 * 60 * 1000);
+    const year = kst.getUTCFullYear();
+    const month = kst.getUTCMonth();
+    const day = kst.getUTCDate();
+    return new Date(Date.UTC(year, month, day, hour - 9, minute, 0, 0));
+  }
+
+  private getDecisionCooldownWindow(settings: AutoTradingSettings, now: Date): {
+    mode: CandidateDecisionCooldownMode;
+    since: Date;
+    label: string;
+  } {
+    const mode = this.getDecisionCooldownMode(settings);
+    if (mode === 'daily_once') {
+      return {
+        mode,
+        since: this.getKstDayStart(now),
+        label: 'daily_once',
+      };
+    }
+
+    if (mode === 'daily_three_slots') {
+      const slots = [
+        { hour: 9, minute: 10, label: '09:10' },
+        { hour: 13, minute: 30, label: '13:30' },
+        { hour: 15, minute: 10, label: '15:10' },
+      ];
+      const slotDates = slots.map((slot) => ({ ...slot, at: this.getKstDate(now, slot.hour, slot.minute) }));
+      const currentTs = now.getTime();
+      const currentSlot = slotDates
+        .filter((slot) => slot.at.getTime() <= currentTs)
+        .sort((a, b) => b.at.getTime() - a.at.getTime())[0];
+
+      if (currentSlot) {
+        return {
+          mode,
+          since: currentSlot.at,
+          label: `daily_three_slots:${currentSlot.label}`,
+        };
+      }
+
+      return {
+        mode,
+        since: this.getKstDayStart(now),
+        label: 'daily_three_slots:before_09:10',
+      };
+    }
+
+    return {
+      mode: 'interval_120m',
+      since: new Date(now.getTime() - 120 * 60 * 1000),
+      label: 'interval_120m',
+    };
   }
 
   // ── 신규 진입: 최대 보유 종목 체크 + AI/레인보우 평가 ──
@@ -87,8 +204,9 @@ export class TradeExecutorService {
 
       const aiAnalysis = await this.comprehensiveAiAnalysis(stock, settings, kiwoomService, aiService);
       if (aiAnalysis.confidence < parseFloat(settings.minAiConfidence.toString())) {
+        const confidenceBreakdown = this.buildConfidenceBreakdown(settings, aiAnalysis);
         console.log(`    ⚠️  AI confidence ${aiAnalysis.confidence}% < threshold ${settings.minAiConfidence}% - skipping`);
-        storage.createEngineNotification({ userId: model.userId, severity: 'info', type: 'SKIP', message: `[스킵] ${stock.name} — AI신뢰도 미달 (${aiAnalysis.confidence.toFixed(1)}% < ${settings.minAiConfidence}%)`, payload: { stockCode: stock.code, stockName: stock.name, skipReason: 'minAiConf미달', confidence: aiAnalysis.confidence, themeScore: aiAnalysis.themeScore, newsScore: aiAnalysis.newsScore, financialsScore: aiAnalysis.financialsScore, liquidityScore: aiAnalysis.liquidityScore, institutionalScore: aiAnalysis.institutionalScore } }).catch(e => console.error('[Notification]', e));
+        storage.createEngineNotification({ userId: model.userId, severity: 'info', type: 'SKIP', message: `[스킵] ${stock.name} — AI신뢰도 미달 (${aiAnalysis.confidence.toFixed(1)}% < ${settings.minAiConfidence}%)`, payload: { stockCode: stock.code, stockName: stock.name, skipReason: 'minAiConf미달', confidence: aiAnalysis.confidence, themeScore: aiAnalysis.themeScore, newsScore: aiAnalysis.newsScore, financialsScore: aiAnalysis.financialsScore, liquidityScore: aiAnalysis.liquidityScore, institutionalScore: aiAnalysis.institutionalScore, confidenceBreakdown } }).catch(e => console.error('[Notification]', e));
         return;
       }
       if (settings.requireGoodFinancials && !aiAnalysis.hasGoodFinancials) {
@@ -123,13 +241,26 @@ export class TradeExecutorService {
   async checkPositionsForExits(
     model: AiModel,
     settings: AutoTradingSettings,
-    kiwoomService: KiwoomService
+    kiwoomService: KiwoomService,
+    aiService?: AIService
   ): Promise<void> {
     const config = (model.config as any) || {};
     const stopLossConfig = config.stopLossConfig as { color: 'green' | 'blue'; percent: number } | null | undefined;
     const takeProfitPercent = config.takeProfitPercent != null ? parseFloat(String(config.takeProfitPercent)) : null;
+    const stopLossPolicy = (settings.stopLossPolicy as any) ?? {};
+    const stopLossMode = String(stopLossPolicy.mode ?? 'soft_ai_first');
+    const hardCutLossPctRaw = parseFloat(String(stopLossPolicy.hardCutLossPct ?? '0'));
+    const hardCutLossPct = Number.isFinite(hardCutLossPctRaw) && hardCutLossPctRaw > 0 ? hardCutLossPctRaw : null;
+    const allowAiPartialTakeProfit = settings.allowAiPartialTakeProfit === true;
+    const allowAiHoldBeyondTarget = settings.allowAiHoldBeyondTarget === true;
 
-    if (!stopLossConfig && !takeProfitPercent && !settings.enableDynamicExit) return;
+    if (
+      !stopLossConfig &&
+      !takeProfitPercent &&
+      !settings.enableDynamicExit &&
+      stopLossMode !== 'hard' &&
+      stopLossMode !== 'conditional'
+    ) return;
 
     const accounts = await storage.getKiwoomAccounts(model.userId);
     const targetAccountId = config.accountId;
@@ -155,23 +286,42 @@ export class TradeExecutorService {
         const profitRate = ((currentPrice - avgPrice) / avgPrice) * 100;
 
         let shouldSell = false;
+        let sellRatio = 1;
         let exitReason = '';
+        let currentLineForDecision: number | null = null;
 
         // 익절 체크
         if (takeProfitPercent && profitRate >= takeProfitPercent) {
-          shouldSell = true;
-          exitReason = `익절: +${profitRate.toFixed(1)}% (기준: +${takeProfitPercent}%)`;
+          if (allowAiHoldBeyondTarget) {
+            console.log(`    ℹ️  ${holding.stockCode} 목표 도달(+${takeProfitPercent}%) 했지만 '목표초과 보유 허용' 설정으로 보유 유지`);
+          } else if (allowAiPartialTakeProfit && holding.quantity >= 2) {
+            shouldSell = true;
+            sellRatio = 0.5;
+            exitReason = `부분익절: +${profitRate.toFixed(1)}% (기준: +${takeProfitPercent}%, 50% 청산)`;
+          } else {
+            shouldSell = true;
+            exitReason = `익절: +${profitRate.toFixed(1)}% (기준: +${takeProfitPercent}%)`;
+          }
         }
 
-        // 손절 체크 (CL선 색 기준)
-        if (!shouldSell && stopLossConfig && profitRate < 0) {
+        // 손절 체크
+        if (!shouldSell && profitRate < 0) {
           const lossAbs = Math.abs(profitRate);
-          if (lossAbs >= stopLossConfig.percent) {
+
+          // 신규 손절 정책: hard 우선
+          if ((stopLossMode === 'hard' || stopLossMode === 'conditional') && hardCutLossPct && lossAbs >= hardCutLossPct) {
+            shouldSell = true;
+            exitReason = `강제손절: ${profitRate.toFixed(1)}% (기준: -${hardCutLossPct}%)`;
+          }
+
+          // 레거시 CL 손절: disabled가 아닐 때만 적용
+          if (!shouldSell && stopLossMode !== 'disabled' && stopLossConfig && lossAbs >= stopLossConfig.percent) {
             const currentLine = await this.getCurrentRainbowLine(holding.stockCode, currentPrice, kiwoomService);
+            currentLineForDecision = currentLine;
             const currentColor = getRainbowColor(currentLine);
-            if (currentColor === stopLossConfig.color) {
+            if (currentColor === stopLossConfig.color || stopLossMode === 'conditional') {
               shouldSell = true;
-              exitReason = `손절: ${profitRate.toFixed(1)}% (기준: -${stopLossConfig.percent}%, CL=${stopLossConfig.color})`;
+              exitReason = `손절: ${profitRate.toFixed(1)}% (기준: -${stopLossConfig.percent}%, CL=${stopLossConfig.color}, mode=${stopLossMode})`;
             } else {
               console.log(`    ℹ️  ${holding.stockCode} 손절 조건 미충족 (현재 CL색: ${currentColor}, 설정: ${stopLossConfig.color})`);
             }
@@ -222,9 +372,59 @@ export class TradeExecutorService {
           }
         }
 
+        if (shouldSell && stopLossMode === 'soft_ai_first' && aiService) {
+          try {
+            if (currentLineForDecision === null) {
+              currentLineForDecision = await this.getCurrentRainbowLine(holding.stockCode, currentPrice, kiwoomService);
+            }
+            const perfEntry = await storage.getTradingPerformanceByStock(model.id, holding.stockCode);
+            const holdingDays = perfEntry?.createdAt
+              ? Math.max(0, Math.floor((Date.now() - new Date(perfEntry.createdAt).getTime()) / 86400000))
+              : 0;
+            const aiDecision = await aiService.decidePositionManagement({
+              stock: { code: holding.stockCode, name: holding.stockName || holding.stockCode, price: currentPrice },
+              currentLine: currentLineForDecision ?? 50,
+              holdingDays,
+              modelType: model.modelType,
+              performance: {
+                entryPrice: avgPrice,
+                quantity: holding.quantity,
+                filledUnits: perfEntry?.filledUnits ?? null,
+                maxUnitsReached: perfEntry?.maxUnitsReached ?? null,
+                entryLadderPlan: perfEntry?.entryLadderPlan ?? null,
+                filledEntrySteps: perfEntry?.filledEntrySteps ?? null,
+                holdDecisionSnapshots: perfEntry?.holdDecisionSnapshots ?? null,
+                plannedExitPolicy: perfEntry?.plannedExitPolicy ?? null,
+              },
+              settings: {
+                maxUnitsPerStock: settings.maxUnitsPerStock ?? null,
+                stopLossPolicy: settings.stopLossPolicy ?? null,
+                aiExitPolicy: settings.aiExitPolicy ?? null,
+                allowAiPartialTakeProfit: settings.allowAiPartialTakeProfit ?? null,
+                allowAiHoldBeyondTarget: settings.allowAiHoldBeyondTarget ?? null,
+              },
+            });
+
+            if (aiDecision.action === 'hold' || aiDecision.action === 'scale_in') {
+              shouldSell = false;
+              exitReason = `AI 보유판단(soft_ai_first): ${aiDecision.reasoning || 'hold'}`;
+            } else if (aiDecision.action === 'partial_exit' && holding.quantity >= 2) {
+              shouldSell = true;
+              sellRatio = 0.5;
+              exitReason = `AI 부분청산(soft_ai_first): ${aiDecision.reasoning || 'partial_exit'}`;
+            } else if (aiDecision.action === 'full_exit' || aiDecision.action === 'stop_loss') {
+              shouldSell = true;
+              sellRatio = 1;
+              exitReason = `AI 청산(soft_ai_first): ${aiDecision.reasoning || aiDecision.action}`;
+            }
+          } catch (aiErr) {
+            console.warn(`    ⚠️ soft_ai_first 판단 실패 - 기존 청산 로직 유지`, aiErr);
+          }
+        }
+
         if (shouldSell) {
           console.log(`    🚨 Exit triggered for ${holding.stockCode}: ${exitReason}`);
-          await this.executeExitSell(model, activeAccount, holding, currentPrice, exitReason, kiwoomService);
+          await this.executeExitSell(model, activeAccount, holding, currentPrice, exitReason, kiwoomService, sellRatio);
         }
       } catch (err) {
         console.error(`    ❌ Error checking exit for ${holding.stockCode}:`, err);
@@ -255,9 +455,10 @@ export class TradeExecutorService {
     holding: any,
     currentPrice: number,
     exitReason: string,
-    kiwoomService: KiwoomService
+    kiwoomService: KiwoomService,
+    sellRatio: number = 1
   ): Promise<void> {
-    const quantity = holding.quantity;
+    const quantity = Math.floor(holding.quantity * Math.max(0, Math.min(1, sellRatio)));
     if (!quantity || quantity <= 0) return;
 
     try {
@@ -489,7 +690,8 @@ export class TradeExecutorService {
       if (!activeAccount) { console.log(`    ⚠️  No active account found - skipping`); return; }
 
       const holdings = await storage.getHoldings(activeAccount.id);
-      const alreadyHolding = holdings.find(h => h.stockCode === stock.code);
+      const targetCode = this.normalizeStockCode(stock.code);
+      const alreadyHolding = holdings.find(h => this.normalizeStockCode(h.stockCode) === targetCode);
       if (alreadyHolding) {
         console.log(`    ⏭️  ${stock.code} 이미 보유 중 (${alreadyHolding.quantity}주) — 신규 매수 건너뜀`);
         return;
@@ -512,20 +714,21 @@ export class TradeExecutorService {
       }
 
       let quantity: number;
-      const hasLineUnits = config.lineUnits && Object.keys(config.lineUnits).length > 0;
+      const hasLineUnits = Object.keys(this.getLineUnitMap(settings, config)).length > 0;
       if (!aiAnalysis || hasLineUnits) {
         // 유닛 기반 수량: lineUnits 설정이 있으면 항상 유닛 우선
-        const unitSize = config.unitSize
-          ? parseFloat(String(config.unitSize))
-          : parseFloat(settings.defaultPositionSize.toString());
-        const unitCount = this.getUnitCountForLine(rainbow.currentLine, config);
+        const unitSize = this.getConfiguredUnitSize(settings, config);
+        const unitCount = this.getUnitCountForLine(rainbow.currentLine, settings, config);
         quantity = Math.floor((unitSize * unitCount) / stock.price);
+        quantity = this.clampQuantityByCapital(quantity, stock.price, settings, unitSize, 0);
         console.log(`    📐 유닛 매수: unitSize=${unitSize}, unitCount=${unitCount}, qty=${quantity}`);
       } else {
         // lineUnits 미설정 시 weight 기반 수량 (레인보우 신호 강도 비례)
         const baseSize = parseFloat(settings.defaultPositionSize.toString());
         const positionSize = Math.min(baseSize * (rainbow.weight / 100), parseFloat(settings.maxPositionSize.toString()));
         quantity = Math.floor(positionSize / stock.price);
+        const fallbackUnit = this.getConfiguredUnitSize(settings, config);
+        quantity = this.clampQuantityByCapital(quantity, stock.price, settings, fallbackUnit, 0);
       }
       if (quantity === 0) { console.log(`    ⚠️  Calculated quantity is 0 - skipping`); return; }
 
@@ -649,6 +852,36 @@ export class TradeExecutorService {
   ): Promise<void> {
     const decidedAt = new Date();
     const dailyKey = this.todayKST();
+    const cooldown = this.getDecisionCooldownWindow(settings, decidedAt);
+
+    // Cooldown guard: skip re-evaluating the same stock too frequently.
+    const recentDecision = await storage.getLatestCandidateDecision(
+      model.id,
+      candidate.stockCode,
+      cooldown.since,
+    );
+    if (recentDecision) {
+      if (candidate.id) {
+        await storage.updateCandidateEvaluation(candidate.id, {
+          evaluationResult: {
+            accepted: false,
+            skipReason: 'decision_cooldown_active',
+            decidedAt: decidedAt.toISOString(),
+            dailyKey,
+            cooldownMode: cooldown.mode,
+            cooldownWindowLabel: cooldown.label,
+            cooldownSince: cooldown.since.toISOString(),
+            lastDecisionAt: recentDecision.decidedAt?.toISOString?.() ?? recentDecision.decidedAt ?? null,
+            lastDecisionAccepted: recentDecision.accepted,
+            lastRejectReason: recentDecision.rejectReason ?? null,
+          },
+          skipReason: 'decision_cooldown_active',
+          evaluatedAt: decidedAt,
+        });
+      }
+      return;
+    }
+
     const modelConfig = (model.config as any) || {};
     const modelSnapshot = {
       id: model.id,
@@ -663,6 +896,7 @@ export class TradeExecutorService {
       requireGoodFinancials: settings.requireGoodFinancials,
       requireHighLiquidity: settings.requireHighLiquidity,
       requireMarketIssue: settings.requireMarketIssue,
+      aiEntryPolicy: settings.aiEntryPolicy ?? null,
       maxDailyTrades: settings.maxDailyTrades,
       defaultPositionSize: settings.defaultPositionSize,
       rainbowLineSettings: settings.rainbowLineSettings,
@@ -800,8 +1034,9 @@ export class TradeExecutorService {
       // ── 최소 신뢰도 필터 ─────────────────────────────────────────────────
       const minConf = parseFloat(settings.minAiConfidence?.toString() ?? '0');
       if (minConf > 0 && marketAnalysis.confidence < minConf) {
+        const confidenceBreakdown = this.buildConfidenceBreakdown(settings, marketAnalysis);
         console.log(`    ⚠️  종합 점수 ${marketAnalysis.confidence.toFixed(1)}% < 최솟값 ${minConf}% - 스킵`);
-        storage.createEngineNotification({ userId: model.userId, severity: 'info', type: 'SKIP', message: `[스킵] ${candidate.stockName} — AI신뢰도 미달 (${marketAnalysis.confidence.toFixed(1)}% < ${minConf}%)`, payload: { stockCode: candidate.stockCode, stockName: candidate.stockName, skipReason: 'minAiConf미달', confidence: marketAnalysis.confidence, themeScore: marketAnalysis.themeScore, newsScore: marketAnalysis.newsScore, financialsScore: marketAnalysis.financialsScore, liquidityScore: marketAnalysis.liquidityScore, institutionalScore: marketAnalysis.institutionalScore } }).catch(e => console.error('[Notification]', e));
+        storage.createEngineNotification({ userId: model.userId, severity: 'info', type: 'SKIP', message: `[스킵] ${candidate.stockName} — AI신뢰도 미달 (${marketAnalysis.confidence.toFixed(1)}% < ${minConf}%)`, payload: { stockCode: candidate.stockCode, stockName: candidate.stockName, skipReason: 'minAiConf미달', confidence: marketAnalysis.confidence, themeScore: marketAnalysis.themeScore, newsScore: marketAnalysis.newsScore, financialsScore: marketAnalysis.financialsScore, liquidityScore: marketAnalysis.liquidityScore, institutionalScore: marketAnalysis.institutionalScore, confidenceBreakdown } }).catch(e => console.error('[Notification]', e));
         await logDecision({
           accepted: false,
           rejectReason: 'min_ai_confidence_not_met',
@@ -812,8 +1047,17 @@ export class TradeExecutorService {
         });
         return;
       }
+
+      const allowSpeculativeLeaderTrades = settings.allowSpeculativeLeaderTrades === true;
+      const speculativeMinConfidence = Math.max(minConf + 10, 85);
+      const canUseSpeculativeOverride =
+        allowSpeculativeLeaderTrades && marketAnalysis.confidence >= speculativeMinConfidence;
+
       // ── 재무건전성 필터 ──────────────────────────────────────────────────
       if (settings.requireGoodFinancials && !marketAnalysis.hasGoodFinancials) {
+        if (canUseSpeculativeOverride) {
+          console.log(`    ⚠️  재무건전성 미충족이지만 '세력/급등주 투자 허용' + 고신뢰(${marketAnalysis.confidence.toFixed(1)}%)로 진입 평가 계속`);
+        } else {
         console.log(`    ⚠️  재무건전성 미충족 (financialsScore=${marketAnalysis.financialsScore} < 60) - 스킵`);
         storage.createEngineNotification({ userId: model.userId, severity: 'info', type: 'SKIP', message: `[스킵] ${candidate.stockName} — 재무건전성 미충족 (${marketAnalysis.financialsScore})`, payload: { stockCode: candidate.stockCode, stockName: candidate.stockName, skipReason: '재무필터', financialsScore: marketAnalysis.financialsScore } }).catch(e => console.error('[Notification]', e));
         await logDecision({
@@ -825,9 +1069,13 @@ export class TradeExecutorService {
           marketAnalysis,
         });
         return;
+        }
       }
       // ── 유동성 필터 ─────────────────────────────────────────────────────
       if (settings.requireHighLiquidity && !marketAnalysis.hasHighLiquidity) {
+        if (canUseSpeculativeOverride) {
+          console.log(`    ⚠️  유동성 미충족이지만 '세력/급등주 투자 허용' + 고신뢰(${marketAnalysis.confidence.toFixed(1)}%)로 진입 평가 계속`);
+        } else {
         console.log(`    ⚠️  유동성 미충족 (liquidityScore=${marketAnalysis.liquidityScore} < 40) - 스킵`);
         storage.createEngineNotification({ userId: model.userId, severity: 'info', type: 'SKIP', message: `[스킵] ${candidate.stockName} — 유동성 미충족 (${marketAnalysis.liquidityScore})`, payload: { stockCode: candidate.stockCode, stockName: candidate.stockName, skipReason: '유동성필터', liquidityScore: marketAnalysis.liquidityScore } }).catch(e => console.error('[Notification]', e));
         await logDecision({
@@ -839,6 +1087,7 @@ export class TradeExecutorService {
           marketAnalysis,
         });
         return;
+        }
       }
       // ── DART 위험공시 — 설정 무관하게 무조건 차단 ────────────────────────
       if (marketAnalysis.dartDangerKeyword) {
@@ -856,14 +1105,15 @@ export class TradeExecutorService {
       }
 
       const holdings = await storage.getHoldings(activeAccount.id);
-      const existingHolding = holdings.find(h => h.stockCode === stock.code);
+      const targetCode = this.normalizeStockCode(stock.code);
+      const existingHolding = holdings.find(h => this.normalizeStockCode(h.stockCode) === targetCode);
 
       const rainbowEval = await this.evaluate10LineRainbow(stock, settings, kiwoomService);
       const { currentLine } = rainbowEval;
       console.log(`    🌈 ${stock.name}(${stock.code}): currentLine=${currentLine}`);
 
       if (!existingHolding) {
-        const unitCount = this.getUnitCountForLine(currentLine, config);
+        const unitCount = this.getUnitCountForLine(currentLine, settings, config);
         if (unitCount > 0 && currentLine <= 50) {
           await logDecision({
             accepted: true,
@@ -945,10 +1195,10 @@ export class TradeExecutorService {
     settings: AutoTradingSettings,
     _activeAccount: any,
     kiwoomService: KiwoomService,
-    _aiService: AIService
+    aiService: AIService
   ): Promise<void> {
     // Keep a single exit-management path for now.
-    await this.checkPositionsForExits(model, settings, kiwoomService);
+    await this.checkPositionsForExits(model, settings, kiwoomService, aiService);
   }
 
   private buildCandidateScorecard(analysis: AiAnalysisResult): Record<string, number> {
@@ -962,9 +1212,71 @@ export class TradeExecutorService {
     };
   }
 
-  private getUnitCountForLine(currentLine: number, config: any): number {
-    const lineUnits: Record<number, number> = config.lineUnits || {};
-    return lineUnits[currentLine] ?? 1;
+  private parsePositiveNumber(value: unknown, fallback: number): number {
+    const parsed = Number.parseFloat(String(value ?? ""));
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+  }
+
+  private getConfiguredUnitSize(settings: AutoTradingSettings, config: any): number {
+    const fallbackUnit = this.parsePositiveNumber(settings.defaultPositionSize, 1_000_000);
+    const baseUnitSize = this.parsePositiveNumber(settings.baseUnitSize, 0);
+    const legacyUnitSize = this.parsePositiveNumber(config?.unitSize, 0);
+    return baseUnitSize > 0 ? baseUnitSize : legacyUnitSize > 0 ? legacyUnitSize : fallbackUnit;
+  }
+
+  private getLineUnitMap(settings: AutoTradingSettings, config: any): Record<number, number> {
+    const map: Record<number, number> = {};
+    const ladder = settings.entryLadderSettings as Array<{ line?: number; units?: number }> | null | undefined;
+    if (Array.isArray(ladder)) {
+      for (const step of ladder) {
+        const line = Number.parseInt(String(step?.line ?? ""), 10);
+        const units = Number.parseInt(String(step?.units ?? ""), 10);
+        if (!Number.isFinite(line) || !Number.isFinite(units)) continue;
+        map[line] = Math.max(0, Math.min(5, units));
+      }
+    }
+
+    if (Object.keys(map).length > 0) return map;
+
+    const legacyMap = (config?.lineUnits ?? {}) as Record<number, number>;
+    for (const [lineRaw, unitsRaw] of Object.entries(legacyMap)) {
+      const line = Number.parseInt(String(lineRaw), 10);
+      const units = Number.parseInt(String(unitsRaw), 10);
+      if (!Number.isFinite(line) || !Number.isFinite(units)) continue;
+      map[line] = Math.max(0, Math.min(5, units));
+    }
+    return map;
+  }
+
+  private getUnitCountForLine(currentLine: number, settings: AutoTradingSettings, config: any): number {
+    const lineUnits = this.getLineUnitMap(settings, config);
+    if (Object.keys(lineUnits).length === 0) return 1;
+    return lineUnits[currentLine] ?? 0;
+  }
+
+  private clampQuantityByCapital(
+    quantity: number,
+    price: number,
+    settings: AutoTradingSettings,
+    unitSize: number,
+    existingHoldingCapital: number = 0
+  ): number {
+    let capped = quantity;
+
+    const maxUnits = Number.parseInt(String(settings.maxUnitsPerStock ?? ""), 10);
+    if (Number.isFinite(maxUnits) && maxUnits > 0) {
+      const maxCapitalByUnits = unitSize * maxUnits;
+      const remainingByUnits = Math.max(0, maxCapitalByUnits - existingHoldingCapital);
+      capped = Math.min(capped, Math.floor(remainingByUnits / price));
+    }
+
+    const hardMaxCapital = this.parsePositiveNumber(settings.hardMaxCapitalPerStock, 0);
+    if (hardMaxCapital > 0) {
+      const remainingByHardCap = Math.max(0, hardMaxCapital - existingHoldingCapital);
+      capped = Math.min(capped, Math.floor(remainingByHardCap / price));
+    }
+
+    return Math.max(0, capped);
   }
 
   async executeAdditionalBuy(
@@ -992,14 +1304,22 @@ export class TradeExecutorService {
         }
       }
 
-      const unitSize = config.unitSize
-        ? parseFloat(String(config.unitSize))
-        : parseFloat(settings.defaultPositionSize.toString());
-      const unitCount = this.getUnitCountForLine(rainbow.currentLine, config);
-      const quantity = Math.floor((unitSize * unitCount) / stock.price);
+      const unitSize = this.getConfiguredUnitSize(settings, config);
+      const baseUnitCount = this.getUnitCountForLine(rainbow.currentLine, settings, config);
+      const allowAiDoubleDown = settings.allowAiDoubleDown === true;
+      const adjustedUnitCount =
+        allowAiDoubleDown && rainbow.currentLine <= 30
+          ? Math.min(baseUnitCount + 1, 2)
+          : baseUnitCount;
+      const currentCapital = (holding.quantity || 0) * stock.price;
+      let quantity = Math.floor((unitSize * adjustedUnitCount) / stock.price);
+      quantity = this.clampQuantityByCapital(quantity, stock.price, settings, unitSize, currentCapital);
       if (quantity === 0) {
         console.log(`    ⚠️  추가매수 수량 0 — 건너뜀`);
         return;
+      }
+      if (adjustedUnitCount !== baseUnitCount) {
+        console.log(`    🤖 AI 추가매수 허용 적용: baseUnit=${baseUnitCount} → adjustedUnit=${adjustedUnitCount}`);
       }
 
       await storage.createOrder({
@@ -1031,8 +1351,8 @@ export class TradeExecutorService {
         });
       }
 
-      console.log(`    ✅ 추가매수 완료: ${stock.name} ${quantity}주 @ ${stock.price}원 (${rainbow.currentLine}% 라인, ${unitCount}유닛)`);
-      storage.createEngineNotification({ userId: model.userId, severity: 'info', type: 'BUY', message: `[추가매수] ${stock.name} ${quantity}주 @ ${stock.price.toLocaleString()}원 (${rainbow.currentLine}% 라인, ${unitCount}유닛)`, payload: { stockCode: stock.code, stockName: stock.name, price: stock.price, quantity, rainbowLine: rainbow.currentLine, unitCount } }).catch(e => console.error('[Notification]', e));
+      console.log(`    ✅ 추가매수 완료: ${stock.name} ${quantity}주 @ ${stock.price}원 (${rainbow.currentLine}% 라인, ${adjustedUnitCount}유닛)`);
+      storage.createEngineNotification({ userId: model.userId, severity: 'info', type: 'BUY', message: `[추가매수] ${stock.name} ${quantity}주 @ ${stock.price.toLocaleString()}원 (${rainbow.currentLine}% 라인, ${adjustedUnitCount}유닛)`, payload: { stockCode: stock.code, stockName: stock.name, price: stock.price, quantity, rainbowLine: rainbow.currentLine, unitCount: adjustedUnitCount } }).catch(e => console.error('[Notification]', e));
     } catch (err) {
       console.error(`    ❌ 추가매수 실패 ${stock.code}:`, err);
     }

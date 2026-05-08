@@ -238,6 +238,11 @@ export interface IStorage {
       offset?: number;
     },
   ): Promise<Array<CandidateDecisionLog & { modelName: string; modelType: string }>>;
+  getLatestCandidateDecision(
+    modelId: number,
+    stockCode: string,
+    since?: Date,
+  ): Promise<CandidateDecisionLog | undefined>;
   createPositionDecisionLog(data: InsertPositionDecisionLog): Promise<PositionDecisionLog>;
 
   // 전계좌 보유종목

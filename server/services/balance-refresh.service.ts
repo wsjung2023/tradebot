@@ -113,10 +113,9 @@ export class BalanceRefreshService {
     accountNumber: string,
     accountType: string,
   ): Promise<void> {
-    // 이미 pending/processing 중인 balance.get 잡이 있으면 중복 생성하지 않음
     const hasPending = await storage.hasPendingJobForAccount(userId, 'balance.get', accountNumber);
     if (hasPending) {
-      console.log(`[BalanceRefresh] 계좌 ${accountId}(${accountNumber}): 이미 진행 중인 balance.get 잡이 있음 — 건너뜀`);
+      console.log(`[BalanceRefresh] account ${accountId}(${accountNumber}): pending balance.get exists - skip`);
       return;
     }
 
@@ -128,8 +127,8 @@ export class BalanceRefreshService {
       result = await callViaAgent(userId, 'balance.get', payload, 15000, dedupeKey);
     } catch (firstErr: any) {
       const msg = String(firstErr?.message ?? '');
-      if (msg.includes('Expecting value') || msg.includes('빈 응답') || msg.includes('token') || msg.includes('401')) {
-        console.warn(`[BalanceRefresh] 계좌 ${accountId} 첫 시도 실패 → 토큰 갱신 후 재시도`);
+      if (msg.includes('Expecting value') || msg.includes('token') || msg.includes('401')) {
+        console.warn(`[BalanceRefresh] account ${accountId}: first try failed, retry after token refresh`);
         try { await callViaAgent(userId, 'token.refresh', { accountType }, 8000); } catch (_) {}
         result = await callViaAgent(userId, 'balance.get', payload, 15000, dedupeKey);
       } else {
@@ -142,38 +141,43 @@ export class BalanceRefreshService {
       ? result.output2
       : (result?.holdings || raw.acnt_evlt_remn_indv_tot || []);
 
-    if (!Array.isArray(output2) || output2.length === 0) {
-      console.warn(`[BalanceRefresh] 계좌 ${accountId}: output2 비어있음`);
-      return;
-    }
-
     const parseNum = (...fields: (string | undefined | null)[]): number => {
       for (const v of fields) { if (v && v !== '0') return parseFloat(v); }
       return 0;
     };
 
     const output1: any = Object.keys(result?.output1 || {}).length > 0 ? result.output1 : raw;
-    const totalAssets = parseNum(
+    const stockEvalAmount = parseNum(
       raw.tot_evlt_amt, raw.tot_evlu_amt, raw.acnt_tot_evlu_amt,
       output1.tot_evlt_amt, output1.tot_evlu_amt,
       result?.totalEvaluationAmount,
     );
-    const depositAmount = parseNum(
+    const depositRaw = parseNum(
       raw.prsm_dpst_aset_amt, raw.dnca_tot_amt,
       output1.prsm_dpst_aset_amt, output1.dnca_tot_amt,
       result?.depositAmount,
     );
 
-    for (const item of output2) {
+    // Full replace sync: remove stale holdings first, then insert current snapshot.
+    const parsedHoldings: Array<{ stockCode: string; updates: ReturnType<typeof parseHoldingItem> }> = [];
+    for (const item of (Array.isArray(output2) ? output2 : [])) {
       const parsed = parseHoldingItem(item);
       if (!parsed.stockCode) continue;
-      const { stockCode, ...updates } = parsed;
-      const existing = await storage.getHoldingByStock(accountId, stockCode);
-      if (existing) await storage.updateHolding(existing.id, updates);
-      else await storage.createHolding({ accountId, stockCode, ...updates });
+      parsedHoldings.push({ stockCode: parsed.stockCode, updates: parsed });
     }
 
-    const totalAssetsWithDeposit = totalAssets + depositAmount;
+    await storage.deleteHoldingsByAccount(accountId);
+    for (const { stockCode, updates } of parsedHoldings) {
+      const { stockCode: _ignored, ...holdingUpdates } = updates;
+      await storage.createHolding({ accountId, stockCode, ...holdingUpdates });
+    }
+
+    let totalAssetsWithDeposit = stockEvalAmount + depositRaw;
+    let depositAmount = depositRaw;
+    if (stockEvalAmount > 0 && depositRaw > 0 && depositRaw >= stockEvalAmount) {
+      totalAssetsWithDeposit = depositRaw;
+      depositAmount = Math.max(0, depositRaw - stockEvalAmount);
+    }
     const todayProfit = parseNum(
       raw.tot_evlt_pl, raw.tot_evlu_pfls,
       output1.tot_evlt_pl, output1.evlu_pfls_smtl_amt, output1.tot_evlu_pfls,
@@ -197,11 +201,10 @@ export class BalanceRefreshService {
         totalProfitRate: String(todayProfitRate),
       });
     } catch (e) {
-      console.error('[BalanceRefresh] 스냅샷 저장 실패 (잔고 갱신은 정상):', e);
+      console.error('[BalanceRefresh] failed to create asset snapshot (non-fatal):', e);
     }
 
-    console.log(`[BalanceRefresh] 계좌 ${accountId} 갱신 완료 — 보유종목 ${output2.length}개, 총자산 ${totalAssetsWithDeposit.toLocaleString()}원`);
+    console.log(`[BalanceRefresh] account ${accountId} refreshed - holdings ${parsedHoldings.length}, total assets ${totalAssetsWithDeposit.toLocaleString()} KRW`);
   }
 }
-
 export const balanceRefreshService = new BalanceRefreshService();

@@ -192,6 +192,7 @@ const steps: TutorialStep[] = [
     goal: "보유 포지션 관리와 신규 진입을 수행한다",
     operatorAction: [
       "모니터 피드에서 BUY/SELL/SKIP 사유를 추적한다.",
+      "동일 종목 반복 평가를 줄이려면 후보 재평가 쿨다운(120분/하루3회/하루1회)을 설정한다.",
       "SKIP이 많으면 minAiConfidence/필터/투기성 허용값을 재조정한다.",
     ],
     systemAction: [
@@ -201,6 +202,7 @@ const steps: TutorialStep[] = [
     ],
     checkpoints: [
       "매매 결정 피드에 사유와 점수가 함께 기록됨",
+      "점수 계산식(confidence=가중합/가중치합)과 최소 신뢰도 비교값이 표시됨",
       "포지션/주문 데이터가 누락 없이 반영됨",
     ],
     failCase: {

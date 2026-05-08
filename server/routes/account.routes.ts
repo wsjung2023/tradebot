@@ -211,12 +211,12 @@ export function registerAccountRoutes(app: Router) {
       };
 
       // raw 최상위 필드 우선 → output1 → 에이전트가 계산한 totalEvaluationAmount 순
-      const totalAssets = parseNum(
+      const stockEvalAmount = parseNum(
         raw.tot_evlt_amt, raw.tot_evlu_amt, raw.acnt_tot_evlu_amt,
         output1.tot_evlt_amt, output1.tot_evlu_amt,
         result?.totalEvaluationAmount,
       );
-      const depositAmount = parseNum(
+      const depositRaw = parseNum(
         raw.prsm_dpst_aset_amt, raw.dnca_tot_amt,
         output1.prsm_dpst_aset_amt, output1.dnca_tot_amt,
         result?.depositAmount,
@@ -238,8 +238,15 @@ export function registerAccountRoutes(app: Router) {
         await storage.createHolding({ accountId: account.id, stockCode, ...updates });
       }
 
-      // 총 자산 = 주식 평가금액 + 예수금
-      const totalAssetsWithDeposit = totalAssets + depositAmount;
+      // 응답마다 "추정예탁자산"의 의미가 다를 수 있다.
+      // - 케이스 A: depositRaw가 '총자산(예탁자산평가액)'인 경우 -> 현금 = 총자산 - 주식평가
+      // - 케이스 B: depositRaw가 '현금/예수금'인 경우 -> 총자산 = 주식평가 + 예수금
+      let totalAssetsWithDeposit = stockEvalAmount + depositRaw;
+      let depositAmount = depositRaw;
+      if (stockEvalAmount > 0 && depositRaw > 0 && depositRaw >= stockEvalAmount) {
+        totalAssetsWithDeposit = depositRaw;
+        depositAmount = Math.max(0, depositRaw - stockEvalAmount);
+      }
       const todayProfitRate = totalAssetsWithDeposit > 0 ? (todayProfit / totalAssetsWithDeposit) * 100 : 0;
 
       // 마지막 잔고 캐시를 계좌 레코드에 저장 (페이지 진입 시 표시용)
@@ -255,7 +262,7 @@ export function registerAccountRoutes(app: Router) {
         output1,
         output2,
         totalAssets: totalAssetsWithDeposit,
-        stockEvalAmount: totalAssets,
+        stockEvalAmount,
         depositAmount,
         todayProfit,
         todayProfitRate,
