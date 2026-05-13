@@ -1,5 +1,5 @@
 // postgres.storage.ts — 조건식/차트수식/관심종목시그널/재무/자동매매/성과 CRUD. PostgreSQLCoreStorage 확장
-import { eq, and, desc, gte, lte } from 'drizzle-orm';
+import { eq, and, desc, gte, lte, sql } from 'drizzle-orm';
 import { db } from '../db';
 import * as schema from '@shared/schema';
 import type { IStorage } from './interface';
@@ -209,7 +209,7 @@ export class PostgreSQLStorage extends PostgreSQLCoreStorage implements IStorage
   async getTradingPerformanceByStock(modelId: number, stockCode: string): Promise<TradingPerformance | undefined> {
     const result = await db.select().from(schema.tradingPerformance).where(
       and(eq(schema.tradingPerformance.modelId, modelId), eq(schema.tradingPerformance.stockCode, stockCode))
-    ).limit(1);
+    ).orderBy(desc(schema.tradingPerformance.entryTime), desc(schema.tradingPerformance.id)).limit(1);
     return result[0];
   }
 
@@ -293,6 +293,24 @@ export class PostgreSQLStorage extends PostgreSQLCoreStorage implements IStorage
       .select()
       .from(schema.candidateDecisionLogs)
       .where(whereClause)
+      .orderBy(desc(schema.candidateDecisionLogs.decidedAt))
+      .limit(1);
+    return rows[0];
+  }
+
+  async getLatestCandidateDecisionByCooldownKey(
+    modelId: number,
+    stockCode: string,
+    cooldownKey: string,
+  ): Promise<CandidateDecisionLog | undefined> {
+    const rows = await db
+      .select()
+      .from(schema.candidateDecisionLogs)
+      .where(and(
+        eq(schema.candidateDecisionLogs.modelId, modelId),
+        eq(schema.candidateDecisionLogs.stockCode, stockCode),
+        sql`${schema.candidateDecisionLogs.aiDecision}->>'cooldownKey' = ${cooldownKey}`,
+      ))
       .orderBy(desc(schema.candidateDecisionLogs.decidedAt))
       .limit(1);
     return rows[0];

@@ -58,6 +58,7 @@ const userAlertStates = new Map<string, UserAlertState>();
 
 let watcherInterval: ReturnType<typeof setInterval> | null = null;
 let currentIntervalSeconds = 60;
+let onRunCallback: (() => void) | undefined;
 
 function parseAgentAlertSettings(raw: unknown): AgentAlertSettings | null {
   if (!raw || typeof raw !== "object") return null;
@@ -229,14 +230,16 @@ function makeInterval(seconds: number): ReturnType<typeof setInterval> {
   return setInterval(async () => {
     try {
       await runCheck();
+      onRunCallback?.();
     } catch (err) {
       console.error("[AgentWatcher] 크론 실행 오류:", err);
     }
   }, seconds * 1000);
 }
 
-export function startAgentDisconnectWatcher(intervalSeconds: number = 60) {
+export function startAgentDisconnectWatcher(intervalSeconds: number = 60, onRun?: () => void) {
   if (watcherInterval) return;
+  onRunCallback = onRun;
   currentIntervalSeconds = intervalSeconds;
   console.log(`[AgentWatcher] 에이전트 연결 감시 크론 시작 (${intervalSeconds}초 간격)`);
   watcherInterval = makeInterval(intervalSeconds);
@@ -266,4 +269,13 @@ export function getAgentWatcherIntervalSeconds(): number {
 
 export function resetUserAlertState(userId: string) {
   userAlertStates.delete(userId);
+}
+
+export async function runAgentWatcherCheck() {
+  try {
+    await runCheck();
+    onRunCallback?.();
+  } catch (err) {
+    console.error("[AgentWatcher] 즉시 실행 오류:", err);
+  }
 }

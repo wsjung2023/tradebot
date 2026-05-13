@@ -1,4 +1,4 @@
-﻿// interface.ts — 스토리지 레이어 공통 인터페이스 정의 (PostgreSQL/InMemory 구현체 공유)
+// interface.ts — 스토리지 레이어 공통 인터페이스 정의 (PostgreSQL/InMemory 구현체 공유)
 import {
   type User, type InsertUser,
   type KiwoomAccount, type InsertKiwoomAccount,
@@ -35,6 +35,8 @@ import {
   type AgentAlertLog, type InsertAgentAlertLog,
   type CandidateDecisionLog, type InsertCandidateDecisionLog,
   type PositionDecisionLog, type InsertPositionDecisionLog,
+  type AiUsageDaily,
+  type TradeJournal, type InsertTradeJournal,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -243,6 +245,11 @@ export interface IStorage {
     stockCode: string,
     since?: Date,
   ): Promise<CandidateDecisionLog | undefined>;
+  getLatestCandidateDecisionByCooldownKey(
+    modelId: number,
+    stockCode: string,
+    cooldownKey: string,
+  ): Promise<CandidateDecisionLog | undefined>;
   createPositionDecisionLog(data: InsertPositionDecisionLog): Promise<PositionDecisionLog>;
 
   // 전계좌 보유종목
@@ -251,6 +258,22 @@ export interface IStorage {
   // 자산 스냅샷
   createAssetSnapshot(data: InsertAssetSnapshot): Promise<AssetSnapshot>;
   getAssetSnapshots(accountId: number, days?: number): Promise<AssetSnapshot[]>;
+
+  // AI 일별 사용량/비용 적치
+  recordAiUsageDaily(data: {
+    userId: string;
+    accountId?: number | null;
+    usageDate?: string; // YYYY-MM-DD (KST)
+    requestCount?: number;
+    promptTokens?: number;
+    completionTokens?: number;
+    totalTokens?: number;
+    costUsd?: number;
+  }): Promise<void>;
+  getAiUsageDaily(
+    userId: string,
+    options?: { fromDate?: string; toDate?: string; scopeType?: 'login' | 'account'; accountId?: number; limit?: number },
+  ): Promise<AiUsageDaily[]>;
 
   // 헬퍼
   getActiveAiModels(): Promise<AiModel[]>;
@@ -277,4 +300,48 @@ export interface IStorage {
   // 시스템 설정 (잡 상태 영속화 등 키-값 저장소)
   getSystemConfig(key: string): Promise<string | null>;
   setSystemConfig(key: string, value: string): Promise<void>;
+
+  // 매매 저널
+  createTradeJournal(entry: InsertTradeJournal): Promise<TradeJournal>;
+  getTradeJournalEntries(userId: string, options?: {
+
+  // 헬퍼
+  getActiveAiModels(): Promise<AiModel[]>;
+  getAllAiModels(): Promise<AiModel[]>;
+
+  // 데이터 정리
+  deleteConditionResultsOlderThan(cutoffDate: Date): Promise<number>;
+  deleteTradingLogsOlderThan(cutoffDate: Date): Promise<number>;
+  deleteMarketIssuesOlderThan(cutoffDate: Date): Promise<number>;
+  deleteFinancialSnapshotsOlderThan(cutoffDate: Date): Promise<number>;
+  deleteTriggeredAlertsOlderThan(cutoffDate: Date): Promise<number>;
+
+  // 에이전트 업데이트 이력
+  createAgentUpdateLog(log: InsertAgentUpdateLog): Promise<AgentUpdateLog>;
+  getAgentUpdateLogs(limit?: number, offset?: number): Promise<AgentUpdateLog[]>;
+  countAgentUpdateLogs(): Promise<number>;
+  deleteAgentUpdateLog(id: number): Promise<void>;
+  deleteAllAgentUpdateLogs(): Promise<void>;
+
+  // 에이전트 알림 이력
+  createAgentAlertLog(log: InsertAgentAlertLog): Promise<AgentAlertLog>;
+  getAgentAlertLogs(userId: string, limit?: number): Promise<AgentAlertLog[]>;
+
+  // 시스템 설정 (잡 상태 영속화 등 키-값 저장소)
+  getSystemConfig(key: string): Promise<string | null>;
+  setSystemConfig(key: string, value: string): Promise<void>;
+
+  // 매매 저널
+  createTradeJournal(entry: InsertTradeJournal): Promise<TradeJournal>;
+  getTradeJournalEntries(userId: string, options?: {
+    startDate?: string;
+    endDate?: string;
+    stockCode?: string;
+    tradeType?: string;
+    limit?: number;
+  }): Promise<TradeJournal[]>;
+
+  // Stock Status (Phase 2)
+  upsertStockStatus(status: schema.InsertStockStatus): Promise<schema.StockStatus>;
+  getStockStatus(stockCode: string): Promise<schema.StockStatus | null>;
 }

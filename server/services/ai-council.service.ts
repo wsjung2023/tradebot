@@ -52,8 +52,10 @@ export class AICouncilService {
     stockName: string;
     currentPrice: number;
     preferredModel?: string;
+    userId?: string;
+    accountId?: number | null;
   }): Promise<CouncilResult> {
-    const { stockCode, stockName, currentPrice, preferredModel = 'gpt-5.1' } = params;
+    const { stockCode, stockName, currentPrice, preferredModel = 'gpt-5-mini', userId, accountId } = params;
 
     const [newsResult, ratiosResult] = await Promise.allSettled([
       this.news.getStockNews(stockCode, stockName, 5),
@@ -71,19 +73,24 @@ export class AICouncilService {
       hasRatios: ratiosResult.status === 'fulfilled' && !!ratiosResult.value,
     };
 
-    const personaPrompts: Array<{ analyst: CouncilOpinion['analyst']; role: string }> = [
-      { analyst: 'technical', role: '기술적 분석 관점으로 차트/수급 기반 결론을 내려라.' },
-      { analyst: 'fundamental', role: '재무/밸류에이션 관점으로 결론을 내려라.' },
-      { analyst: 'sentiment', role: '뉴스/심리/이슈 관점으로 결론을 내려라.' },
-    ];
+    const personaSystemMessages: Record<CouncilOpinion['analyst'], string> = {
+      technical: '당신은 기술적 분석 전문가입니다. 차트 패턴, 거래량, 모멘텀, 지지/저항선 관점에서만 결론을 내리세요. 재무나 뉴스는 고려하지 마세요.',
+      fundamental: '당신은 펀더멘털 분석 전문가입니다. PER, PBR, ROE, EPS 등 밸류에이션과 재무건전성 관점에서만 결론을 내리세요. 차트나 뉴스는 고려하지 마세요.',
+      sentiment: '당신은 시장 심리/뉴스 분석 전문가입니다. 최근 뉴스 감성, 시장 심리, 섹터 모멘텀 관점에서만 결론을 내리세요. 재무나 차트는 고려하지 마세요.',
+    };
 
     const opinions = await Promise.all(
-      personaPrompts.map(async ({ analyst, role }) => {
-        const prompt = `${role}\n종목:${stockName}(${stockCode}) 현재가:${currentPrice}\n맥락:${JSON.stringify(contextHint)}`;
+      (['technical', 'fundamental', 'sentiment'] as CouncilOpinion['analyst'][]).map(async (analyst) => {
         try {
           const analysis = await this.ai.analyzeStock(
-            { stockCode, stockName, currentPrice, reasoningHint: prompt } as any,
+            { stockCode, stockName, currentPrice },
             preferredModel,
+            userId ? {
+              userId,
+              accountId: accountId ?? null,
+              source: `ai-council:${analyst}`,
+            } : undefined,
+            personaSystemMessages[analyst],
           );
           return {
             analyst,

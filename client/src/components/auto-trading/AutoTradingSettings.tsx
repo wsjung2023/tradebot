@@ -28,9 +28,18 @@ interface Props {
 const LADDER_LINES = [50, 40, 30, 20, 10] as const;
 const COOLDOWN_MODES = [
   { value: "interval_120m", label: "120분" },
+  { value: "interval_60m", label: "60분" },
+  { value: "interval_30m", label: "30분" },
   { value: "daily_three_slots", label: "하루 3회 (09:10 / 13:30 / 15:10)" },
   { value: "daily_once", label: "하루 1회" },
 ] as const;
+
+type CandidateDecisionCooldownMode =
+  | "interval_120m"
+  | "interval_60m"
+  | "interval_30m"
+  | "daily_three_slots"
+  | "daily_once";
 
 function clampUnit(value: unknown): number {
   const n = Number.parseInt(String(value ?? ""), 10);
@@ -145,8 +154,11 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
   const [liquidityWeight, setLiquidityWeight] = useState(20);
   const [institutionalWeight, setInstitutionalWeight] = useState(20);
   const [requireGoodFinancials, setRequireGoodFinancials] = useState(true);
+  const [financialsScoreThreshold, setFinancialsScoreThreshold] = useState(60);
   const [requireHighLiquidity, setRequireHighLiquidity] = useState(true);
+  const [liquidityScoreThreshold, setLiquidityScoreThreshold] = useState(40);
   const [requireMarketIssue, setRequireMarketIssue] = useState(false);
+  const [filterInvestmentWarnings, setFilterInvestmentWarnings] = useState(false);
 
   // 10~30%: 빨강/주황/노랑 (고점근처) → 매수 0, 익절 매도
   // 50%: 초록 CL 시작 → 첫 매수 타점
@@ -178,7 +190,8 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
   const [allowAiPartialTakeProfit, setAllowAiPartialTakeProfit] = useState(false);
   const [allowAiHoldBeyondTarget, setAllowAiHoldBeyondTarget] = useState(false);
   const [allowSpeculativeLeaderTrades, setAllowSpeculativeLeaderTrades] = useState(false);
-  const [candidateDecisionCooldownMode, setCandidateDecisionCooldownMode] = useState<"interval_120m" | "daily_three_slots" | "daily_once">("interval_120m");
+  const [candidateDecisionCooldownMode, setCandidateDecisionCooldownMode] = useState<CandidateDecisionCooldownMode>("interval_120m");
+  const [disableReevaluationForBoughtToday, setDisableReevaluationForBoughtToday] = useState(false);
   const [conditionSequences, setConditionSequences] = useState<{ conditionId: string; name: string }[]>([]);
 
   useEffect(() => {
@@ -213,8 +226,11 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
       setLiquidityWeight(parseFloat(settings.liquidityWeight?.toString() || "20"));
       setInstitutionalWeight(parseFloat(settings.institutionalWeight?.toString() || "20"));
       setRequireGoodFinancials(settings.requireGoodFinancials ?? true);
+      setFinancialsScoreThreshold(parseFloat(settings.financialsScoreThreshold?.toString() || "60"));
       setRequireHighLiquidity(settings.requireHighLiquidity ?? true);
+      setLiquidityScoreThreshold(parseFloat(settings.liquidityScoreThreshold?.toString() || "40"));
       setRequireMarketIssue(settings.requireMarketIssue ?? false);
+      setFilterInvestmentWarnings(settings.filterInvestmentWarnings ?? true);
       // 신규 설정 로드
       if (settings.baseUnitSize) setBaseUnitSize(settings.baseUnitSize.toString());
       if (settings.maxUnitsPerStock) setMaxUnitsPerStock(settings.maxUnitsPerStock.toString());
@@ -232,9 +248,16 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
       setAllowAiHoldBeyondTarget(settings.allowAiHoldBeyondTarget ?? false);
       setAllowSpeculativeLeaderTrades(settings.allowSpeculativeLeaderTrades ?? false);
       const storedCooldownMode = (settings.aiEntryPolicy as any)?.candidateDecisionCooldownMode;
-      if (storedCooldownMode === "daily_three_slots" || storedCooldownMode === "daily_once" || storedCooldownMode === "interval_120m") {
+      if (
+        storedCooldownMode === "daily_three_slots"
+        || storedCooldownMode === "daily_once"
+        || storedCooldownMode === "interval_120m"
+        || storedCooldownMode === "interval_60m"
+        || storedCooldownMode === "interval_30m"
+      ) {
         setCandidateDecisionCooldownMode(storedCooldownMode);
       }
+      setDisableReevaluationForBoughtToday((settings.aiEntryPolicy as any)?.disableReevaluationForBoughtToday === true);
       if (settings.conditionSearchSequences && Array.isArray(settings.conditionSearchSequences)) {
         setConditionSequences(settings.conditionSearchSequences as any);
       }
@@ -303,7 +326,9 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
       stalePeriodDays: parseInt(stalePeriodDays),
       surgeThreshold,
       volumeSpikeMultiplier,
-      rainbowLineSettings,
+      rainbowLineSettings: parseFloat(cfgUnitSize) > 0
+        ? rainbowLineSettings.map(r => r.line <= 50 ? { ...r, buyWeight: 100 } : r)
+        : rainbowLineSettings,
       minAiConfidence,
       themeWeight,
       newsWeight,
@@ -311,8 +336,11 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
       liquidityWeight,
       institutionalWeight,
       requireGoodFinancials,
+      financialsScoreThreshold,
       requireHighLiquidity,
+      liquidityScoreThreshold,
       requireMarketIssue,
+      filterInvestmentWarnings,
       // 신규 필드
       baseUnitSize,
       maxUnitsPerStock: maxUParsed,
@@ -325,6 +353,7 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
       aiEntryPolicy: {
         ...((settings?.aiEntryPolicy as any) ?? {}),
         candidateDecisionCooldownMode,
+        disableReevaluationForBoughtToday,
       },
       conditionSearchSequences: conditionSequences,
     });
@@ -462,7 +491,10 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
               min={10000}
               step={10000}
               value={cfgUnitSize}
-              onChange={(e) => setCfgUnitSize(e.target.value)}
+              onChange={(e) => {
+                setCfgUnitSize(e.target.value);
+                if (parseFloat(e.target.value) > 0) setBaseUnitSize(e.target.value);
+              }}
               data-testid="input-cfg-unit-size"
             />
             <span className="text-xs text-muted-foreground">{formatKRW(cfgUnitSize)}</span>
@@ -629,21 +661,55 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
         <div className="border-t pt-4 space-y-3">
           <Label className="text-sm font-semibold">진입 조건 필터</Label>
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label className="text-xs">재무건전성 필수</Label>
-              <Switch
-                checked={requireGoodFinancials}
-                onCheckedChange={setRequireGoodFinancials}
-                data-testid="switch-require-financials"
-              />
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs">재무건전성 필수</Label>
+                <Switch
+                  checked={requireGoodFinancials}
+                  onCheckedChange={setRequireGoodFinancials}
+                  data-testid="switch-require-financials"
+                />
+              </div>
+              {requireGoodFinancials && (
+                <div className="flex items-center gap-2 pl-2">
+                  <Label className="text-xs text-muted-foreground w-32">AI 재무점수 최소값</Label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={5}
+                    value={financialsScoreThreshold}
+                    onChange={(e) => setFinancialsScoreThreshold(Number(e.target.value))}
+                    className="w-16 text-xs border rounded px-2 py-1 text-center"
+                  />
+                  <span className="text-xs text-muted-foreground">점 이상</span>
+                </div>
+              )}
             </div>
-            <div className="flex items-center justify-between">
-              <Label className="text-xs">높은 유동성 필수</Label>
-              <Switch
-                checked={requireHighLiquidity}
-                onCheckedChange={setRequireHighLiquidity}
-                data-testid="switch-require-liquidity"
-              />
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs">높은 유동성 필수</Label>
+                <Switch
+                  checked={requireHighLiquidity}
+                  onCheckedChange={setRequireHighLiquidity}
+                  data-testid="switch-require-liquidity"
+                />
+              </div>
+              {requireHighLiquidity && (
+                <div className="flex items-center gap-2 pl-2">
+                  <Label className="text-xs text-muted-foreground w-32">AI 유동성점수 최소값</Label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={5}
+                    value={liquidityScoreThreshold}
+                    onChange={(e) => setLiquidityScoreThreshold(Number(e.target.value))}
+                    className="w-16 text-xs border rounded px-2 py-1 text-center"
+                  />
+                  <span className="text-xs text-muted-foreground">점 이상</span>
+                </div>
+              )}
             </div>
             <div className="flex items-center justify-between">
               <Label className="text-xs">시장 이슈 관련 종목만</Label>
@@ -651,6 +717,17 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
                 checked={requireMarketIssue}
                 onCheckedChange={setRequireMarketIssue}
                 data-testid="switch-require-market-issue"
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label className="text-xs">투자경고/위험/환기 필터</Label>
+                <p className="text-[10px] text-muted-foreground">경고/위험/관리/환기 종목 매수 자동 차단</p>
+              </div>
+              <Switch
+                checked={filterInvestmentWarnings}
+                onCheckedChange={setFilterInvestmentWarnings}
+                data-testid="switch-filter-investment-warnings"
               />
             </div>
           </div>
@@ -665,7 +742,11 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
               <span>매수 비중</span>
               <span>매도 비중</span>
             </div>
-            {rainbowLineSettings.map((row, idx) => (
+            {rainbowLineSettings.map((row, idx) => {
+              const isCLLine = row.line <= 50;
+              const unitLocked = isCLLine && parseFloat(cfgUnitSize) > 0;
+              const displayBuyWeight = unitLocked ? 100 : row.buyWeight;
+              return (
               <div key={row.line} className="grid grid-cols-3 gap-2 items-center">
                 <span className="text-xs font-mono text-muted-foreground">{row.line}%</span>
                 <div className="flex items-center gap-1">
@@ -673,15 +754,18 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
                     min={0}
                     max={100}
                     step={5}
-                    value={[row.buyWeight]}
+                    value={[displayBuyWeight]}
+                    disabled={unitLocked}
                     onValueChange={([v]) => {
+                      if (unitLocked) return;
                       const updated = [...rainbowLineSettings];
                       updated[idx] = { ...updated[idx], buyWeight: v };
                       setRainbowLineSettings(updated);
                     }}
+                    className={unitLocked ? "opacity-50" : ""}
                     data-testid={`slider-rainbow-buy-${row.line}`}
                   />
-                  <span className="text-xs font-mono w-8 text-right">{row.buyWeight}%</span>
+                  <span className={`text-xs font-mono w-8 text-right ${unitLocked ? "text-cyan-500 font-bold" : ""}`}>{displayBuyWeight}%</span>
                 </div>
                 <div className="flex items-center gap-1">
                   <Slider
@@ -699,7 +783,8 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
                   <span className="text-xs font-mono w-8 text-right">{row.sellWeight}%</span>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
@@ -787,7 +872,7 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
           <Label className="text-sm font-semibold">선정/탈락 재평가 쿨다운</Label>
           <Select
             value={candidateDecisionCooldownMode}
-            onValueChange={(value) => setCandidateDecisionCooldownMode(value as "interval_120m" | "daily_three_slots" | "daily_once")}
+            onValueChange={(value) => setCandidateDecisionCooldownMode(value as CandidateDecisionCooldownMode)}
           >
             <SelectTrigger data-testid="select-candidate-cooldown-mode">
               <SelectValue />
@@ -801,6 +886,17 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
           <p className="text-xs text-muted-foreground">
             같은 종목은 선택한 주기 안에서 한 번만 재평가합니다. 중복 로그 폭증을 줄이고 판단 일관성을 높입니다.
           </p>
+          <div className="flex items-center justify-between rounded-md border px-3 py-2">
+            <div className="space-y-0.5">
+              <p className="text-sm font-medium">당일 매수 종목 재평가 금지</p>
+              <p className="text-xs text-muted-foreground">오늘 자동매수된 종목은 당일 후보 재평가(추가매수 판단)를 건너뜁니다.</p>
+            </div>
+            <Switch
+              checked={disableReevaluationForBoughtToday}
+              onCheckedChange={setDisableReevaluationForBoughtToday}
+              data-testid="switch-disable-reeval-bought-today"
+            />
+          </div>
         </div>
 
         {/* ── 조건검색식 설정 ── */}

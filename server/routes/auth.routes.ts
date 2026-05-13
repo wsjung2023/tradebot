@@ -26,7 +26,7 @@ export function registerAuthRoutes(app: Router) {
       }
       const hashedPassword = await hashPassword(password!);
       const user = await storage.createUser({ email, password: hashedPassword, name, authProvider: "local" });
-      await storage.createUserSettings({ userId: user.id, tradingMode: "mock", riskLevel: "medium", aiModel: "gpt-5.1" });
+      await storage.createUserSettings({ userId: user.id, tradingMode: "mock", riskLevel: "medium", aiModel: "gpt-5-mini" });
       req.login(user, (err) => {
         if (err) return res.status(500).json({ error: "Login failed" });
         req.session.save((saveErr) => {
@@ -54,6 +54,24 @@ export function registerAuthRoutes(app: Router) {
   app.get("/api/auth/me", isAuthenticated, (req, res) => {
     const user = getCurrentUser(req);
     res.json({ user: { id: user!.id, email: user!.email, name: user!.name, profileImage: user!.profileImage } });
+  });
+
+  // 개발 전용 — 이메일로 바로 세션 생성 (NODE_ENV=development 에서만 동작)
+  app.post("/api/auth/dev-login", async (req, res) => {
+    if (process.env.NODE_ENV !== "development") {
+      return res.status(403).json({ error: "Dev only" });
+    }
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: "email required" });
+    const user = await storage.getUserByEmail(email);
+    if (!user) return res.status(404).json({ error: "User not found" });
+    req.login(user, (err) => {
+      if (err) return res.status(500).json({ error: "Login failed" });
+      req.session.save((saveErr) => {
+        if (saveErr) return res.status(500).json({ error: "Session save failed" });
+        res.json({ user: { id: user.id, email: user.email, name: user.name } });
+      });
+    });
   });
 
   // Google OAuth

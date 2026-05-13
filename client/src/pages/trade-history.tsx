@@ -369,21 +369,24 @@ export default function TradeHistory() {
     queryKey: ['/api/trading-logs'],
   });
 
+  // 헤더 요약 통계: trading_performance 기준 (실현 손익만 집계)
+  const { data: perfByMonth = [] } = useQuery<PerformanceSummary[]>({
+    queryKey: [buildPerfUrl("month")],
+  });
+
   const completedOrders = orders.filter(o => o.orderStatus === 'completed');
   const buyOrders = completedOrders.filter(o => o.orderType === 'buy');
   const sellOrders = completedOrders.filter(o => o.orderType === 'sell');
-  
-  const totalBuyValue = buyOrders.reduce((sum, o) => 
-    sum + (o.executedPrice || 0) * (o.executedQuantity || 0), 0
-  );
-  const totalSellValue = sellOrders.reduce((sum, o) => 
-    sum + (o.executedPrice || 0) * (o.executedQuantity || 0), 0
-  );
-  const netProfit = totalSellValue - totalBuyValue;
-  const profitPercentage = totalBuyValue > 0 ? (netProfit / totalBuyValue) * 100 : 0;
 
-  const successfulActions = logs.filter(l => l.success).length;
-  const successRate = logs.length > 0 ? (successfulActions / logs.length) * 100 : 0;
+  // 실현 손익 집계 (trading_performance 기반 — 매도 완료된 포지션만)
+  const realizedPnL = perfByMonth.reduce((sum, p) => sum + (p.totalPnL || 0), 0);
+  const totalSellCount = perfByMonth.reduce((sum, p) => sum + (p.sellCount || 0), 0);
+  const weightedWinRate = totalSellCount > 0
+    ? perfByMonth.reduce((sum, p) => sum + (p.winRate || 0) * (p.sellCount || 0), 0) / totalSellCount
+    : 0;
+  const weightedAvgRate = totalSellCount > 0
+    ? perfByMonth.reduce((sum, p) => sum + (p.avgProfitRate || 0) * (p.sellCount || 0), 0) / totalSellCount
+    : 0;
 
   const getOrderStatusBadge = (status: string) => {
     switch (status) {
@@ -427,6 +430,7 @@ export default function TradeHistory() {
               매수 {buyOrders.length} / 매도 {sellOrders.length}
             </p>
           </CardContent>
+
         </Card>
 
         <Card>
@@ -435,15 +439,13 @@ export default function TradeHistory() {
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div 
-              className={`text-2xl font-bold ${netProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}
+            <div
+              className={`text-2xl font-bold ${realizedPnL >= 0 ? 'text-green-600' : 'text-red-600'}`}
               data-testid="text-net-profit"
             >
-              {netProfit >= 0 ? '+' : ''}{netProfit.toLocaleString()}원
+              {realizedPnL >= 0 ? '+' : ''}{realizedPnL.toLocaleString()}원
             </div>
-            <p className="text-xs text-muted-foreground">
-              {profitPercentage >= 0 ? '+' : ''}{profitPercentage.toFixed(2)}%
-            </p>
+            <p className="text-xs text-muted-foreground">실현 손익 기준</p>
           </CardContent>
         </Card>
 
@@ -454,10 +456,10 @@ export default function TradeHistory() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold" data-testid="text-success-rate">
-              {successRate.toFixed(1)}%
+              {weightedWinRate.toFixed(1)}%
             </div>
             <p className="text-xs text-muted-foreground">
-              성공 {successfulActions} / 전체 {logs.length}
+              매도 완료 {totalSellCount}건 기준
             </p>
           </CardContent>
         </Card>
@@ -465,21 +467,21 @@ export default function TradeHistory() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">평균 수익률</CardTitle>
-            {profitPercentage >= 0 ? (
+            {weightedAvgRate >= 0 ? (
               <TrendingUp className="h-4 w-4 text-green-600" />
             ) : (
               <TrendingDown className="h-4 w-4 text-red-600" />
             )}
           </CardHeader>
           <CardContent>
-            <div 
-              className={`text-2xl font-bold ${profitPercentage >= 0 ? 'text-green-600' : 'text-red-600'}`}
+            <div
+              className={`text-2xl font-bold ${weightedAvgRate >= 0 ? 'text-green-600' : 'text-red-600'}`}
               data-testid="text-avg-return"
             >
-              {profitPercentage >= 0 ? '+' : ''}{profitPercentage.toFixed(2)}%
+              {weightedAvgRate >= 0 ? '+' : ''}{weightedAvgRate.toFixed(2)}%
             </div>
             <p className="text-xs text-muted-foreground">
-              전체 거래 기준
+              매도 완료 기준
             </p>
           </CardContent>
         </Card>

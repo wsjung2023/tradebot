@@ -133,6 +133,52 @@ _token_expires = {"real": 0, "mock": 0}
 _account_tokens = {}
 _account_token_expires = {}
 
+# 토큰 파일 캐시 (에이전트 재시작 시 기존 토큰 재사용 → 무효화 방지)
+TOKEN_CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "token_cache.json")
+TOKEN_REUSE_MIN_REMAINING = 300  # 만료까지 5분 이상 남으면 기존 토큰 재사용
+
+def _save_token_cache():
+    """현재 메모리 토큰을 파일에 저장"""
+    try:
+        data = {
+            "tokens": _tokens,
+            "token_expires": _token_expires,
+            "account_tokens": _account_tokens,
+            "account_token_expires": _account_token_expires,
+        }
+        with open(TOKEN_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+    except Exception as e:
+        logger.warning(f"[토큰캐시] 저장 실패: {e}")
+
+def _load_token_cache():
+    """파일에서 토큰 로드 — 만료까지 5분 이상 남은 것만 사용"""
+    global _tokens, _token_expires, _account_tokens, _account_token_expires
+    if not os.path.exists(TOKEN_CACHE_FILE):
+        return
+    try:
+        with open(TOKEN_CACHE_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        now = time.time()
+        loaded = []
+        for key in ("real", "mock"):
+            token = data.get("tokens", {}).get(key)
+            exp = data.get("token_expires", {}).get(key, 0)
+            if token and exp - now > TOKEN_REUSE_MIN_REMAINING:
+                _tokens[key] = token
+                _token_expires[key] = exp
+                loaded.append(key)
+        for acnt, token in data.get("account_tokens", {}).items():
+            exp = data.get("account_token_expires", {}).get(acnt, 0)
+            if token and exp - now > TOKEN_REUSE_MIN_REMAINING:
+                _account_tokens[acnt] = token
+                _account_token_expires[acnt] = exp
+                loaded.append(f"acnt:{acnt}")
+        if loaded:
+            logger.info(f"[토큰캐시] 기존 토큰 재사용: {loaded}")
+    except Exception as e:
+        logger.warning(f"[토큰캐시] 로드 실패: {e}")
+
 
 def _resolve_account_key_name(account_number):
     """
@@ -238,6 +284,7 @@ def refresh_kiwoom_token(is_mock=False, account_number=None):
             _tokens[key] = token_val
             _token_expires[key] = exp_time
         logger.info(f"키움 토큰 갱신 완료 ({mode})")
+        _save_token_cache()
         return True
     except Exception as e:
         import traceback
@@ -689,7 +736,7 @@ def handle_orderbook_get(payload):
 
 
 def handle_chart_get(payload):
-    """일봉/주봉/월봉 차트 조회 — 구형 서비스와 동일한 필드 우선 사용"""
+    """일봉/주봉/월봉 차트 조회 — 페이지네이션으로 count개까지 수집"""
     code = payload.get("stockCode", "")
     period = payload.get("period", "D").upper()
     count = int(payload.get("count", 100))
@@ -698,19 +745,38 @@ def handle_chart_get(payload):
     api_id = api_id_map.get(period, "ka10081")
 
     today = time.strftime("%Y%m%d")
-    data = kiwoom_post("/api/dostk/chart", api_id, {
-        "stk_cd": code,
-        "base_dt": today,
-        "upd_stkpc_tp": "1",
-    })
+    all_raw = []
+    cont_yn = "N"
+    next_key = ""
+    max_pages = 5  # 최대 5페이지 (100개×5=500개)
 
-    raw_items = _extract_chart_list(data, period)
+    for page in range(max_pages):
+        extra = {}
+        if cont_yn == "Y":
+            extra["cont_yn"] = cont_yn
+            extra["next_key"] = next_key
+        data = kiwoom_post("/api/dostk/chart", api_id, {
+            "stk_cd": code,
+            "base_dt": today,
+            "upd_stkpc_tp": "1",
+            **extra,
+        })
+        raw_items = _extract_chart_list(data, period)
+        all_raw.extend(raw_items)
+        if len(all_raw) >= count:
+            break
+        # 다음 페이지 여부 확인
+        cont_yn = data.get("cont_yn", "N")
+        next_key = data.get("next_key", "")
+        if cont_yn != "Y" or not next_key:
+            break
+
     items = []
-    for item in raw_items[:count]:
+    for item in all_raw[:count]:
         open_price = _normalize_abs_number(item.get("open_pric") or item.get("oppr") or 0)
         high_price = _normalize_abs_number(item.get("high_pric") or item.get("hgpr") or 0)
         low_price = _normalize_abs_number(item.get("low_pric") or item.get("lwpr") or 0)
-        close_price = _normalize_abs_number(item.get("cur_prc") or item.get("close") or 0)
+        close_price = _normalize_abs_number(item.get("cur_prc") or item.get("cls_prc") or item.get("close") or 0)
         date_value = str(item.get("dt") or item.get("date") or "")[:8]
         volume = str(item.get("trde_qty") or item.get("volume") or "0").replace(",", "")
         parsed_close = float(close_price or "0")
@@ -1625,13 +1691,25 @@ def main():
     else:
         logger.info("로컬 .env 전용 앱키 사용 (실계좌/모의계좌 분리됨)")
 
+    _load_token_cache()
+
+    now = time.time()
     if KIWOOM_APP_KEY_REAL or KIWOOM_APP_KEY_MOCK:
-        refresh_kiwoom_token(is_mock=False)
-        refresh_kiwoom_token(is_mock=True)
+        if not _tokens["real"] or _token_expires["real"] - now <= TOKEN_REUSE_MIN_REMAINING:
+            refresh_kiwoom_token(is_mock=False)
+        else:
+            logger.info("키움 토큰 재사용 (실계좌(기본)) — 발급 생략")
+        if not _tokens["mock"] or _token_expires["mock"] - now <= TOKEN_REUSE_MIN_REMAINING:
+            refresh_kiwoom_token(is_mock=True)
+        else:
+            logger.info("키움 토큰 재사용 (모의) — 발급 생략")
 
     for acnt_num in ACCOUNT_KEYS:
-        logger.info(f"계좌별 토큰 발급: {acnt_num}")
-        refresh_kiwoom_token(is_mock=False, account_number=acnt_num)
+        if acnt_num not in _account_tokens or _account_token_expires.get(acnt_num, 0) - now <= TOKEN_REUSE_MIN_REMAINING:
+            logger.info(f"계좌별 토큰 발급: {acnt_num}")
+            refresh_kiwoom_token(is_mock=False, account_number=acnt_num)
+        else:
+            logger.info(f"계좌별 토큰 재사용: {acnt_num} — 발급 생략")
 
     # 폴링 대상 URL 명시 출력 (.env 설정 검증 — 운영/개발 둘 다 들어있는지 확인)
     logger.info(f"폴링 대상 URL ({len(REPLIT_URLS)}개):")

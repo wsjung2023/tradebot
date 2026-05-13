@@ -304,6 +304,26 @@ export function registerTradingRoutes(app: Router) {
         success: true,
       });
 
+      // 수동 매매 저널 적재
+      const kstDate = new Date(Date.now() + 9 * 3600000);
+      const tradeDate = kstDate.toISOString().slice(0, 10).replace(/-/g, '');
+      const tradeTime = kstDate.toISOString().slice(11, 19);
+
+      await storage.createTradeJournal({
+        userId: user!.id,
+        accountId: account.id,
+        stockCode: orderData.stockCode,
+        stockName: orderData.stockName || orderData.stockCode,
+        tradeDate,
+        tradeTime,
+        tradeType: orderData.orderType === 'buy' ? 'buy' : 'sell',
+        price: orderData.orderPrice ? parseFloat(orderData.orderPrice).toFixed(2) : '0',
+        quantity: orderData.orderQuantity,
+        totalAmount: orderData.orderPrice ? (parseFloat(orderData.orderPrice) * orderData.orderQuantity).toFixed(2) : '0',
+        isAutoTrading: false,
+        memo: '수동 주문'
+      });
+
       res.json(updatedOrder);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
@@ -339,6 +359,26 @@ export function registerTradingRoutes(app: Router) {
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
       res.json(logs);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // 매매 저널 (개별 트랜잭션) 조회
+  app.get("/api/trade-journal", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const { startDate, endDate, stockCode, tradeType, limit } = req.query;
+      
+      const entries = await storage.getTradeJournalEntries(user!.id, {
+        startDate: startDate as string,
+        endDate: endDate as string,
+        stockCode: stockCode as string,
+        tradeType: tradeType as string,
+        limit: limit ? parseInt(limit as string) : undefined
+      });
+      
+      res.json(entries);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }

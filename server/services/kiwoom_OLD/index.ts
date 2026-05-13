@@ -1,4 +1,4 @@
-﻿// index.ts — KiwoomService 통합 클래스. 모든 키움 API 메서드를 하나로 제공하는 진입점
+// index.ts — KiwoomService 통합 클래스. 모든 키움 API 메서드를 하나로 제공하는 진입점
 import {
   KiwoomBase, KiwoomConfig,
   AccountBalanceResponse, StockPriceResponse,
@@ -46,6 +46,7 @@ export class KiwoomService extends KiwoomBase {
   getHighVolumeStocks(marketType?: 'ALL' | 'KOSPI' | 'KOSDAQ') { return this.market.getHighVolumeStocks(marketType); }
   getMarketIssues() { return this.market.getMarketIssues(); }
   getThemeStocks(themeCode: string) { return this.market.getThemeStocks(themeCode); }
+  getStockStatus(stockCode: string) { return this.market.getStockStatus(stockCode); }
 
   // 주문
   placeOrder(orderRequest: OrderRequest) { return this.order.placeOrder(orderRequest); }

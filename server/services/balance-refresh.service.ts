@@ -25,6 +25,7 @@ function isKstMarketHours(): boolean {
 export class BalanceRefreshService {
   private task: cron.ScheduledTask | null = null;
   private intervalMinutes = 5;
+  onRun?: () => void;
 
   private buildCron(): string {
     const m = this.intervalMinutes;
@@ -105,6 +106,7 @@ export class BalanceRefreshService {
     }
 
     console.log('[BalanceRefresh] 자동 잔고 갱신 완료');
+    this.onRun?.();
   }
 
   private async refreshAccount(

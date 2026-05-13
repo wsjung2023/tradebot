@@ -72,6 +72,19 @@ export function registerAutoTradingRoutes(app: Router) {
     return new Date(`${dateStr}T23:59:59.999+09:00`);
   };
 
+  const toKstDateTime = (value: Date | string | null | undefined): string | null => {
+    if (!value) return null;
+    const base = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(base.getTime())) return null;
+    const kst = new Date(base.getTime() + 9 * 60 * 60 * 1000);
+    return kst.toISOString().slice(0, 19).replace("T", " ");
+  };
+
+  const toKstDay = (value: Date | string | null | undefined): string => {
+    const kstDateTime = toKstDateTime(value);
+    return kstDateTime ? kstDateTime.slice(0, 10) : new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  };
+
   app.get("/api/auto-trading/engine-status", isAuthenticated, async (req, res) => {
     try {
       const user = getCurrentUser(req);
@@ -198,10 +211,14 @@ export function registerAutoTradingRoutes(app: Router) {
         offset: parsed.data.offset ?? 0,
       });
 
+      const logsWithKst = logs.map((row) => ({
+        ...row,
+        decidedAtKst: toKstDateTime(row.decidedAt),
+      }));
+
       const dailySummaryMap = new Map<string, { total: number; accepted: number; rejected: number }>();
-      for (const row of logs) {
-        const baseTs = row.decidedAt ? new Date(row.decidedAt).getTime() : Date.now();
-        const kstDay = new Date(baseTs + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      for (const row of logsWithKst) {
+        const kstDay = toKstDay(row.decidedAt);
         const current = dailySummaryMap.get(kstDay) ?? { total: 0, accepted: 0, rejected: 0 };
         current.total += 1;
         if (row.accepted) current.accepted += 1;
@@ -223,7 +240,7 @@ export function registerAutoTradingRoutes(app: Router) {
           offset: parsed.data.offset ?? 0,
         },
         total: logs.length,
-        logs,
+        logs: logsWithKst,
         dailySummary,
       });
     } catch (error: any) {

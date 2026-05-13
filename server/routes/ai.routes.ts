@@ -1,4 +1,4 @@
-﻿// ai.routes.ts — AI 분석, AI 모델 관리 및 학습 통계 라우터
+// ai.routes.ts — AI 분석, AI 모델 관리 및 학습 통계 라우터
 import type { Router } from "express";
 import { storage } from "../storage";
 import { isAuthenticated, getCurrentUser } from "../auth";
@@ -229,6 +229,11 @@ export function registerAiRoutes(app: Router) {
         } : undefined,
         priceHistory: chartData,
         news: newsData,
+        usageContext: {
+          userId: user!.id,
+          accountId: req.body?.accountId ? Number(req.body.accountId) : null,
+          source: 'api:integrated-analysis',
+        },
       });
 
       let filingsData = filings.status === 'fulfilled' ? filings.value : [];
@@ -291,8 +296,17 @@ export function registerAiRoutes(app: Router) {
       const user = getCurrentUser(req);
       const { stockCode, stockName, currentPrice } = req.body;
       const settings = await storage.getUserSettings(user!.id);
-      const model = settings?.aiModel || "gpt-5.1";
-      const analysis = await aiService.analyzeStock({ stockCode, stockName, currentPrice }, model);
+      const model = settings?.aiModel || "gpt-5-mini";
+      const scopedAccountId = req.body?.accountId ? Number(req.body.accountId) : (settings?.defaultAccountId ?? null);
+      const analysis = await aiService.analyzeStock(
+        { stockCode, stockName, currentPrice },
+        model,
+        {
+          userId: user!.id,
+          accountId: scopedAccountId,
+          source: 'api:analyze-stock',
+        },
+      );
       res.json(analysis);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -310,6 +324,10 @@ export function registerAiRoutes(app: Router) {
         holdings,
         riskLevel: (settings?.riskLevel || "medium") as "low" | "medium" | "high",
         investmentGoal: "growth",
+      }, settings?.aiModel || "gpt-5-mini", {
+        userId: user!.id,
+        accountId,
+        source: 'api:analyze-portfolio',
       });
       res.json(analysis);
     } catch (error: any) {
@@ -335,13 +353,16 @@ export function registerAiRoutes(app: Router) {
       }
 
       const settings = await storage.getUserSettings(user!.id);
-      const preferredModel = settings?.aiModel || "gpt-5.1";
+      const preferredModel = settings?.aiModel || "gpt-5-mini";
+      const scopedAccountId = req.body?.accountId ? Number(req.body.accountId) : (settings?.defaultAccountId ?? null);
 
       const result = await aiCouncilService.conductShadowCouncil({
         stockCode,
         stockName,
         currentPrice: Number(currentPrice),
         preferredModel,
+        userId: user!.id,
+        accountId: scopedAccountId,
       });
 
       const saved = await storage.createAiCouncilSession({
@@ -370,12 +391,81 @@ export function registerAiRoutes(app: Router) {
       res.status(500).json({ error: error.message });
     }
   });
-  // AI 모델 목록
+  // AI 모델 목록 (trading_performance 기반 실시간 통계 포함)
   app.get("/api/ai/models", isAuthenticated, async (req, res) => {
     try {
       const user = getCurrentUser(req);
       const models = await storage.getAiModels(user!.id);
-      res.json(models);
+
+      const enriched = await Promise.all(models.map(async (model) => {
+        const perfs = await storage.getTradingPerformance(model.id, 1000);
+        const closed = perfs.filter(p => p.exitPrice != null);
+        if (closed.length === 0) return model;
+
+        const wins = closed.filter(p => p.isWin);
+        const winRate = (wins.length / closed.length) * 100;
+        const totalReturn = closed.reduce((sum, p) => sum + parseFloat(p.profitLossRate?.toString() ?? '0'), 0);
+        const avgReturn = totalReturn / closed.length;
+
+        return {
+          ...model,
+          totalTrades: closed.length,
+          winRate: winRate.toFixed(2),
+          totalReturn: avgReturn.toFixed(4),
+        };
+      }));
+
+      res.json(enriched);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // AI 일별 사용량/비용 조회
+  app.get("/api/ai/usage-daily", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const fromDate = req.query.fromDate ? String(req.query.fromDate) : undefined;
+      const toDate = req.query.toDate ? String(req.query.toDate) : undefined;
+      const scopeTypeRaw = req.query.scopeType ? String(req.query.scopeType) : undefined;
+      const scopeType = scopeTypeRaw === 'login' || scopeTypeRaw === 'account'
+        ? scopeTypeRaw
+        : undefined;
+      const accountId = req.query.accountId ? Number(req.query.accountId) : undefined;
+      const limit = req.query.limit ? Number(req.query.limit) : 200;
+
+      const rows = await storage.getAiUsageDaily(user!.id, {
+        fromDate,
+        toDate,
+        scopeType,
+        accountId: Number.isFinite(accountId) ? accountId : undefined,
+        limit: Number.isFinite(limit) ? Math.max(1, Math.min(limit, 1000)) : 200,
+      });
+      res.json(rows);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // AI 월 예산 설정 조회
+  app.get("/api/ai/budget", isAuthenticated, async (req, res) => {
+    try {
+      const budget = await storage.getSystemConfig("ai_budget_usd");
+      res.json({ budgetUsd: budget ? parseFloat(budget) : 0 });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // AI 월 예산 설정 저장
+  app.post("/api/ai/budget", isAuthenticated, async (req, res) => {
+    try {
+      const { budgetUsd } = req.body;
+      if (typeof budgetUsd !== "number" || budgetUsd < 0) {
+        return res.status(400).json({ error: "Invalid budget value" });
+      }
+      await storage.setSystemConfig("ai_budget_usd", String(budgetUsd));
+      res.json({ success: true, budgetUsd });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -584,10 +674,35 @@ export function registerAiRoutes(app: Router) {
         }
       }
 
+      const VALID_COOLDOWN_MODES = [
+        'interval_120m',
+        'interval_60m',
+        'interval_30m',
+        'daily_three_slots',
+        'daily_once',
+      ];
+      const requestedCooldownMode = safeBody.aiEntryPolicy?.candidateDecisionCooldownMode;
+      if (requestedCooldownMode !== undefined && !VALID_COOLDOWN_MODES.includes(requestedCooldownMode)) {
+        return res.status(400).json({ error: `aiEntryPolicy.candidateDecisionCooldownMode는 ${VALID_COOLDOWN_MODES.join(' / ')} 중 하나여야 합니다.` });
+      }
+      const requestedDisableReeval = safeBody.aiEntryPolicy?.disableReevaluationForBoughtToday;
+      if (requestedDisableReeval !== undefined && typeof requestedDisableReeval !== 'boolean') {
+        return res.status(400).json({ error: 'aiEntryPolicy.disableReevaluationForBoughtToday는 boolean 이어야 합니다.' });
+      }
+
       const existing = await storage.getAutoTradingSettings(modelId);
+      const normalizedAiEntryPolicy = safeBody.aiEntryPolicy === undefined
+        ? undefined
+        : {
+          ...(safeBody.aiEntryPolicy ?? {}),
+          candidateDecisionCooldownMode: requestedCooldownMode ?? 'interval_120m',
+          disableReevaluationForBoughtToday: requestedDisableReeval ?? false,
+        };
+
       if (existing) {
         const updated = await storage.updateAutoTradingSettings(modelId, {
           ...safeBody,
+          ...(normalizedAiEntryPolicy !== undefined ? { aiEntryPolicy: normalizedAiEntryPolicy } : {}),
           updatedAt: new Date(),
         });
         res.json(updated);
@@ -595,6 +710,10 @@ export function registerAiRoutes(app: Router) {
         const created = await storage.createAutoTradingSettings({
           ...safeBody,
           modelId,
+          aiEntryPolicy: normalizedAiEntryPolicy ?? {
+            candidateDecisionCooldownMode: 'interval_120m',
+            disableReevaluationForBoughtToday: false,
+          },
         });
         res.json(created);
       }

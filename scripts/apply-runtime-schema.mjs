@@ -45,6 +45,43 @@ CREATE TABLE IF NOT EXISTS agent_update_logs (
   server_hash TEXT,
   error_message TEXT
 );
+
+CREATE TABLE IF NOT EXISTS ai_usage_daily (
+  id SERIAL PRIMARY KEY,
+  usage_date TEXT NOT NULL,
+  user_id VARCHAR NOT NULL,
+  scope_type TEXT NOT NULL,
+  scope_key TEXT NOT NULL,
+  account_id INTEGER,
+  request_count INTEGER NOT NULL DEFAULT 0,
+  prompt_tokens INTEGER NOT NULL DEFAULT 0,
+  completion_tokens INTEGER NOT NULL DEFAULT 0,
+  total_tokens INTEGER NOT NULL DEFAULT 0,
+  cost_usd NUMERIC(14, 8) NOT NULL DEFAULT 0,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_usage_daily_unique_scope
+  ON ai_usage_daily (usage_date, user_id, scope_key);
+
+CREATE INDEX IF NOT EXISTS idx_ai_usage_daily_user_date
+  ON ai_usage_daily (user_id, usage_date DESC);
+
+CREATE TABLE IF NOT EXISTS stock_status (
+  stock_code VARCHAR(10) PRIMARY KEY,
+  order_warning SMALLINT,
+  state TEXT,
+  audit_info TEXT,
+  is_warning BOOLEAN,
+  is_danger BOOLEAN,
+  is_audit_alert BOOLEAN,
+  credit_available BOOLEAN,
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE auto_trading_settings ADD COLUMN IF NOT EXISTS filter_investment_warnings BOOLEAN NOT NULL DEFAULT FALSE;
+UPDATE auto_trading_settings SET filter_investment_warnings = FALSE WHERE filter_investment_warnings IS NULL OR filter_investment_warnings = TRUE;
 `;
 
 const client = new Client({ connectionString: process.env.DATABASE_URL });
@@ -52,7 +89,7 @@ const client = new Client({ connectionString: process.env.DATABASE_URL });
 try {
   await client.connect();
   await client.query(sql);
-  console.log('✅ runtime schema applied (auto_trading_runs, engine_notifications, agent_update_logs)');
+  console.log('✅ runtime schema applied (auto_trading_runs, engine_notifications, agent_update_logs, ai_usage_daily, stock_status)');
 } catch (error) {
   console.error('❌ failed to apply runtime schema:', error?.message || error);
   process.exit(1);

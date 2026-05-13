@@ -17,6 +17,7 @@ const requiredTables = [
   'auto_trading_runs',
   'engine_notifications',
   'agent_update_logs',
+  'ai_usage_daily',
 ];
 
 const client = new Client({ connectionString: process.env.DATABASE_URL });

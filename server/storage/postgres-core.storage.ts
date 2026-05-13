@@ -1,5 +1,5 @@
-// postgres-core.storage.ts — 핵심 엔티티(유저/계좌/보유/주문/AI모델/관심종목/알림/설정/로그) CRUD
-import { eq, and, desc, lt, gte, inArray, or, sql } from 'drizzle-orm';
+// postgres-core.storage.ts ???듭떖 ?뷀떚???좎?/怨꾩쥖/蹂댁쑀/二쇰Ц/AI紐⑤뜽/愿?ъ쥌紐??뚮┝/?ㅼ젙/濡쒓렇) CRUD
+import { eq, and, desc, lt, gte, lte, inArray, or, sql } from 'drizzle-orm';
 import { db } from '../db';
 import * as schema from '@shared/schema';
 import type {
@@ -28,6 +28,8 @@ import type {
   AssetSnapshot, InsertAssetSnapshot,
   AgentUpdateLog, InsertAgentUpdateLog,
   AgentAlertLog, InsertAgentAlertLog,
+  AiUsageDaily,
+  TradeJournal, InsertTradeJournal,
 } from '@shared/schema';
 
 export class PostgreSQLCoreStorage {
@@ -505,8 +507,8 @@ export class PostgreSQLCoreStorage {
   }
 
   async getNextPendingJob(agentId: string, supportedJobTypes?: string[]): Promise<KiwoomJob | undefined> {
-    // pending 상태의 가장 오래된 작업을 processing으로 변경 후 반환
-    // 만료 정리는 cleanupExpiredJobs()에서 별도 5분 주기로 실행 (DB 쿼리 절감)
+    // pending ?곹깭??媛???ㅻ옒???묒뾽??processing?쇰줈 蹂寃???諛섑솚
+    // 留뚮즺 ?뺣━??cleanupExpiredJobs()?먯꽌 蹂꾨룄 5遺?二쇨린濡??ㅽ뻾 (DB 荑쇰━ ?덇컧)
     const hasSupportedTypes = Array.isArray(supportedJobTypes) && supportedJobTypes.length > 0;
 
     const pending = await db.select().from(schema.kiwoomJobs)
@@ -528,20 +530,20 @@ export class PostgreSQLCoreStorage {
     return result[0];
   }
 
-  // 서버 재시작 시 processing 상태로 stuck된 잡을 pending으로 되돌림
-  // (배포 재시작, 크래시 등으로 에이전트가 처리 중이던 잡이 완료되지 못한 경우)
+  // ?쒕쾭 ?ъ떆????processing ?곹깭濡?stuck???≪쓣 pending?쇰줈 ?섎룎由?
+  // (諛고룷 ?ъ떆?? ?щ옒???깆쑝濡??먯씠?꾪듃媛 泥섎━ 以묒씠???≪씠 ?꾨즺?섏? 紐삵븳 寃쎌슦)
   async resetStuckProcessingJobs(): Promise<void> {
     const result = await db.update(schema.kiwoomJobs)
       .set({ status: 'pending', agentId: null, updatedAt: new Date() })
       .where(eq(schema.kiwoomJobs.status, 'processing'))
       .returning({ id: schema.kiwoomJobs.id });
     if (result.length > 0) {
-      console.log(`[AgentQueue] ${result.length}개 stuck 잡을 pending으로 리셋`);
+      console.log(`[AgentQueue] ${result.length}媛?stuck ?≪쓣 pending?쇰줈 由ъ뀑`);
     }
   }
 
   async cleanupExpiredJobs(): Promise<void> {
-    // 60초 이상 pending 상태로 남아있는 잡을 만료 처리
+    // 60珥??댁긽 pending ?곹깭濡??⑥븘?덈뒗 ?≪쓣 留뚮즺 泥섎━
     const EXPIRY_SEC = 60;
     const expiryCutoff = new Date(Date.now() - EXPIRY_SEC * 1000);
     const expiredPending = await db.select({ id: schema.kiwoomJobs.id })
@@ -557,7 +559,7 @@ export class PostgreSQLCoreStorage {
       await db.update(schema.kiwoomJobs)
         .set({ status: 'error', errorMessage: 'expired: agent was offline', updatedAt: new Date(), processedAt: new Date() })
         .where(inArray(schema.kiwoomJobs.id, expiredIds));
-      console.log(`[AgentQueue] ${expiredIds.length}개 만료 잡 정리 (>=${EXPIRY_SEC}초)`);
+      console.log(`[AgentQueue] ${expiredIds.length}媛?留뚮즺 ???뺣━ (>=${EXPIRY_SEC}珥?`);
     }
   }
 
@@ -727,7 +729,7 @@ export class PostgreSQLCoreStorage {
   }
 
   async getKiwoomJobStatus(id: number, userId: string): Promise<KiwoomJob | undefined> {
-    // 소유자 본인의 작업만 조회 가능
+    // ?뚯쑀??蹂몄씤???묒뾽留?議고쉶 媛??
     const result = await db.select().from(schema.kiwoomJobs)
       .where(and(eq(schema.kiwoomJobs.id, id), eq(schema.kiwoomJobs.userId, userId)))
       .limit(1);
@@ -866,6 +868,80 @@ export class PostgreSQLCoreStorage {
       .orderBy(schema.assetSnapshots.snapshotAt);
   }
 
+  async recordAiUsageDaily(data: {
+    userId: string;
+    accountId?: number | null;
+    usageDate?: string;
+    requestCount?: number;
+    promptTokens?: number;
+    completionTokens?: number;
+    totalTokens?: number;
+    costUsd?: number;
+  }): Promise<void> {
+    const usageDate = data.usageDate ?? new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const requestCount = Math.max(0, Number(data.requestCount ?? 1));
+    const promptTokens = Math.max(0, Number(data.promptTokens ?? 0));
+    const completionTokens = Math.max(0, Number(data.completionTokens ?? 0));
+    const totalTokens = Math.max(0, Number(data.totalTokens ?? (promptTokens + completionTokens)));
+    const costUsd = Math.max(0, Number(data.costUsd ?? 0));
+
+    const scopes: Array<{ scopeType: 'login' | 'account'; scopeKey: string; accountId: number | null }> = [
+      { scopeType: 'login', scopeKey: `login:${data.userId}`, accountId: null },
+    ];
+    if (data.accountId) {
+      scopes.push({
+        scopeType: 'account',
+        scopeKey: `account:${data.accountId}`,
+        accountId: data.accountId,
+      });
+    }
+
+    for (const scope of scopes) {
+      await db.insert(schema.aiUsageDaily).values({
+        usageDate,
+        userId: data.userId,
+        scopeType: scope.scopeType,
+        scopeKey: scope.scopeKey,
+        accountId: scope.accountId,
+        requestCount,
+        promptTokens,
+        completionTokens,
+        totalTokens,
+        costUsd: costUsd.toFixed(8),
+      }).onConflictDoUpdate({
+        target: [schema.aiUsageDaily.usageDate, schema.aiUsageDaily.userId, schema.aiUsageDaily.scopeKey],
+        set: {
+          requestCount: sql`${schema.aiUsageDaily.requestCount} + ${requestCount}`,
+          promptTokens: sql`${schema.aiUsageDaily.promptTokens} + ${promptTokens}`,
+          completionTokens: sql`${schema.aiUsageDaily.completionTokens} + ${completionTokens}`,
+          totalTokens: sql`${schema.aiUsageDaily.totalTokens} + ${totalTokens}`,
+          costUsd: sql`${schema.aiUsageDaily.costUsd} + ${costUsd.toFixed(8)}`,
+          accountId: scope.accountId,
+          scopeType: scope.scopeType,
+          updatedAt: new Date(),
+        },
+      });
+    }
+  }
+
+  async getAiUsageDaily(
+    userId: string,
+    options?: { fromDate?: string; toDate?: string; scopeType?: 'login' | 'account'; accountId?: number; limit?: number },
+  ): Promise<AiUsageDaily[]> {
+    const filters: any[] = [eq(schema.aiUsageDaily.userId, userId)];
+    if (options?.fromDate) filters.push(gte(schema.aiUsageDaily.usageDate, options.fromDate));
+    if (options?.toDate) filters.push(lte(schema.aiUsageDaily.usageDate, options.toDate));
+    if (options?.scopeType) filters.push(eq(schema.aiUsageDaily.scopeType, options.scopeType));
+    if (options?.accountId) filters.push(eq(schema.aiUsageDaily.accountId, options.accountId));
+    const whereClause = filters.length === 1 ? filters[0] : and(filters[0], ...filters.slice(1));
+
+    return db.select()
+      .from(schema.aiUsageDaily)
+      .where(whereClause)
+      .orderBy(desc(schema.aiUsageDaily.usageDate), desc(schema.aiUsageDaily.updatedAt))
+      .limit(options?.limit ?? 200);
+  }
+
   // ==================== Agent Update Logs ====================
 
   async createAgentUpdateLog(log: InsertAgentUpdateLog): Promise<AgentUpdateLog> {
@@ -908,4 +984,71 @@ export class PostgreSQLCoreStorage {
       .orderBy(desc(schema.agentAlertLogs.sentAt))
       .limit(limit);
   }
+
+  // ==================== System Config ====================
+
+  async getSystemConfig(key: string): Promise<string | null> {
+    const result = await db.select().from(schema.systemConfig).where(eq(schema.systemConfig.key, key)).limit(1);
+    return result[0]?.value ?? null;
+  }
+
+  async setSystemConfig(key: string, value: string): Promise<void> {
+    await db.insert(schema.systemConfig)
+      .values({ key, value })
+      .onConflictDoUpdate({
+        target: schema.systemConfig.key,
+        set: { value, updatedAt: new Date() },
+      });
+  }
+
+  // ==================== Trade Journal ====================
+
+  async createTradeJournal(entry: InsertTradeJournal): Promise<TradeJournal> {
+    const result = await db.insert(schema.tradeJournal).values([entry]).returning();
+    return result[0];
+  }
+
+  async getTradeJournalEntries(userId: string, options?: {
+    startDate?: string;
+    endDate?: string;
+    stockCode?: string;
+    tradeType?: string;
+    limit?: number;
+  }): Promise<TradeJournal[]> {
+    const filters: any[] = [eq(schema.tradeJournal.userId, userId)];
+    
+    if (options?.startDate) filters.push(gte(schema.tradeJournal.tradeDate, options.startDate.replace(/-/g, '')));
+    if (options?.endDate) filters.push(lte(schema.tradeJournal.tradeDate, options.endDate.replace(/-/g, '')));
+    if (options?.stockCode) filters.push(eq(schema.tradeJournal.stockCode, options.stockCode));
+    if (options?.tradeType) filters.push(eq(schema.tradeJournal.tradeType, options.tradeType));
+
+    const whereClause = filters.length === 1 ? filters[0] : and(filters[0], ...filters.slice(1));
+    
+    return db.select()
+      .from(schema.tradeJournal)
+      .where(whereClause)
+      .orderBy(desc(schema.tradeJournal.tradeDate), desc(schema.tradeJournal.tradeTime))
+      .limit(options?.limit ?? 500);
+  }
+
+  // ==================== Stock Status (Phase 2) ====================
+
+  async upsertStockStatus(status: schema.InsertStockStatus): Promise<schema.StockStatus> {
+    const [row] = await db.insert(schema.stockStatus)
+      .values({ ...status, updatedAt: new Date() })
+      .onConflictDoUpdate({
+        target: schema.stockStatus.stockCode,
+        set: { ...status, updatedAt: new Date() }
+      })
+      .returning();
+    return row;
+  }
+
+  async getStockStatus(stockCode: string): Promise<schema.StockStatus | null> {
+    const [row] = await db.select()
+      .from(schema.stockStatus)
+      .where(eq(schema.stockStatus.stockCode, stockCode));
+    return row || null;
+  }
 }
+

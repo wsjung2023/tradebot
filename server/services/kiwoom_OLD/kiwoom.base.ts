@@ -162,6 +162,25 @@ export class KiwoomBase {
         this.tokenExpiry = cached.expiry;
         console.log("♻️  Kiwoom 토큰 캐시에서 복원 (유효기간:", new Date(cached.expiry).toLocaleTimeString(), ")");
       }
+
+      // 5분마다 에이전트 캐시 polling → 토큰 자동 동기화
+      setInterval(() => {
+        try {
+          const agentCachePath = path.resolve(process.cwd(), "agent/token_cache.json");
+          if (!fs.existsSync(agentCachePath)) return;
+          const agentCache = JSON.parse(fs.readFileSync(agentCachePath, "utf-8"));
+          const accountType = this.baseURL === KIWOOM_REAL_BASE ? "real" : "mock";
+          const agentToken = agentCache?.tokens?.[accountType];
+          const agentExpiry = agentCache?.token_expires?.[accountType];
+          if (agentToken && agentExpiry && agentExpiry * 1000 > Date.now() + 60000) {
+            if (agentToken !== this.accessToken) {
+              this.accessToken = agentToken;
+              this.tokenExpiry = agentExpiry * 1000;
+              console.log(`🔄 토큰 자동 동기화 (유효기간: ${new Date(this.tokenExpiry).toLocaleTimeString()})`);
+            }
+          }
+        } catch {}
+      }, 5 * 60 * 1000);
     }
 
     this.api = axios.create({
@@ -178,35 +197,93 @@ export class KiwoomBase {
       }
       return cfg;
     });
+
+    // 401 응답 시 토큰 강제 리셋 후 1회 재시도
+    this.api.interceptors.response.use(
+      (res) => res,
+      async (error) => {
+        const status = error?.response?.status;
+        if (status === 401 && !error.config?._retried) {
+          console.warn("⚠️  Kiwoom 401 — 토큰 강제 갱신 후 재시도");
+          this.accessToken = "";
+          this.tokenExpiry = 0;
+          try {
+            await this.ensureValidToken();
+            error.config._retried = true;
+            error.config.headers.Authorization = `Bearer ${this.accessToken}`;
+            return this.api.request(error.config);
+          } catch (e) {
+            console.error("❌ 토큰 갱신 후 재시도 실패:", e);
+          }
+        }
+        return Promise.reject(error);
+      }
+    );
   }
 
   protected async ensureValidToken(): Promise<void> {
     if (this.accessToken && Date.now() < this.tokenExpiry) return;
+
+    // 에이전트 캐시에서 먼저 시도 (agent/token_cache.json)
+    try {
+      const agentCachePath = path.resolve(process.cwd(), "agent/token_cache.json");
+      if (fs.existsSync(agentCachePath)) {
+        const agentCache = JSON.parse(fs.readFileSync(agentCachePath, "utf-8"));
+        const accountType = this.baseURL === KIWOOM_REAL_BASE ? "real" : "mock";
+        const agentToken = agentCache?.tokens?.[accountType];
+        const agentExpiry = agentCache?.token_expires?.[accountType];
+        if (agentToken && agentExpiry && agentExpiry * 1000 > Date.now() + 60000) {
+          this.accessToken = agentToken;
+          this.tokenExpiry = agentExpiry * 1000;
+          console.log(`♻️  에이전트 캐시에서 토큰 갱신 (유효기간: ${new Date(this.tokenExpiry).toLocaleTimeString()})`);
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn("⚠️  에이전트 캐시 읽기 실패:", e);
+    }
+
     await this.authenticate();
   }
 
   protected async authenticate(): Promise<void> {
-    try {
-      await this._doAuthenticate(this.baseURL);
-    } catch (error: any) {
-      // 8030: 실전/모의 API 키 불일치 → ACCOUNT_TYPE_MISMATCH 에러 코드
-      if (error.message?.includes("8030")) {
-        const serverType = this.baseURL === KIWOOM_REAL_BASE ? "실전" : "모의";
-        console.warn(`⚠️  Kiwoom 8030 오류: ${serverType} 서버에 맞지 않는 API 키`);
-        throw new KiwoomAuthError("ACCOUNT_TYPE_MISMATCH", `8030: ${serverType} 서버용 API 키가 필요합니다. 계좌번호별 API 키를 확인하세요.`);
+    // 429 rate limit 시 최대 2회 재시도 (5초, 15초 대기)
+    const maxAttempts = 3;
+    let lastError: any;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        await this._doAuthenticate(this.baseURL);
+        return;
+      } catch (error: any) {
+        lastError = error;
+        const status = error?.response?.status ?? error?.status;
+        if (status === 429 && attempt < maxAttempts - 1) {
+          const waitMs = (attempt + 1) * 5000;
+          console.warn(`[KiwoomAuth] 429 rate limit — ${waitMs / 1000}초 후 재시도 (${attempt + 1}/${maxAttempts - 1})`);
+          await new Promise(r => setTimeout(r, waitMs));
+          continue;
+        }
+        break;
       }
-      // 8050: 서버 IP 미등록 → IP_NOT_REGISTERED 에러 코드
-      if (error.message?.includes("8050")) {
-        console.warn("⚠️  Kiwoom 8050 오류: 서버 IP가 키움 OpenAPI 포털에 미등록됨");
-        throw new KiwoomAuthError("IP_NOT_REGISTERED", `8050: 서버 IP가 키움 OpenAPI 포털에 등록되어야 합니다. 설정에서 현재 IP를 확인하고 키움 포털의 지정단말기 IP로 등록하세요.`);
-      }
-      if (error.code === "ECONNABORTED" || error.message?.includes("timeout") ||
-          error.code === "ECONNREFUSED" || error.code === "ENOTFOUND") {
-        console.warn("⚠️  Kiwoom API 연결 불가 (네트워크), stub 모드 전환");
-        this.stubMode = true;
-      }
-      throw new Error(`Kiwoom 인증 실패: ${error.message}`);
     }
+    const error = lastError;
+    // 8030: 실전/모의 API 키 불일치 → ACCOUNT_TYPE_MISMATCH 에러 코드
+    if (error?.message?.includes("8030")) {
+      const serverType = this.baseURL === KIWOOM_REAL_BASE ? "실전" : "모의";
+      console.warn(`⚠️  Kiwoom 8030 오류: ${serverType} 서버에 맞지 않는 API 키`);
+      throw new KiwoomAuthError("ACCOUNT_TYPE_MISMATCH", `8030: ${serverType} 서버용 API 키가 필요합니다. 계좌번호별 API 키를 확인하세요.`);
+    }
+    // 8050: 서버 IP 미등록 → IP_NOT_REGISTERED 에러 코드
+    if (error?.message?.includes("8050")) {
+      console.warn("⚠️  Kiwoom 8050 오류: 서버 IP가 키움 OpenAPI 포털에 미등록됨");
+      throw new KiwoomAuthError("IP_NOT_REGISTERED", `8050: 서버 IP가 키움 OpenAPI 포털에 등록되어야 합니다. 설정에서 현재 IP를 확인하고 키움 포털의 지정단말기 IP로 등록하세요.`);
+    }
+    if (error?.code === "ECONNABORTED" || error?.message?.includes("timeout") ||
+        error?.code === "ECONNREFUSED" || error?.code === "ENOTFOUND") {
+      console.warn("⚠️  Kiwoom API 연결 불가 (네트워크), stub 모드 전환");
+      this.stubMode = true;
+    }
+    throw new Error(`Kiwoom 인증 실패: ${error?.message ?? String(error)}`);
   }
 
   private async _doAuthenticate(baseURL: string): Promise<void> {

@@ -84,7 +84,9 @@ export const orders = pgTable("orders", {
   aiModelId: integer("ai_model_id").references(() => aiModels.id),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   executedAt: timestamp("executed_at"),
+  details: jsonb("details"), // metadata: rainbowLine, tradeType, etc.
 });
+
 
 // AI trading models/strategies
 export const aiModels = pgTable("ai_models", {
@@ -306,8 +308,11 @@ export const autoTradingSettings = pgTable("auto_trading_settings", {
   // Entry/Exit conditions
   minAiConfidence: decimal("min_ai_confidence", { precision: 5, scale: 2 }).notNull().default('70'), // 70%
   requireGoodFinancials: boolean("require_good_financials").notNull().default(true),
+  financialsScoreThreshold: decimal("financials_score_threshold", { precision: 5, scale: 2 }).notNull().default('60'), // requireGoodFinancials 통과 기준
   requireHighLiquidity: boolean("require_high_liquidity").notNull().default(true),
+  liquidityScoreThreshold: decimal("liquidity_score_threshold", { precision: 5, scale: 2 }).notNull().default('40'), // requireHighLiquidity 통과 기준
   requireMarketIssue: boolean("require_market_issue").notNull().default(false),
+  filterInvestmentWarnings: boolean("filter_investment_warnings").notNull().default(false),
   
   // AI analysis weights
   themeWeight: decimal("theme_weight", { precision: 5, scale: 2 }).notNull().default('20'),
@@ -953,3 +958,73 @@ export const systemConfig = pgTable("system_config", {
   value: text("value").notNull(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
+
+// ==================== Trade Journal (매매 저널 — 개별 트랜잭션 기록) ====================
+
+export const tradeJournal = pgTable("trade_journal", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  accountId: integer("account_id").notNull().references(() => kiwoomAccounts.id, { onDelete: 'cascade' }),
+  modelId: integer("model_id").references(() => aiModels.id, { onDelete: 'set null' }),
+  stockCode: text("stock_code").notNull(),
+  stockName: text("stock_name").notNull(),
+  tradeDate: text("trade_date").notNull(),          // YYYYMMDD (KST)
+  tradeTime: text("trade_time").notNull(),          // HH:MM:SS (KST)
+  tradeType: text("trade_type").notNull(),          // 'buy' | 'sell' | 'additional_buy' | 'exit_sell'
+  price: decimal("price", { precision: 12, scale: 2 }),
+  quantity: integer("quantity").notNull(),
+  totalAmount: decimal("total_amount", { precision: 16, scale: 2 }),
+  avgPrice: decimal("avg_price", { precision: 12, scale: 2 }),
+  rainbowLine: integer("rainbow_line"),              // CL선 (10~100)
+  profitRate: decimal("profit_rate", { precision: 8, scale: 4 }),
+  profitLoss: decimal("profit_loss", { precision: 12, scale: 2 }),
+  aiConfidence: decimal("ai_confidence", { precision: 5, scale: 2 }),
+  exitReason: text("exit_reason"),
+  isAutoTrading: boolean("is_auto_trading").notNull().default(true),
+  memo: text("memo"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  uniqueTrade: unique().on(table.userId, table.stockCode, table.tradeDate, table.tradeTime),
+}));
+
+export const insertTradeJournalSchema = createInsertSchema(tradeJournal).omit({ id: true, createdAt: true });
+export type TradeJournal = typeof tradeJournal.$inferSelect;
+export type InsertTradeJournal = z.infer<typeof insertTradeJournalSchema>;
+
+// ==================== AI Usage Daily (AI 사용량 일별 집계) ====================
+
+export const aiUsageDaily = pgTable("ai_usage_daily", {
+  id: serial("id").primaryKey(),
+  usageDate: text("usage_date").notNull(),            // YYYY-MM-DD (KST)
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  scopeType: text("scope_type").notNull(),            // 'login' | 'account'
+  scopeKey: text("scope_key").notNull(),              // 'login:{userId}' | 'account:{accountId}'
+  accountId: integer("account_id"),
+  requestCount: integer("request_count").notNull().default(0),
+  promptTokens: integer("prompt_tokens").notNull().default(0),
+  completionTokens: integer("completion_tokens").notNull().default(0),
+  totalTokens: integer("total_tokens").notNull().default(0),
+  costUsd: decimal("cost_usd", { precision: 14, scale: 8 }).notNull().default('0'),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export type AiUsageDaily = typeof aiUsageDaily.$inferSelect;
+
+// ==================== Stock Status (Phase 2 종목 상태 필터링) ====================
+
+export const stockStatus = pgTable("stock_status", {
+  stockCode: varchar("stock_code", { length: 10 }).primaryKey(),
+  orderWarning: integer("order_warning"),     // 0=정상, 3=단기과열, 4=투자경고, 5=투자위험
+  state: text("state"),                       // 파이프 구분 문자열
+  auditInfo: text("audit_info"),              // 감사정보
+  isWarning: boolean("is_warning"),           // orderWarning >= 3
+  isDanger: boolean("is_danger"),             // orderWarning = 5
+  isAuditAlert: boolean("is_audit_alert"),    // auditInfo에 "환기" 포함
+  creditAvailable: boolean("credit_available"),// state에 "신용가능" 포함
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertStockStatusSchema = createInsertSchema(stockStatus).omit({ updatedAt: true });
+export type StockStatus = typeof stockStatus.$inferSelect;
+export type InsertStockStatus = z.infer<typeof insertStockStatusSchema>;

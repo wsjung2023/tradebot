@@ -15,6 +15,7 @@ import AIAnalysis from "@/pages/ai-analysis";
 import AutoTrading from "@/pages/auto-trading";
 import Portfolio from "@/pages/portfolio";
 import TradeHistory from "@/pages/trade-history";
+import TradeJournal from "@/pages/trade-journal";
 import Watchlist from "@/pages/watchlist";
 import Settings from "@/pages/settings";
 import Guide from "@/pages/guide";
@@ -28,6 +29,51 @@ import BackAttackScan from "@/pages/backattack-scan";
 import AdminJobs from "@/pages/admin-jobs";
 import Monitoring from "@/pages/monitoring";
 import CandidateDecisions from "@/pages/candidate-decisions";
+import AiUsage from "@/pages/ai-usage";
+import heroA from "@assets/stock_images/futuristic_ai_artifi_11460e5f.jpg";
+import heroB from "@assets/stock_images/dynamic_stock_market_da45a7fb.jpg";
+import heroC from "@assets/stock_images/futuristic_ai_artifi_f9d4da05.jpg";
+import { Sparkles, Radar, GalleryHorizontal } from "lucide-react";
+
+function DecorativeHeroStrip() {
+  return (
+    <section className="mx-3 mt-3 mb-2 md:mx-4">
+      <div className="app-hero-panel overflow-hidden">
+        <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_1fr] gap-4 p-4 md:p-5">
+          <div className="space-y-2">
+            <div className="inline-flex items-center gap-2 rounded-full bg-white/70 px-3 py-1 text-xs font-semibold text-slate-700">
+              <Sparkles className="h-3.5 w-3.5" />
+              실시간 AI 트레이딩 워크스테이션
+            </div>
+            <h2 className="text-xl md:text-2xl font-bold tracking-tight text-slate-900">
+              데이터 흐름은 선명하게, 매매 판단은 직관적으로
+            </h2>
+            <p className="text-sm md:text-[15px] text-slate-600">
+              화면 구조는 유지하면서, 시각 밀도를 높여 한눈에 상태를 읽기 쉽게 구성했습니다.
+            </p>
+            <div className="flex flex-wrap gap-2 pt-1">
+              <span className="app-chip"><Radar className="h-3.5 w-3.5" /> 실시간 모니터링</span>
+              <span className="app-chip"><GalleryHorizontal className="h-3.5 w-3.5" /> 정보 밀도 강화</span>
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-2 md:gap-3">
+            {[heroA, heroB, heroC].map((src, idx) => (
+              <div key={idx} className="relative rounded-xl overflow-hidden border border-white/60 min-h-24 md:min-h-28">
+                <img
+                  src={src}
+                  alt={`decorative-market-${idx + 1}`}
+                  className="h-full w-full object-cover scale-105"
+                  loading="lazy"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-slate-900/25 to-transparent" />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
 
 function ProtectedRoute({ component: Component, ...rest }: any) {
   const { data: user, isLoading, isError, error } = useQuery<{ user: any }>({
@@ -43,14 +89,11 @@ function ProtectedRoute({ component: Component, ...rest }: any) {
     );
   }
 
-  // Handle 401 (unauthorized) - redirect to login
   if (isError) {
     const statusCode = (error as any)?.response?.status;
     if (statusCode === 401 || !user?.user) {
       return <Redirect to="/login" />;
     }
-    
-    // Other errors - show error message
     console.error("Protected route error:", error);
     return (
       <div className="flex items-center justify-center h-screen">
@@ -72,36 +115,41 @@ function AuthenticatedRouter() {
 
   return (
     <SidebarProvider style={style as React.CSSProperties}>
-      <div className="flex h-screen w-full">
+      <div className="flex h-screen w-full app-shell-bg">
         <AppSidebar />
-        <div className="flex flex-col flex-1">
-          <header className="flex items-center justify-between p-2 border-b">
+        <div className="flex flex-col flex-1 min-w-0">
+          <header className="flex items-center justify-between p-2 border-b border-white/50 bg-white/70 backdrop-blur-sm">
             <SidebarTrigger data-testid="button-sidebar-toggle" />
           </header>
           <AgentStatusBanner />
-          <main className="flex-1 overflow-auto">
-            <Switch>
-              <Route path="/" component={Dashboard} />
-              <Route path="/guide" component={Guide} />
-              <Route path="/tutorial" component={Tutorial} />
-              <Route path="/accounts" component={Accounts} />
-              <Route path="/trading" component={Trading} />
-              <Route path="/ai-analysis" component={AIAnalysis} />
-              <Route path="/auto-trading" component={AutoTrading} />
-              <Route path="/portfolio" component={Portfolio} />
-              <Route path="/trade-history" component={TradeHistory} />
-              <Route path="/watchlist" component={Watchlist} />
-              <Route path="/condition-formulas" component={ConditionFormulas} />
-              <Route path="/condition-screening" component={ConditionScreening} />
-              <Route path="/watchlist-signals" component={WatchlistSignals} />
-              <Route path="/chart-formula-editor" component={ChartFormulaEditor} />
-              <Route path="/backattack-scan" component={BackAttackScan} />
-              <Route path="/settings" component={Settings} />
-              <Route path="/monitoring" component={Monitoring} />
-              <Route path="/candidate-decisions" component={CandidateDecisions} />
-              <Route path="/admin-jobs" component={AdminJobs} />
-              <Route component={NotFound} />
-            </Switch>
+          <DecorativeHeroStrip />
+          <main className="flex-1 overflow-auto pb-4">
+            <div className="app-page-shell">
+              <Switch>
+                <Route path="/" component={Dashboard} />
+                <Route path="/guide" component={Guide} />
+                <Route path="/tutorial" component={Tutorial} />
+                <Route path="/accounts" component={Accounts} />
+                <Route path="/trading" component={Trading} />
+                <Route path="/ai-analysis" component={AIAnalysis} />
+                <Route path="/auto-trading" component={AutoTrading} />
+                <Route path="/portfolio" component={Portfolio} />
+                <Route path="/trade-history" component={TradeHistory} />
+                <Route path="/trade-journal" component={TradeJournal} />
+                <Route path="/watchlist" component={Watchlist} />
+                <Route path="/condition-formulas" component={ConditionFormulas} />
+                <Route path="/condition-screening" component={ConditionScreening} />
+                <Route path="/watchlist-signals" component={WatchlistSignals} />
+                <Route path="/chart-formula-editor" component={ChartFormulaEditor} />
+                <Route path="/backattack-scan" component={BackAttackScan} />
+                <Route path="/settings" component={Settings} />
+                <Route path="/monitoring" component={Monitoring} />
+                <Route path="/candidate-decisions" component={CandidateDecisions} />
+                <Route path="/ai-usage" component={AiUsage} />
+                <Route path="/admin-jobs" component={AdminJobs} />
+                <Route component={NotFound} />
+              </Switch>
+            </div>
           </main>
         </div>
       </div>

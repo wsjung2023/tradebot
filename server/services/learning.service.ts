@@ -286,7 +286,8 @@ export class LearningService {
   }
 
   /**
-   * Optimize AI weights based on successful trades
+   * Optimize AI weights using Information Value: measure win vs loss score gap per indicator.
+   * A larger gap means the indicator is more predictive of success.
    */
   private optimizeWeights(trades: TradingPerformance[]): {
     theme: number;
@@ -296,83 +297,231 @@ export class LearningService {
     institutional: number;
   } {
     const winTrades = trades.filter(t => t.isWin === true);
+    const lossTrades = trades.filter(t => t.isWin === false);
 
-    if (winTrades.length < 5) {
+    if (winTrades.length < 5 || lossTrades.length < 3) {
       return { theme: 20, news: 15, financials: 25, liquidity: 20, institutional: 20 };
     }
 
-    // Calculate correlation of each score with success
-    const avgScores = {
-      theme: winTrades.reduce((sum, t) => sum + parseFloat(t.themeScore?.toString() || '0'), 0) / winTrades.length,
-      news: winTrades.reduce((sum, t) => sum + parseFloat(t.newsScore?.toString() || '0'), 0) / winTrades.length,
-      financials: winTrades.reduce((sum, t) => sum + parseFloat(t.financialsScore?.toString() || '0'), 0) / winTrades.length,
-      liquidity: winTrades.reduce((sum, t) => sum + parseFloat(t.liquidityScore?.toString() || '0'), 0) / winTrades.length,
-      institutional: winTrades.reduce((sum, t) => sum + parseFloat(t.institutionalScore?.toString() || '0'), 0) / winTrades.length,
-    };
+    const avg = (arr: number[]) => arr.reduce((a, b) => a + b, 0) / arr.length;
+    const getScores = (group: TradingPerformance[], field: string) =>
+      group.map(t => parseFloat((t as any)[field]?.toString() || '50'));
 
-    // Normalize to 100%
-    const total = Object.values(avgScores).reduce((a, b) => a + b, 0);
+    // Information value: how much higher are scores in wins vs losses
+    const indicators = ['themeScore', 'newsScore', 'financialsScore', 'liquidityScore', 'institutionalScore'] as const;
+    const gaps = indicators.map(field => {
+      const winScores = getScores(winTrades, field);
+      const lossScores = getScores(lossTrades, field);
+      const gap = avg(winScores) - avg(lossScores);
+      return Math.max(0.1, gap); // floor at 0.1 so zero-gap indicators still get some weight
+    });
+
+    const totalGap = gaps.reduce((a, b) => a + b, 0);
+    const weights = gaps.map(g => (g / totalGap) * 100);
+
+    // Clamp: no single weight > 40, no weight < 5
+    const clamped = weights.map(w => Math.min(40, Math.max(5, w)));
+    const clampedTotal = clamped.reduce((a, b) => a + b, 0);
+    const normalized = clamped.map(w => (w / clampedTotal) * 100);
+
     return {
-      theme: (avgScores.theme / total) * 100,
-      news: (avgScores.news / total) * 100,
-      financials: (avgScores.financials / total) * 100,
-      liquidity: (avgScores.liquidity / total) * 100,
-      institutional: (avgScores.institutional / total) * 100,
+      theme: Math.round(normalized[0] * 10) / 10,
+      news: Math.round(normalized[1] * 10) / 10,
+      financials: Math.round(normalized[2] * 10) / 10,
+      liquidity: Math.round(normalized[3] * 10) / 10,
+      institutional: Math.round(normalized[4] * 10) / 10,
     };
   }
 
   /**
-   * Optimize thresholds based on successful trades
+   * Optimize thresholds by finding the confidence threshold that maximizes expected value.
    */
   private optimizeThresholds(trades: TradingPerformance[]): {
     minAiConfidence: number;
     requireGoodFinancials: boolean;
     requireHighLiquidity: boolean;
   } {
-    const winTrades = trades.filter(t => t.isWin === true);
-
-    if (winTrades.length < 5) {
-      return {
-        minAiConfidence: 70,
-        requireGoodFinancials: true,
-        requireHighLiquidity: true,
-      };
+    if (trades.length < 10) {
+      return { minAiConfidence: 60, requireGoodFinancials: true, requireHighLiquidity: true };
     }
 
-    // Find optimal confidence threshold
-    const avgWinConfidence = winTrades.reduce((sum, t) => 
-      sum + parseFloat(t.entryAiConfidence?.toString() || '70'), 0
-    ) / winTrades.length;
+    // Find threshold that maximizes: winRate * avgProfit - lossRate * avgLoss (expected value)
+    let bestThreshold = 55;
+    let bestEV = -Infinity;
 
-    // Check if good financials correlate with wins
-    const withGoodFinancials = winTrades.filter(t => {
-      const cond = t.entryConditions as any;
-      return cond?.hasGoodFinancials === true;
-    });
-    const requireGoodFinancials = withGoodFinancials.length / winTrades.length > 0.7;
+    for (let threshold = 40; threshold <= 85; threshold += 5) {
+      const filtered = trades.filter(t => parseFloat(t.entryAiConfidence?.toString() || '0') >= threshold);
+      if (filtered.length < 5) continue;
+      const wins = filtered.filter(t => t.isWin);
+      const losses = filtered.filter(t => !t.isWin);
+      const winRate = wins.length / filtered.length;
+      const avgProfit = wins.length > 0 ? wins.reduce((s, t) => s + parseFloat(t.profitLossRate?.toString() || '0'), 0) / wins.length : 0;
+      const avgLoss = losses.length > 0 ? Math.abs(losses.reduce((s, t) => s + parseFloat(t.profitLossRate?.toString() || '0'), 0) / losses.length) : 0;
+      const ev = winRate * avgProfit - (1 - winRate) * avgLoss;
+      if (ev > bestEV) { bestEV = ev; bestThreshold = threshold; }
+    }
 
-    // Check if high liquidity correlates with wins
-    const withHighLiquidity = winTrades.filter(t => {
+    // Check if financials/liquidity filters improve EV
+    const baseEV = bestEV;
+    const withFinancials = trades.filter(t => {
       const cond = t.entryConditions as any;
-      return cond?.hasHighLiquidity === true;
+      return cond?.aiAnalysis?.hasGoodFinancials === true || cond?.hasGoodFinancials === true;
     });
-    const requireHighLiquidity = withHighLiquidity.length / winTrades.length > 0.7;
+    const requireGoodFinancials = withFinancials.length >= 5 && (() => {
+      const wins = withFinancials.filter(t => t.isWin);
+      const losses = withFinancials.filter(t => !t.isWin);
+      const wr = wins.length / withFinancials.length;
+      const ap = wins.length > 0 ? wins.reduce((s, t) => s + parseFloat(t.profitLossRate?.toString() || '0'), 0) / wins.length : 0;
+      const al = losses.length > 0 ? Math.abs(losses.reduce((s, t) => s + parseFloat(t.profitLossRate?.toString() || '0'), 0) / losses.length) : 0;
+      return wr * ap - (1 - wr) * al > baseEV * 0.8;
+    })();
+
+    const withLiquidity = trades.filter(t => {
+      const cond = t.entryConditions as any;
+      return cond?.aiAnalysis?.hasHighLiquidity === true || cond?.hasHighLiquidity === true;
+    });
+    const requireHighLiquidity = withLiquidity.length >= 5 && (() => {
+      const wins = withLiquidity.filter(t => t.isWin);
+      const losses = withLiquidity.filter(t => !t.isWin);
+      const wr = wins.length / withLiquidity.length;
+      const ap = wins.length > 0 ? wins.reduce((s, t) => s + parseFloat(t.profitLossRate?.toString() || '0'), 0) / wins.length : 0;
+      const al = losses.length > 0 ? Math.abs(losses.reduce((s, t) => s + parseFloat(t.profitLossRate?.toString() || '0'), 0) / losses.length) : 0;
+      return wr * ap - (1 - wr) * al > baseEV * 0.8;
+    })();
+
+    return { minAiConfidence: bestThreshold, requireGoodFinancials, requireHighLiquidity };
+  }
+
+  /**
+   * 신뢰도 캘리브레이션: confidence 구간별 실제 승률 vs 예측 승률 비교
+   * 결과로 confidence가 과대/과소 평가되는지 진단
+   */
+  async analyzeConfidenceCalibration(modelId: number): Promise<{
+    buckets: Array<{ range: string; predicted: number; actual: number; count: number; gap: number }>;
+    overallBias: 'overconfident' | 'underconfident' | 'calibrated';
+    recommendation: string;
+  }> {
+    const performances = await storage.getTradingPerformance(modelId);
+    const completed = performances.filter(p => p.exitPrice !== null && p.entryAiConfidence !== null);
+
+    const buckets = [
+      { min: 40, max: 55, label: '40-55%' },
+      { min: 55, max: 65, label: '55-65%' },
+      { min: 65, max: 75, label: '65-75%' },
+      { min: 75, max: 100, label: '75%+' },
+    ];
+
+    const result = buckets.map(b => {
+      const group = completed.filter(t => {
+        const conf = parseFloat(t.entryAiConfidence?.toString() || '0');
+        return conf >= b.min && conf < b.max;
+      });
+      const wins = group.filter(t => t.isWin).length;
+      const actualWinRate = group.length > 0 ? (wins / group.length) * 100 : 0;
+      const midConf = (b.min + b.max) / 2;
+      return {
+        range: b.label,
+        predicted: midConf,
+        actual: Math.round(actualWinRate * 10) / 10,
+        count: group.length,
+        gap: Math.round((actualWinRate - midConf) * 10) / 10,
+      };
+    });
+
+    const validBuckets = result.filter(b => b.count >= 3);
+    const avgGap = validBuckets.length > 0
+      ? validBuckets.reduce((s, b) => s + b.gap, 0) / validBuckets.length
+      : 0;
+
+    const overallBias = avgGap > 5 ? 'underconfident' : avgGap < -5 ? 'overconfident' : 'calibrated';
+    const recommendation =
+      overallBias === 'overconfident'
+        ? `AI 신뢰도가 실제 승률보다 평균 ${Math.abs(avgGap).toFixed(1)}%p 높습니다. minAiConfidence 기준을 ${Math.round(Math.abs(avgGap) / 5) * 5}%p 높이는 것을 검토하세요.`
+        : overallBias === 'underconfident'
+        ? `AI 신뢰도가 실제 승률보다 평균 ${avgGap.toFixed(1)}%p 낮습니다. minAiConfidence 기준을 낮춰 더 많은 종목을 검토할 수 있습니다.`
+        : '신뢰도 캘리브레이션이 양호합니다.';
+
+    return { buckets: result, overallBias, recommendation };
+  }
+
+  /**
+   * 거부 이유별 분석: 어떤 필터가 가장 많이 차단하는지 파악
+   */
+  async analyzeRejectionPatterns(modelId: number, userId: string): Promise<{
+    byReason: Array<{ reason: string; count: number; pct: number }>;
+    totalEvaluated: number;
+    totalAccepted: number;
+    acceptRate: number;
+    insight: string;
+  }> {
+    const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000); // 30일
+    const logs = await storage.getCandidateDecisionLogsForUser(userId, {
+      modelId,
+      from: cutoff,
+      limit: 1000,
+    });
+
+    const total = logs.length;
+    const accepted = logs.filter(l => l.accepted).length;
+    const rejected = logs.filter(l => !l.accepted);
+
+    const byReason = new Map<string, number>();
+    for (const log of rejected) {
+      const reason = log.rejectReason || 'unknown';
+      byReason.set(reason, (byReason.get(reason) || 0) + 1);
+    }
+
+    const sorted = Array.from(byReason.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([reason, count]) => ({
+        reason,
+        count,
+        pct: Math.round((count / total) * 1000) / 10,
+      }));
+
+    const topReason = sorted[0];
+    const insight = total === 0
+      ? '데이터 없음'
+      : topReason?.reason === 'min_ai_confidence_not_met'
+      ? `AI 신뢰도 미달이 전체의 ${topReason.pct}%를 차단. minAiConfidence 기준이 너무 높을 수 있습니다.`
+      : topReason?.reason === 'decision_cooldown_active'
+      ? `쿨다운이 ${topReason.pct}%를 차단 — 정상입니다.`
+      : topReason
+      ? `'${topReason.reason}' 필터가 가장 많이 차단 (${topReason.pct}%). 설정 검토 권장.`
+      : '특이사항 없음';
 
     return {
-      minAiConfidence: Math.round(avgWinConfidence),
-      requireGoodFinancials,
-      requireHighLiquidity,
+      byReason: sorted,
+      totalEvaluated: total,
+      totalAccepted: accepted,
+      acceptRate: total > 0 ? Math.round((accepted / total) * 1000) / 10 : 0,
+      insight,
     };
   }
 
   /**
    * Apply optimized parameters to AI model
    */
-  async optimizeModel(modelId: number, autoApply: boolean = false): Promise<OptimizationResult> {
-    const stats = await this.analyzePerformance(modelId);
-    const patterns = await this.findPatterns(modelId);
+  async optimizeModel(modelId: number, autoApply: boolean = false, userId?: string): Promise<OptimizationResult> {
+    const [stats, patterns] = await Promise.all([
+      this.analyzePerformance(modelId),
+      this.findPatterns(modelId),
+    ]);
 
     const recommendations: string[] = [];
+
+    // 신뢰도 캘리브레이션 + 거부 패턴 분석 (데이터 있으면 항상 수행)
+    const [calibration, rejectionAnalysis] = await Promise.all([
+      this.analyzeConfidenceCalibration(modelId),
+      userId ? this.analyzeRejectionPatterns(modelId, userId) : Promise.resolve(null),
+    ]);
+
+    if (calibration.overallBias !== 'calibrated') {
+      recommendations.push(`📊 신뢰도 캘리브레이션: ${calibration.recommendation}`);
+    }
+    if (rejectionAnalysis && rejectionAnalysis.totalEvaluated > 0) {
+      recommendations.push(`🔍 거부 분석 (최근 30일): 수락률 ${rejectionAnalysis.acceptRate}% — ${rejectionAnalysis.insight}`);
+    }
 
     // Only optimize if we have enough data
     if (stats.totalTrades < 20) {
@@ -385,7 +534,7 @@ export class LearningService {
         totalTrades: stats.totalTrades,
         winRate: stats.winRate.toFixed(2),
         avgReturn: stats.totalReturn.toFixed(4),
-        patternInsights: patterns as any,
+        patternInsights: { ...patterns, calibration, rejectionAnalysis } as any,
         appliedChanges: { autoApply, applied: false, reason: 'INSUFFICIENT_DATA', recommendations } as any,
       });
 
@@ -399,20 +548,24 @@ export class LearningService {
     }
 
     // Generate recommendations
+    const profitFactor = stats.avgProfitRate > 0 && stats.avgLossRate > 0
+      ? stats.avgProfitRate / stats.avgLossRate
+      : 0;
+
     if (stats.winRate < 50) {
-      recommendations.push(`승률 ${stats.winRate.toFixed(1)}% - 진입 기준 강화 필요`);
-      recommendations.push(`최고 성과 진입 라인: ${patterns.bestEntryLines[0]?.line || 50}%`);
+      recommendations.push(`승률 ${stats.winRate.toFixed(1)}% — 진입 기준 강화 필요 (최고 성과 진입 라인: ${patterns.bestEntryLines[0]?.line || 50}%)`);
     } else if (stats.winRate >= 70) {
-      recommendations.push(`승률 ${stats.winRate.toFixed(1)}% - 우수! 현재 전략 유지`);
+      recommendations.push(`승률 ${stats.winRate.toFixed(1)}% — 우수. 현재 전략 유지`);
     }
 
-    if (stats.avgProfitRate < stats.avgLossRate * 1.5) {
-      recommendations.push(`손익비 부족 - 목표가 상향 조정 권장`);
-      recommendations.push(`최고 성과 탈출 라인: ${patterns.bestExitLines[0]?.line || 70}%`);
+    if (profitFactor > 0 && profitFactor < 1.5) {
+      recommendations.push(`손익비 ${profitFactor.toFixed(2)} — 목표가 상향 조정 권장 (최고 탈출 라인: ${patterns.bestExitLines[0]?.line || 70}%)`);
+    } else if (profitFactor >= 2.0) {
+      recommendations.push(`손익비 ${profitFactor.toFixed(2)} — 우수`);
     }
 
     if (stats.sharpeRatio < 1.0) {
-      recommendations.push(`샤프지수 ${stats.sharpeRatio.toFixed(2)} - 변동성 대비 수익률 개선 필요`);
+      recommendations.push(`샤프지수 ${stats.sharpeRatio.toFixed(2)} — 변동성 대비 수익률 개선 필요`);
     }
 
     // Auto-apply optimizations if enabled with safety checks
@@ -487,7 +640,11 @@ export class LearningService {
                 unitPerformance: patterns.unitPerformance,
                 currentLadder: (settings.entryLadderSettings as any) ?? patterns.suggestedLadderPlan,
                 currentStopLossMode: currentStopPolicy.mode ?? 'soft_ai_first',
-              }, aiModel);
+              }, aiModel, model?.userId ? {
+                userId: model.userId,
+                accountId: Number((model.config as any)?.accountId ?? 0) || null,
+                source: 'learning:strategy-evolution',
+              } : undefined);
 
               // Override ladder plan if AI provides a better suggestion
               if (aiEvolution.suggestedLadder?.length >= 2) {

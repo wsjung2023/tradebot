@@ -1,4 +1,4 @@
-﻿// kiwoom.market.ts — 키움증권 REST API 시세·차트·호가 조회 (공식 api-id 사용)
+// kiwoom.market.ts — 키움증권 REST API 시세·차트·호가 조회 (공식 api-id 사용)
 import {
   KiwoomBase,
   type StockPriceResponse,
@@ -143,16 +143,25 @@ export class KiwoomMarket extends KiwoomBase {
     }
 
     const items: any[] = d[listKey] || [];
-    return items
+    if (items.length === 0) {
+      // 응답 키 확인 (디버그)
+      const allKeys = Object.keys(d || {});
+      console.warn(`[getStockChart] ${stockCode} — 응답 items 0개. return_code=${d?.return_code} keys=${allKeys.join(',')} listKey=${listKey}`);
+    }
+    const mapped = items
       .map((it: any) => ({
-        date: String(it.dt || "").substring(0, 8),
-        open: Number(absStr(String(it.open_pric || 0))),
-        high: Number(absStr(String(it.high_pric || 0))),
-        low: Number(absStr(String(it.low_pric || 0))),
-        close: Number(absStr(String(it.cur_prc || 0))),
-        volume: Number(it.trde_qty || 0),
+        date: String(it.dt || it.date || "").substring(0, 8),
+        open: Number(absStr(String(it.open_pric || it.open || 0))),
+        high: Number(absStr(String(it.high_pric || it.high || 0))),
+        low: Number(absStr(String(it.low_pric || it.low || 0))),
+        close: Number(absStr(String(it.cur_prc || it.cls_prc || it.close || 0))),
+        volume: Number(String(it.trde_qty || it.volume || 0).replace(/,/g, "")),
       }))
       .filter((it) => it.date && it.close > 0);
+    if (items.length > 0 && mapped.length === 0) {
+      console.warn(`[getStockChart] ${stockCode} — ${items.length}개 수신했으나 필터 후 0개. 샘플:`, JSON.stringify(items[0]).substring(0, 200));
+    }
+    return mapped;
   }
 
   async getWatchlistInfo(stockCodes: string[]): Promise<WatchlistStockInfo[]> {
@@ -200,6 +209,49 @@ export class KiwoomMarket extends KiwoomBase {
       name,
       marketName: String(d.mrkt_nm ?? d.market_name ?? ""),
       state: String(d.stk_stat_nm ?? d.state ?? ""),
+    };
+  }
+
+  /**
+   * ka10075: 종목 상태/경고 정보 조회
+   */
+  async getStockStatus(stockCode: string): Promise<any> {
+    if (this.stubMode) return null;
+    await this.ensureValidToken();
+    const resp = await this.api.post<any>(STKINFO, { stk_cd: stockCode }, { headers: { "api-id": "ka10075" } });
+    const d = resp.data;
+    if (d?.return_code !== undefined && d.return_code !== 0 && String(d.return_code) !== "0") {
+      throw new Error(`종목상태 조회 실패: ${d.return_msg} (code: ${d.return_code})`);
+    }
+    return d;
+  }
+
+  /**
+   * ka10077: 재무 비율 조회
+   */
+  async getFinancialRatios(stockCode: string): Promise<any> {
+    if (this.stubMode) return null;
+    await this.ensureValidToken();
+    const resp = await this.api.post<any>("/api/dostk/stkinfo", { stk_cd: stockCode }, { headers: { "api-id": "ka10077" } });
+    const d = resp.data;
+    if (d?.return_code !== undefined && d.return_code !== 0 && String(d.return_code) !== "0") {
+      throw new Error(`재무비율 조회 실패: ${d.return_msg} (code: ${d.return_code})`);
+    }
+    // ka10077 응답 구조에 맞게 래핑 (kiwoom.base.ts의 FinancialRatiosResponse 참고)
+    return {
+      output: [
+        {
+          per: String(d.per || "0"),
+          pbr: String(d.pbr || "0"),
+          eps: String(d.eps || "0"),
+          bps: String(d.bps || "0"),
+          roe: String(d.roe || "0"),
+          roa: String(d.roa || "0"),
+          debt_ratio: String(d.debt_ratio || "0"),
+          reserve_ratio: String(d.reserve_ratio || "0"),
+        }
+      ],
+      return_code: 0
     };
   }
 

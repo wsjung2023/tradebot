@@ -31,6 +31,7 @@ interface CandidateDecisionLogRow {
   rejectReason: string | null;
   aiDecision: Record<string, any> | null;
   decidedAt: string;
+  decidedAtKst?: string | null;
 }
 
 interface CandidateDecisionResponse {
@@ -48,6 +49,11 @@ function toDateInputValue(date: Date): string {
 
 function formatDateTime(value?: string | null): string {
   if (!value) return "-";
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value)) {
+    const [datePart, timePart] = value.split(" ");
+    const [, month, day] = datePart.split("-");
+    return `${month}.${day} ${timePart}`;
+  }
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "-";
   return date.toLocaleString("ko-KR", {
@@ -217,12 +223,16 @@ export default function CandidateDecisions() {
                       ? "하루 3회 (09:10/13:30/15:10)"
                       : cooldownMode === "daily_once"
                         ? "하루 1회"
+                        : cooldownMode === "interval_30m"
+                          ? "30분"
+                          : cooldownMode === "interval_60m"
+                            ? "60분"
                         : cooldownMode === "interval_120m"
                           ? "120분"
                           : "-";
                   return (
                     <TableRow key={log.id} data-testid={`row-candidate-decision-${log.id}`}>
-                      <TableCell className="text-xs text-muted-foreground">{formatDateTime(log.decidedAt)}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">{formatDateTime(log.decidedAtKst ?? log.decidedAt)}</TableCell>
                       <TableCell>
                         <div className="flex flex-col">
                           <span className="font-medium">{log.stockName}</span>

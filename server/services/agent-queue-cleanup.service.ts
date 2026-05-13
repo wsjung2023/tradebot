@@ -4,6 +4,7 @@ import { storage } from '../storage';
 export class AgentQueueCleanupService {
   private timer: NodeJS.Timeout | null = null;
   private intervalMinutes = 5;
+  onRun?: () => void;
 
   start(intervalMinutes?: number) {
     if (intervalMinutes !== undefined) this.intervalMinutes = intervalMinutes;
@@ -14,6 +15,7 @@ export class AgentQueueCleanupService {
     this.timer = setInterval(async () => {
       try {
         await storage.cleanupExpiredJobs();
+        this.onRun?.();
       } catch (err: any) {
         console.error('[AgentQueue] 만료 잡 정리 실패:', err.message);
       }
@@ -49,6 +51,7 @@ export class AgentQueueCleanupService {
 
   async runNow(): Promise<void> {
     await storage.cleanupExpiredJobs();
+    this.onRun?.();
   }
 }
 

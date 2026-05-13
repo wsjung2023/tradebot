@@ -482,6 +482,7 @@ class AutoTradingWorker {
         await this.executor.createDefaultSettings(model.id, (model.config as any)?.modelType);
         return;
       }
+      const selectedAiModel = userSettings?.aiModel || 'gpt-5-mini';
 
       // ── 주문 상태 동기화: 오래된 pending 만료 + 오늘 체결 상태 업데이트 ──
       try {
@@ -496,9 +497,18 @@ class AutoTradingWorker {
         console.warn(`⚠️  주문 동기화 오류 (무시):`, syncErr);
       }
 
+      // ── 0. 보유 종목 독립 추가매수 사이클 (스캔 독립 — 뒷차기 핵심 로직) ──
+      // 보유 종목이 조건검색에서 탈락해도 레인보우 라인 하락 시 추가매수를 판단한다.
+      // 중복매수 방지: filledEntrySteps 영구추적 + 새 하단 라인 판별 + 24h 쿨다운
+      try {
+        await this.executor.checkHoldingsForScaleIn(model, settings, kiwoomService, this.aiService, selectedAiModel);
+      } catch (scaleInErr) {
+        console.error(`⚠️  checkHoldingsForScaleIn 오류 (무시):`, scaleInErr);
+      }
+
       // ── 1. 포지션 청산 관리: 기존 경로 유지 ──
       try {
-        await this.executor.checkPositionsForExits(model, settings, kiwoomService, this.aiService);
+        await this.executor.checkPositionsForExits(model, settings, kiwoomService, this.aiService, selectedAiModel);
       } catch (posErr) {
         console.error(`⚠️  checkPositionsForExits 오류 (무시):`, posErr);
       }
@@ -509,10 +519,12 @@ class AutoTradingWorker {
         console.log(`  📭 후보 종목 없음 — 30분 스캔 대기 중`);
       } else {
         console.log(`  📊 후보 종목 ${candidates.length}개 진입 평가 시작`);
-        for (const candidate of candidates) {
-          await this.executor.evaluateCandidateStock(model, settings, candidate, kiwoomService, this.aiService);
+        for (let i = 0; i < candidates.length; i++) {
+          if (i > 0) await new Promise(r => setTimeout(r, 3000));
+          await this.executor.evaluateCandidateStock(model, settings, candidates[i], kiwoomService, this.aiService, selectedAiModel);
         }
       }
+
       this.clearAgentTimeoutCounter(model.userId);
       await this.setRunState(model.userId, 'running', model.id, 'cycle_completed', undefined, {
         cycleId,
@@ -700,7 +712,7 @@ class AutoTradingWorker {
   private async optimizeModel(model: AiModel): Promise<boolean> {
     console.log(`\n🧠 Learning from model: ${model.modelName} (ID: ${model.id})`);
     try {
-      const result = await this.learningService.optimizeModel(model.id, true);
+      const result = await this.learningService.optimizeModel(model.id, true, model.userId);
       const s = result.stats;
       console.log(`  📈 Stats: ${s.totalTrades} trades | winRate ${s.winRate.toFixed(1)}% | return ${s.totalReturn.toFixed(2)}%`);
       if (result.appliedChanges) console.log(`  ✅ Optimized parameters applied automatically`);

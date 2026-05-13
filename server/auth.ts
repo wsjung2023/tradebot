@@ -123,7 +123,7 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
                 userId: user!.id,
                 tradingMode: 'mock',
                 riskLevel: 'medium',
-                aiModel: 'gpt-5.1',
+                aiModel: 'gpt-5-mini',
               });
             }
           }

@@ -3,7 +3,7 @@
 import { autoTradingWorker } from './auto-trading-worker';
 import { storage } from './storage';
 import { balanceRefreshService } from './services/balance-refresh.service';
-import { startAgentDisconnectWatcher, stopAgentDisconnectWatcher, setAgentWatcherIntervalSeconds, getAgentWatcherIntervalSeconds } from './jobs/agent-disconnect-watcher';
+import { startAgentDisconnectWatcher, stopAgentDisconnectWatcher, setAgentWatcherIntervalSeconds, getAgentWatcherIntervalSeconds, runAgentWatcherCheck } from './jobs/agent-disconnect-watcher';
 import { agentQueueCleanupService } from './services/agent-queue-cleanup.service';
 
 export interface JobInfo {
@@ -141,9 +141,6 @@ class JobManager {
       // 스캔잡은 건드리지 않음 — 독립적으로 제어
       const allModels = await storage.getAllAiModels();
       for (const model of allModels) {
-        if (!model.isActive) await storage.updateAiModel(model.id, { isActive: true });
-      }
-      for (const model of allModels) {
         const settings = await storage.getAutoTradingSettings(model.id);
         if (!settings) await autoTradingWorker.createDefaultSettingsForModel(model.id);
         const userSettings = await storage.getUserSettings(model.userId);
@@ -152,7 +149,7 @@ class JobManager {
           userId: model.userId,
           tradingMode: 'mock',
           riskLevel: 'medium',
-          aiModel: 'gpt-5.1',
+          aiModel: 'gpt-5-mini',
           autoTradingEnabled: true,
         });
       }
@@ -164,16 +161,24 @@ class JobManager {
       autoTradingWorker.startLearningJob(schedule);
 
     } else if (id === 'balance-refresh') {
+      balanceRefreshService.onRun = () => this.recordRun('balance-refresh');
       balanceRefreshService.start(state.intervalMinutes);
       this.balanceRefreshRunning = true;
+      // 시작 시 즉시 한 번 실행 (비동기)
+      balanceRefreshService.refreshAllRealAccounts().catch(e => console.error('[JobManager] Initial balance refresh failed:', e));
 
     } else if (id === 'agent-queue-cleanup') {
+      agentQueueCleanupService.onRun = () => this.recordRun('agent-queue-cleanup');
       agentQueueCleanupService.start(state.intervalMinutes);
       this.agentQueueCleanupRunning = true;
+      // 시작 시 즉시 한 번 실행 (비동기)
+      agentQueueCleanupService.runNow().catch(e => console.error('[JobManager] Initial queue cleanup failed:', e));
 
     } else if (id === 'agent-watcher') {
-      startAgentDisconnectWatcher(state.intervalSeconds);
+      startAgentDisconnectWatcher(state.intervalSeconds, () => this.recordRun('agent-watcher'));
       this.agentWatcherRunning = true;
+      // 시작 시 즉시 한 번 실행 (비동기)
+      runAgentWatcherCheck().catch(e => console.error('[JobManager] Initial agent watcher check failed:', e));
     }
 
     if (persistState) {
