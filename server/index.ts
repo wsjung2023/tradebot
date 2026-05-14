@@ -214,7 +214,9 @@ httpServer.listen({ port, host: "0.0.0.0" }, () => {
     }
 
     await jobManager.initialize();
-    console.log('[STARTUP] Ready ✓');
+    const env = port === 5000 ? 'PROD' : 'DEV';
+    process.title = `TradeBot-${env} (port ${port})`;
+    console.log(`[STARTUP] Ready ✓  [${env}] port=${port}`);
   } catch (err: any) {
     console.error('[STARTUP] FATAL:', err.message, err.stack);
     process.exit(1);
