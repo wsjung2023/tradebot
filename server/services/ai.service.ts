@@ -5,6 +5,13 @@ import type { NewsResult } from './news.service';
 import { RainbowChartAnalyzer, type OHLCVData, type RainbowChartResult } from '../formula/rainbow-chart';
 import { storage } from '../storage';
 
+export class AiBudgetExceededError extends Error {
+  constructor(monthlyTotal: number, budget: number) {
+    super(`AI 예산 초과: 이번 달 $${monthlyTotal.toFixed(2)} / 한도 $${budget.toFixed(2)}`);
+    this.name = 'AiBudgetExceededError';
+  }
+}
+
 type AiUsageContext = {
   userId: string;
   accountId?: number | null;
@@ -160,8 +167,8 @@ export class AIService {
           // 예산 초과 알림 (중복 방지: 마지막 알림 시간 체크 등은 storage가 담당하거나 여기서 간단히 처리)
           await storage.createEngineNotification({
             userId: usageContext.userId,
-            type: 'warning',
-            title: 'AI 예산 초과 경고',
+            severity: 'warn',
+            type: 'AI_BUDGET_EXCEEDED',
             message: `이번 달 AI 사용 비용($${monthlyTotal.toFixed(2)})이 설정된 예산($${budget.toFixed(2)})을 초과했습니다.`,
             payload: { monthlyTotal, budget },
           });
@@ -169,6 +176,30 @@ export class AIService {
       }
     } catch (budgetErr: any) {
       console.warn('[AIService] Budget check failed:', budgetErr?.message);
+    }
+  }
+
+  private async checkBudgetBeforeCall(usageContext?: AiUsageContext): Promise<void> {
+    if (!usageContext?.userId) return;
+    try {
+      const [budgetStr, blockStr] = await Promise.all([
+        storage.getSystemConfig('ai_budget_usd'),
+        storage.getSystemConfig('ai_budget_block'),
+      ]);
+      const budget = budgetStr ? parseFloat(budgetStr) : 0;
+      const blockOnExceed = blockStr === 'true';
+      if (budget <= 0 || !blockOnExceed) return;
+
+      const now = new Date();
+      const fromDate = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+      const usageRows = await storage.getAiUsageDaily(usageContext.userId, { fromDate, toDate: this.getUsageDateKst(), scopeType: 'login' });
+      const monthlyTotal = usageRows.reduce((s, r) => s + parseFloat(r.costUsd || '0'), 0);
+      if (monthlyTotal >= budget) {
+        throw new AiBudgetExceededError(monthlyTotal, budget);
+      }
+    } catch (err) {
+      if (err instanceof AiBudgetExceededError) throw err;
+      console.warn('[AIService] Budget pre-check failed:', (err as any)?.message);
     }
   }
 
@@ -181,6 +212,7 @@ export class AIService {
     } = {}
   ): Promise<any> {
     const { model = 'gpt-5-mini', temperature = 0.3, usageContext } = options;
+    await this.checkBudgetBeforeCall(usageContext);
 
     // Reasoning models (o1, o3, o4-*, gpt-5-*) only support default temperature (1)
     const isReasoningModel = /^(o\d|gpt-5)/.test(model);

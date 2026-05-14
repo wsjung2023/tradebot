@@ -145,13 +145,19 @@ class JobManager {
         if (!settings) await autoTradingWorker.createDefaultSettingsForModel(model.id);
         const userSettings = await storage.getUserSettings(model.userId);
         if (userSettings) await storage.updateUserSettings(model.userId, { autoTradingEnabled: true });
-        else await storage.createUserSettings({
-          userId: model.userId,
-          tradingMode: 'mock',
-          riskLevel: 'medium',
-          aiModel: 'gpt-5-mini',
-          autoTradingEnabled: true,
-        });
+        else {
+          try {
+            await storage.createUserSettings({
+              userId: model.userId,
+              tradingMode: 'mock',
+              riskLevel: 'medium',
+              aiModel: 'gpt-5-mini',
+              autoTradingEnabled: true,
+            });
+          } catch (e: any) {
+            console.warn(`[JobManager] user_settings 생성 스킵 (${model.userId}):`, e.message?.slice(0, 60));
+          }
+        }
       }
       const schedule = this.minutesToCron(state.intervalMinutes);
       autoTradingWorker.startTradingJob(schedule);

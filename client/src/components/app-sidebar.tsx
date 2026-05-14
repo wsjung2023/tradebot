@@ -84,7 +84,12 @@ export function AppSidebar() {
     <Sidebar data-testid="sidebar-main">
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel className="text-lg font-bold">키움 AI 트레이딩</SidebarGroupLabel>
+          <SidebarGroupLabel className="text-lg font-bold flex items-center gap-2">
+            키움 AI 트레이딩
+            {import.meta.env.VITE_APP_ENV === 'dev' && (
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-400 text-black leading-none">DEV</span>
+            )}
+          </SidebarGroupLabel>
           <div className="hidden md:block mx-2 mb-3 rounded-xl overflow-hidden border border-white/60 shadow-sm">
             <div className="relative h-24">
               <img src={sidebarVisual} alt="market-visual" className="h-full w-full object-cover" loading="lazy" />

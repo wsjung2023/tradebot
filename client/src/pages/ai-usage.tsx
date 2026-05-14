@@ -32,12 +32,12 @@ export default function AiUsage() {
   const { toast } = useToast();
   const { data: budgetData, isLoading: bLoading } = useQuery<{ budgetUsd: number }>({
     queryKey: ["/api/ai/budget"],
-    queryFn: () => apiRequest("GET", "/api/ai/budget"),
+    queryFn: () => apiRequest("GET", "/api/ai/budget").then(r => r.json()),
   });
 
   const { data: rows, isLoading: rLoading, refetch } = useQuery<UsageRow[]>({
     queryKey: ["/api/ai/usage-daily"],
-    queryFn: () => apiRequest("GET", `/api/ai/usage-daily?scopeType=login&limit=30`),
+    queryFn: () => apiRequest("GET", `/api/ai/usage-daily?scopeType=login&limit=30`).then(r => r.json()),
   });
 
   const budgetUsd = budgetData?.budgetUsd ?? 0;

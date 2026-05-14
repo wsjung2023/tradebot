@@ -3,6 +3,7 @@ import react from "@vitejs/plugin-react";
 import path from "path";
 
 export default defineConfig({
+  envDir: path.resolve(import.meta.dirname),
   define: {
     "import.meta.env.VITE_BUILD_VERSION": JSON.stringify(new Date().toISOString()),
   },
@@ -23,7 +24,7 @@ export default defineConfig({
   },
   server: {
     hmr: {
-      port: 5001,
+      port: 5002,
     },
     fs: {
       strict: true,

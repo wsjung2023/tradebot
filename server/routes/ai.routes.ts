@@ -450,8 +450,11 @@ export function registerAiRoutes(app: Router) {
   // AI 월 예산 설정 조회
   app.get("/api/ai/budget", isAuthenticated, async (req, res) => {
     try {
-      const budget = await storage.getSystemConfig("ai_budget_usd");
-      res.json({ budgetUsd: budget ? parseFloat(budget) : 0 });
+      const [budget, block] = await Promise.all([
+        storage.getSystemConfig("ai_budget_usd"),
+        storage.getSystemConfig("ai_budget_block"),
+      ]);
+      res.json({ budgetUsd: budget ? parseFloat(budget) : 0, blockOnExceed: block === 'true' });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -460,12 +463,17 @@ export function registerAiRoutes(app: Router) {
   // AI 월 예산 설정 저장
   app.post("/api/ai/budget", isAuthenticated, async (req, res) => {
     try {
-      const { budgetUsd } = req.body;
+      const { budgetUsd, blockOnExceed } = req.body;
       if (typeof budgetUsd !== "number" || budgetUsd < 0) {
         return res.status(400).json({ error: "Invalid budget value" });
       }
-      await storage.setSystemConfig("ai_budget_usd", String(budgetUsd));
-      res.json({ success: true, budgetUsd });
+      await Promise.all([
+        storage.setSystemConfig("ai_budget_usd", String(budgetUsd)),
+        typeof blockOnExceed === 'boolean'
+          ? storage.setSystemConfig("ai_budget_block", blockOnExceed ? 'true' : 'false')
+          : Promise.resolve(),
+      ]);
+      res.json({ success: true, budgetUsd, blockOnExceed: blockOnExceed ?? false });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }

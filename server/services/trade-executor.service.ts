@@ -1,7 +1,7 @@
 // trade-executor.service.ts — 레인보우 차트 + GPT 분석 기반 개별 종목 평가 및 매수/매도 주문 실행 서비스
 import { storage } from '../storage';
 import { KiwoomService } from './kiwoom';
-import { AIService } from './ai.service';
+import { AIService, AiBudgetExceededError } from './ai.service';
 import { AiModel, AutoTradingSettings, CandidateStock } from '@shared/schema';
 import { RainbowChartAnalyzer } from '../formula/rainbow-chart';
 import { normalizeChartDataAsc } from '../utils/chart-normalization';
@@ -532,7 +532,7 @@ export class TradeExecutorService {
           source: 'auto-trading:scale-in-check',
         }),
         new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('AI 판단 타임아웃 (10초)')), 10000)
+          setTimeout(() => reject(new Error('AI 판단 타임아웃 (60초)')), 60000)
         ),
       ]);
 
@@ -540,13 +540,16 @@ export class TradeExecutorService {
       aiReasoning = aiDecision.reasoning || '';
       console.log(`    [ScaleIn] 🤖 AI 결정: ${aiAction} — ${aiReasoning}`);
     } catch (aiErr: any) {
-      // AI 판단 실패 시 보수적으로 hold
-      console.warn(`    [ScaleIn] ⚠️  AI 판단 실패(hold로 처리): ${aiErr?.message}`);
-      aiAction = 'hold';
-      aiReasoning = `AI 판단 실패: ${aiErr?.message}`;
+      if (aiErr instanceof AiBudgetExceededError) {
+        console.warn(`    [ScaleIn] [예산차단] ${stockCode}: ${aiErr.message}`);
+      } else {
+        // 타임아웃/일시적 오류 — 쿨다운 없이 스킵, 다음 사이클 재시도
+        console.warn(`    [ScaleIn] ⚠️  AI 판단 실패 — 쿨다운 미적용, 다음 사이클 재시도: ${aiErr?.message}`);
+      }
+      return;
     }
 
-    // ── 쿨다운 키 기록 (판단 결과와 무관하게 24h 재평가 방지) ─────────────
+    // ── 쿨다운 키 기록 (AI가 실제로 판단한 경우에만 24h 재평가 방지) ─────────
     await storage.createCandidateDecisionLog({
       modelId: model.id,
       stockCode,
@@ -844,7 +847,7 @@ export class TradeExecutorService {
                 source: 'auto-trading:position-management',
               }),
               new Promise<never>((_, reject) =>
-                setTimeout(() => reject(new Error('AI 판단 타임아웃 (5초)')), 5000)
+                setTimeout(() => reject(new Error('AI 판단 타임아웃 (60초)')), 60000)
               ),
             ]);
 
@@ -1838,6 +1841,16 @@ export class TradeExecutorService {
       }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
+      if (err instanceof AiBudgetExceededError) {
+        console.warn(`    [예산차단] ${candidate.stockCode}: ${errMsg}`);
+        await logDecision({
+          accepted: false,
+          rejectReason: 'ai_budget_exceeded',
+          decisionType: 'ai_budget_exceeded',
+          qualitativeReason: errMsg,
+        });
+        return;
+      }
       // 일시적 오류(차트 데이터 없음, 네트워크 429 등)는 쿨다운 없이 스킵 — 다음 사이클에 재시도
       const isTransient =
         errMsg.includes('Insufficient data') ||
