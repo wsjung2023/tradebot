@@ -1,0 +1,222 @@
+import express, { type Request, Response, NextFunction } from "express";
+import session from "express-session";
+import connectPgSimple from "connect-pg-simple";
+import rateLimit from "express-rate-limit";
+import helmet from "helmet";
+import path from "path";
+import fs from "fs";
+import crypto from "crypto";
+import { createServer } from "http";
+import { pool } from "./db";
+import { registerRoutes } from "./routes";
+import { setupVite, log } from "./vite";
+import { setupAuth } from "./auth";
+import { jobManager } from "./job-manager";
+
+// 전역 에러 핸들러
+process.on('uncaughtException', (err) => {
+  console.error('[CRASH] Uncaught Exception:', err.message, err.stack);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason: any) => {
+  console.error('[CRASH] Unhandled Rejection:', reason?.message || reason);
+  process.exit(1);
+});
+
+const app = express();
+
+declare module 'http' {
+  interface IncomingMessage {
+    rawBody: unknown
+  }
+}
+
+app.set('trust proxy', 1);
+
+const isProduction = process.env.NODE_ENV === 'production';
+const sessionSecret = process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex");
+
+if (!process.env.SESSION_SECRET) {
+  console.warn("[SECURITY] SESSION_SECRET 미설정: 프로세스 재시작마다 변경되는 임시 시크릿을 사용합니다. 운영에서는 반드시 고정 값을 설정하세요.");
+}
+
+if (isProduction && sessionSecret.length < 32) {
+  throw new Error("SESSION_SECRET must be at least 32 characters in production.");
+}
+
+app.use(helmet({
+  contentSecurityPolicy: isProduction ? {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'", "ws:", "wss:", "https:"],
+      fontSrc: ["'self'", "data:", "https://fonts.gstatic.com"],
+      objectSrc: ["'none'"],
+      manifestSrc: ["'self'"],
+      workerSrc: ["'self'"],
+    },
+  } : false,
+  crossOriginEmbedderPolicy: false,
+}));
+
+const AGENT_KEY_ENV = process.env.AGENT_KEY || "";
+if (AGENT_KEY_ENV && AGENT_KEY_ENV.length < 32) {
+  console.warn("[SECURITY] AGENT_KEY는 32자 이상을 권장합니다.");
+}
+if (isProduction && !AGENT_KEY_ENV) {
+  throw new Error("AGENT_KEY must be configured in production.");
+}
+
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 200,
+  standardHeaders: true,
+  legacyHeaders: false,
+  // 에이전트 KEY가 있는 요청은 rate limit 제외 (폴링이 잦아서 금방 한도 초과됨)
+  skip: (req) => {
+    const key = (req.query.agent_key as string) || (req.headers["x-agent-key"] as string) || "";
+    return !!(AGENT_KEY_ENV && key === AGENT_KEY_ENV);
+  },
+});
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  skipSuccessfulRequests: true,
+});
+
+app.use('/api/', apiLimiter);
+app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/register', authLimiter);
+
+app.use(express.json({
+  verify: (req, _res, buf) => { req.rawBody = buf; }
+}));
+app.use(express.urlencoded({ extended: false }));
+
+// 프로덕션: PostgreSQL 세션 저장소
+const PgSession = connectPgSimple(session);
+const isReplit = !!process.env.REPLIT_DOMAINS;
+const cookieSecure = isReplit || isProduction;
+
+const sessionStore = isProduction
+  ? new PgSession({
+      pool,
+      createTableIfMissing: false,
+      tableName: 'session',
+    })
+  : undefined;
+
+const sessionMiddleware = session({
+  store: sessionStore,
+  secret: sessionSecret,
+  resave: false,
+  saveUninitialized: false,
+  rolling: false,
+  name: 'connect.sid',
+  proxy: true,
+  cookie: {
+    maxAge: 30 * 24 * 60 * 60 * 1000,
+    secure: cookieSecure,
+    httpOnly: true,
+    sameSite: 'lax',
+  },
+});
+
+app.use(sessionMiddleware);
+setupAuth(app);
+
+// 경량 헬스체크 엔드포인트
+const SERVER_START_TIME = new Date().toISOString();
+app.get('/api/healthz', (_req, res) => {
+  res.status(200).json({
+    ok: true,
+    buildVersion: process.env.BUILD_VERSION || null,
+    startedAt: SERVER_START_TIME,
+  });
+});
+
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on("finish", () => {
+    const duration = Date.now() - start;
+    log(`${req.method} ${req.path} ${res.statusCode} in ${duration}ms`);
+  });
+  next();
+});
+
+const port = parseInt(process.env.PORT || '5000', 10);
+const httpServer = createServer(app);
+
+// 프로덕션: process.cwd() 기반 경로 (import.meta.dirname 미사용)
+function setupStaticServing() {
+  const cwd = process.cwd();
+  const publicDir = path.join(cwd, 'dist', 'public');
+  const indexFile = path.join(publicDir, 'index.html');
+
+  console.log(`[STATIC] cwd=${cwd}`);
+  console.log(`[STATIC] publicDir=${publicDir} exists=${fs.existsSync(publicDir)}`);
+  console.log(`[STATIC] indexFile exists=${fs.existsSync(indexFile)}`);
+
+  if (!fs.existsSync(publicDir)) {
+    console.error('[STATIC] FATAL: dist/public not found.');
+    app.use('*', (_req, res) => {
+      res.status(200).send('<html><body><h1>Build error: frontend not found</h1></body></html>');
+    });
+    return;
+  }
+
+  // sw.js는 절대 캐시하지 않음 — 브라우저가 항상 최신 버전을 받아야 함
+  app.get('/sw.js', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.sendFile(path.join(publicDir, 'sw.js'));
+  });
+
+  app.use(express.static(publicDir));
+
+  const html = fs.readFileSync(indexFile, 'utf8');
+  app.use('*', (_req, res) => {
+    res.status(200).contentType('text/html').send(html);
+  });
+
+  console.log('[STATIC] Static serving configured ✓');
+}
+
+// 포트 열기
+httpServer.listen({ port, host: "0.0.0.0" }, () => {
+  log(`serving on port ${port}`);
+});
+
+(async () => {
+  try {
+    console.log('[STARTUP] Registering routes...');
+    await registerRoutes(app, httpServer, sessionMiddleware);
+
+    app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+      if (res.headersSent) return;
+      const status = err.status || err.statusCode || 500;
+      const message = err.message || "Internal Server Error";
+      console.error('[ERROR]', status, message);
+      res.status(status).json({ message });
+    });
+
+    if (!isProduction) {
+      console.log('[STARTUP] Vite dev server...');
+      await setupVite(app, httpServer);
+    } else {
+      console.log('[STARTUP] Static file serving...');
+      setupStaticServing();
+    }
+
+    await jobManager.initialize();
+    console.log('[STARTUP] Ready ✓');
+  } catch (err: any) {
+    console.error('[STARTUP] FATAL:', err.message, err.stack);
+    process.exit(1);
+  }
+})();

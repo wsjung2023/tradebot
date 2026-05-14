@@ -1,0 +1,1030 @@
+import { sql } from "drizzle-orm";
+import { 
+  pgTable, 
+  text, 
+  varchar, 
+  timestamp, 
+  integer, 
+  decimal, 
+  boolean, 
+  jsonb,
+  json,
+  serial,
+  unique
+} from "drizzle-orm/pg-core";
+import { createInsertSchema } from "drizzle-zod";
+import { z } from "zod";
+
+// Session table - managed by express-session (connect-pg-simple)
+export const session = pgTable("session", {
+  sid: varchar("sid").primaryKey(),
+  sess: json("sess").notNull(),
+  expire: timestamp("expire", { precision: 6, mode: 'date' }).notNull(),
+});
+
+// Users table - supports multiple auth providers
+export const users = pgTable("users", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  email: text("email").notNull().unique(),
+  password: text("password"), // null for OAuth users
+  name: text("name"),
+  profileImage: text("profile_image"),
+  authProvider: text("auth_provider").notNull().default('local'), // 'local', 'google', 'kakao', 'naver'
+  authProviderId: text("auth_provider_id"), // ID from OAuth provider
+  isEmailVerified: boolean("is_email_verified").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// Kiwoom account configuration
+export const kiwoomAccounts = pgTable("kiwoom_accounts", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  accountNumber: text("account_number").notNull(),
+  accountType: text("account_type").notNull(), // 'mock' or 'real'
+  accountName: text("account_name"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  // Cached balance from last successful fetch
+  lastTotalAssets: decimal("last_total_assets", { precision: 16, scale: 2 }),
+  lastDepositAmount: decimal("last_deposit_amount", { precision: 16, scale: 2 }),
+  lastTodayProfit: decimal("last_today_profit", { precision: 16, scale: 2 }),
+  lastTodayProfitRate: decimal("last_today_profit_rate", { precision: 10, scale: 4 }),
+  lastBalanceFetchedAt: timestamp("last_balance_fetched_at"),
+});
+
+// Portfolio holdings
+export const holdings = pgTable("holdings", {
+  id: serial("id").primaryKey(),
+  accountId: integer("account_id").notNull().references(() => kiwoomAccounts.id, { onDelete: 'cascade' }),
+  stockCode: text("stock_code").notNull(),
+  stockName: text("stock_name").notNull(),
+  quantity: integer("quantity").notNull(),
+  averagePrice: decimal("average_price", { precision: 12, scale: 2 }).notNull(),
+  currentPrice: decimal("current_price", { precision: 12, scale: 2 }),
+  profitLoss: decimal("profit_loss", { precision: 12, scale: 2 }),
+  profitLossRate: decimal("profit_loss_rate", { precision: 8, scale: 4 }),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// Orders history
+export const orders = pgTable("orders", {
+  id: serial("id").primaryKey(),
+  accountId: integer("account_id").notNull().references(() => kiwoomAccounts.id, { onDelete: 'cascade' }),
+  stockCode: text("stock_code").notNull(),
+  stockName: text("stock_name").notNull(),
+  orderType: text("order_type").notNull(), // 'buy' or 'sell'
+  orderMethod: text("order_method").notNull(), // 'market', 'limit', 'conditional'
+  orderPrice: decimal("order_price", { precision: 12, scale: 2 }),
+  orderQuantity: integer("order_quantity").notNull(),
+  executedQuantity: integer("executed_quantity").notNull().default(0),
+  executedPrice: decimal("executed_price", { precision: 12, scale: 2 }),
+  orderStatus: text("order_status").notNull(), // 'pending', 'partial', 'completed', 'cancelled'
+  orderNumber: text("order_number"), // from Kiwoom API
+  isAutoTrading: boolean("is_auto_trading").notNull().default(false),
+  aiModelId: integer("ai_model_id").references(() => aiModels.id),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  executedAt: timestamp("executed_at"),
+  details: jsonb("details"), // metadata: rainbowLine, tradeType, etc.
+});
+
+
+// AI trading models/strategies
+export const aiModels = pgTable("ai_models", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  modelName: text("model_name").notNull(),
+  modelType: text("model_type").notNull(), // 'momentum', 'value', 'technical', 'custom'
+  description: text("description"),
+  config: jsonb("config").notNull().default({}), // AI model parameters
+  isActive: boolean("is_active").notNull().default(false),
+  performance: jsonb("performance"), // backtesting results
+  totalTrades: integer("total_trades").notNull().default(0),
+  winRate: decimal("win_rate", { precision: 5, scale: 2 }),
+  totalReturn: decimal("total_return", { precision: 8, scale: 4 }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// AI recommendations
+export const aiRecommendations = pgTable("ai_recommendations", {
+  id: serial("id").primaryKey(),
+  modelId: integer("model_id").notNull().references(() => aiModels.id, { onDelete: 'cascade' }),
+  stockCode: text("stock_code").notNull(),
+  stockName: text("stock_name").notNull(),
+  action: text("action").notNull(), // 'buy', 'sell', 'hold'
+  confidence: decimal("confidence", { precision: 5, scale: 2 }).notNull(),
+  targetPrice: decimal("target_price", { precision: 12, scale: 2 }),
+  reasoning: text("reasoning"),
+  indicators: jsonb("indicators"), // technical indicators used
+  isExecuted: boolean("is_executed").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  expiresAt: timestamp("expires_at"),
+});
+
+// Watchlist
+export const watchlist = pgTable("watchlist", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  stockCode: text("stock_code").notNull(),
+  stockName: text("stock_name").notNull(),
+  targetPrice: decimal("target_price", { precision: 12, scale: 2 }),
+  alertEnabled: boolean("alert_enabled").notNull().default(true),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// Watchlist sync snapshots - HTS 동기화된 시세/상태 스냅샷
+export const watchlistSyncSnapshots = pgTable("watchlist_sync_snapshots", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  stockCode: text("stock_code").notNull(),
+  stockName: text("stock_name").notNull(),
+  source: text("source").notNull().default('kiwoom_hts'),
+  syncedPrice: decimal("synced_price", { precision: 12, scale: 2 }),
+  rawPayload: jsonb("raw_payload"),
+  syncedAt: timestamp("synced_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// Price alerts
+export const alerts = pgTable("alerts", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  stockCode: text("stock_code").notNull(),
+  stockName: text("stock_name").notNull(),
+  alertType: text("alert_type").notNull(), // 'price_above', 'price_below', 'volume_spike', 'ai_signal'
+  targetValue: decimal("target_value", { precision: 12, scale: 2 }),
+  isTriggered: boolean("is_triggered").notNull().default(false),
+  isActive: boolean("is_active").notNull().default(true),
+  triggeredAt: timestamp("triggered_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// System settings
+export const userSettings = pgTable("user_settings", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().unique().references(() => users.id, { onDelete: 'cascade' }),
+  defaultAccountId: integer("default_account_id").references(() => kiwoomAccounts.id),
+  tradingMode: text("trading_mode").notNull().default('mock'), // 'mock' or 'real'
+  autoTradingEnabled: boolean("auto_trading_enabled").notNull().default(false),
+  riskLevel: text("risk_level").notNull().default('medium'), // 'low', 'medium', 'high'
+  maxDailyLoss: decimal("max_daily_loss", { precision: 12, scale: 2 }),
+  notificationSettings: jsonb("notification_settings"),
+  kiwoomAppKey: text("kiwoom_app_key"), // Encrypted
+  kiwoomAppSecret: text("kiwoom_app_secret"), // Encrypted
+  priceAlertEnabled: boolean("price_alert_enabled").notNull().default(true),
+  tradeAlertEnabled: boolean("trade_alert_enabled").notNull().default(true),
+  theme: text("theme").notNull().default('light'),
+  aiModel: text("ai_model").notNull().default('gpt-5.1'), // 'gpt-5.1', 'gpt-5.1-chat-latest', 'gpt-5-mini', 'gpt-4.1', 'gpt-4o'
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// Trading logs for audit
+export const tradingLogs = pgTable("trading_logs", {
+  id: serial("id").primaryKey(),
+  accountId: integer("account_id").notNull().references(() => kiwoomAccounts.id, { onDelete: 'cascade' }),
+  action: text("action").notNull(),
+  details: jsonb("details").notNull(),
+  success: boolean("success").notNull(),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// ==================== Condition Search System ====================
+
+// Condition formulas (화면 0105 - 조건검색 식)
+export const conditionFormulas = pgTable("condition_formulas", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  conditionName: text("condition_name").notNull(),
+  description: text("description"),
+  formulaAst: jsonb("formula_ast").notNull().default({}), // Parsed formula AST: (A and B) or (C and D) and E...
+  rawFormula: text("raw_formula"), // Original formula text
+  marketType: text("market_type").notNull().default('ALL'), // 'ALL', 'KOSPI', 'KOSDAQ', 'KONEX'
+  isActive: boolean("is_active").notNull().default(false),
+  isRealTimeMonitoring: boolean("is_real_time_monitoring").notNull().default(false),
+  matchCount: integer("match_count").notNull().default(0),
+  lastMatchedAt: timestamp("last_matched_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// Condition results - latest matches from real-time screening (화면 0156)
+export const conditionResults = pgTable("condition_results", {
+  id: serial("id").primaryKey(),
+  conditionId: integer("condition_id").notNull().references(() => conditionFormulas.id, { onDelete: 'cascade' }),
+  stockCode: text("stock_code").notNull(),
+  stockName: text("stock_name").notNull(),
+  matchScore: decimal("match_score", { precision: 5, scale: 2 }), // 0-100 confidence
+  currentPrice: decimal("current_price", { precision: 12, scale: 2 }),
+  volume: integer("volume"),
+  changeRate: decimal("change_rate", { precision: 8, scale: 4 }),
+  isMarketIssue: boolean("is_market_issue").notNull().default(false), // 시장이슈종목
+  hasGoodFinancials: boolean("has_good_financials").notNull().default(false), // 3년 재무 양호
+  hasHighLiquidity: boolean("has_high_liquidity").notNull().default(false), // 유동성 양호
+  passedFilters: boolean("passed_filters").notNull().default(false), // All filters passed
+  metadata: jsonb("metadata"), // Additional technical indicators
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// Chart formulas (차트 수식 관리자)
+export const chartFormulas = pgTable("chart_formulas", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  formulaName: text("formula_name").notNull(),
+  formulaType: text("formula_type").notNull(), // 'indicator', 'signal', 'condition'
+  description: text("description"),
+  formulaAst: jsonb("formula_ast").notNull().default({}), // Parsed formula AST
+  rawFormula: text("raw_formula").notNull(), // e.g., "CL=valuewhen((highest(h(1).period)<highest(h.period))..."
+  outputType: text("output_type").notNull().default('line'), // 'line', 'bar', 'signal'
+  color: text("color"), // For 7-color system: red, orange, yellow, green, blue, indigo, violet
+  lineWeight: integer("line_weight").notNull().default(1),
+  version: integer("version").notNull().default(1),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// Watchlist signals - stores 7-color indicator states for each stock (화면 0130)
+export const watchlistSignals = pgTable("watchlist_signals", {
+  id: serial("id").primaryKey(),
+  watchlistId: integer("watchlist_id").notNull().references(() => watchlist.id, { onDelete: 'cascade' }),
+  chartFormulaId: integer("chart_formula_id").references(() => chartFormulas.id),
+  signalData: jsonb("signal_data").notNull().default({}), // Time-series data for 7 signal lines
+  currentSignal: text("current_signal"), // Current buy/sell signal
+  signalStrength: decimal("signal_strength", { precision: 5, scale: 2 }), // 0-100
+  lastCalculatedAt: timestamp("last_calculated_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// Financial snapshots - 3-year financial data cache
+export const financialSnapshots = pgTable("financial_snapshots", {
+  id: serial("id").primaryKey(),
+  stockCode: text("stock_code").notNull(),
+  fiscalYear: integer("fiscal_year").notNull(),
+  revenue: decimal("revenue", { precision: 16, scale: 2 }),
+  operatingProfit: decimal("operating_profit", { precision: 16, scale: 2 }),
+  netIncome: decimal("net_income", { precision: 16, scale: 2 }),
+  totalAssets: decimal("total_assets", { precision: 16, scale: 2 }),
+  totalLiabilities: decimal("total_liabilities", { precision: 16, scale: 2 }),
+  totalEquity: decimal("total_equity", { precision: 16, scale: 2 }),
+  debtRatio: decimal("debt_ratio", { precision: 8, scale: 4 }),
+  roe: decimal("roe", { precision: 8, scale: 4 }), // Return on Equity
+  roa: decimal("roa", { precision: 8, scale: 4 }), // Return on Assets
+  isHealthy: boolean("is_healthy").notNull().default(true), // Overall health flag
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// Market issues - daily market issue tracking (시장이슈종목)
+export const marketIssues = pgTable("market_issues", {
+  id: serial("id").primaryKey(),
+  issueDate: text("issue_date").notNull(), // YYYYMMDD
+  stockCode: text("stock_code").notNull(),
+  stockName: text("stock_name").notNull(),
+  issueType: text("issue_type").notNull(), // 'news', 'theme', 'volume', 'price', 'sector'
+  issueTitle: text("issue_title"),
+  issueDescription: text("issue_description"),
+  impactLevel: text("impact_level").notNull().default('medium'), // 'low', 'medium', 'high'
+  relatedTheme: text("related_theme"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// ==================== Auto Trading System ====================
+
+// Auto trading settings - customizable trading parameters per AI model
+export const autoTradingSettings = pgTable("auto_trading_settings", {
+  id: serial("id").primaryKey(),
+  modelId: integer("model_id").notNull().unique().references(() => aiModels.id, { onDelete: 'cascade' }),
+  
+  // Position sizing
+  defaultPositionSize: decimal("default_position_size", { precision: 12, scale: 2 }).notNull().default('1000000'), // 100만원
+  maxPositionSize: decimal("max_position_size", { precision: 12, scale: 2 }).notNull().default('10000000'), // 1000만원
+  maxDailyTrades: integer("max_daily_trades").notNull().default(5),
+  
+  // 10-line rainbow chart settings (10% intervals from peak)
+  rainbowLineSettings: jsonb("rainbow_line_settings").notNull().default([]), // Array of 10 objects: { line: 10-100, buyWeight: 0-100, sellWeight: 0-100 }
+  centerBuyLine: integer("center_buy_line").notNull().default(50), // 50% = primary buy zone
+  
+  // Entry/Exit conditions
+  minAiConfidence: decimal("min_ai_confidence", { precision: 5, scale: 2 }).notNull().default('70'), // 70%
+  requireGoodFinancials: boolean("require_good_financials").notNull().default(true),
+  financialsScoreThreshold: decimal("financials_score_threshold", { precision: 5, scale: 2 }).notNull().default('60'), // requireGoodFinancials 통과 기준
+  requireHighLiquidity: boolean("require_high_liquidity").notNull().default(true),
+  liquidityScoreThreshold: decimal("liquidity_score_threshold", { precision: 5, scale: 2 }).notNull().default('40'), // requireHighLiquidity 통과 기준
+  requireMarketIssue: boolean("require_market_issue").notNull().default(false),
+  filterInvestmentWarnings: boolean("filter_investment_warnings").notNull().default(false),
+  
+  // AI analysis weights
+  themeWeight: decimal("theme_weight", { precision: 5, scale: 2 }).notNull().default('20'),
+  newsWeight: decimal("news_weight", { precision: 5, scale: 2 }).notNull().default('15'),
+  financialsWeight: decimal("financials_weight", { precision: 5, scale: 2 }).notNull().default('25'),
+  liquidityWeight: decimal("liquidity_weight", { precision: 5, scale: 2 }).notNull().default('20'),
+  institutionalWeight: decimal("institutional_weight", { precision: 5, scale: 2 }).notNull().default('20'),
+  
+  // Dynamic exit adjustment
+  enableDynamicExit: boolean("enable_dynamic_exit").notNull().default(true),
+  stalePeriodDays: integer("stale_period_days").notNull().default(5), // Lower exit if held > 5 days
+  surgeThreshold: decimal("surge_threshold", { precision: 5, scale: 2 }).notNull().default('10'), // Raise exit if +10% surge
+  volumeSpikeMultiplier: decimal("volume_spike_multiplier", { precision: 5, scale: 2 }).notNull().default('3'), // 3x volume
+
+  // Unit/capital management
+  baseUnitSize: decimal("base_unit_size", { precision: 12, scale: 2 }),
+  maxUnitsPerStock: integer("max_units_per_stock"),
+  hardMaxCapitalPerStock: decimal("hard_max_capital_per_stock", { precision: 12, scale: 2 }),
+
+  // Condition search & ladder
+  conditionSearchSequences: jsonb("condition_search_sequences"),
+  entryLadderSettings: jsonb("entry_ladder_settings"),
+
+  // Candidate scoring
+  candidateScoringWeights: jsonb("candidate_scoring_weights"),
+  candidateThresholds: jsonb("candidate_thresholds"),
+
+  // AI policy overrides
+  aiEntryPolicy: jsonb("ai_entry_policy"),
+  aiExitPolicy: jsonb("ai_exit_policy"),
+  stopLossPolicy: jsonb("stop_loss_policy"),
+  learningPolicy: jsonb("learning_policy"),
+
+  // AI discretion flags
+  allowAiDoubleDown: boolean("allow_ai_double_down"),
+  allowAiPartialTakeProfit: boolean("allow_ai_partial_take_profit"),
+  allowAiHoldBeyondTarget: boolean("allow_ai_hold_beyond_target"),
+  allowSpeculativeLeaderTrades: boolean("allow_speculative_leader_trades"),
+
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// Trading performance - learning data for strategy improvement
+export const tradingPerformance = pgTable("trading_performance", {
+  id: serial("id").primaryKey(),
+  modelId: integer("model_id").notNull().references(() => aiModels.id, { onDelete: 'cascade' }),
+  orderId: integer("order_id").references(() => orders.id),
+  
+  // Trade details
+  stockCode: text("stock_code").notNull(),
+  stockName: text("stock_name").notNull(),
+  entryPrice: decimal("entry_price", { precision: 12, scale: 2 }).notNull(),
+  exitPrice: decimal("exit_price", { precision: 12, scale: 2 }),
+  quantity: integer("quantity").notNull(),
+  
+  // Performance metrics
+  profitLoss: decimal("profit_loss", { precision: 12, scale: 2 }),
+  profitLossRate: decimal("profit_loss_rate", { precision: 8, scale: 4 }),
+  holdingDays: integer("holding_days"),
+  isWin: boolean("is_win"),
+  
+  // Entry context
+  entryRainbowLine: integer("entry_rainbow_line"), // Which line triggered entry (10-100)
+  entryAiConfidence: decimal("entry_ai_confidence", { precision: 5, scale: 2 }),
+  entryConditions: jsonb("entry_conditions"), // Snapshot of conditions at entry
+  
+  // Exit context
+  exitReason: text("exit_reason"), // 'target', 'stoploss', 'dynamic_lower', 'dynamic_higher', 'timeout'
+  exitRainbowLine: integer("exit_rainbow_line"),
+  exitConditions: jsonb("exit_conditions"),
+  
+  // Learning data
+  themeScore: decimal("theme_score", { precision: 5, scale: 2 }),
+  newsScore: decimal("news_score", { precision: 5, scale: 2 }),
+  financialsScore: decimal("financials_score", { precision: 5, scale: 2 }),
+  liquidityScore: decimal("liquidity_score", { precision: 5, scale: 2 }),
+  institutionalScore: decimal("institutional_score", { precision: 5, scale: 2 }),
+
+  // Strategy tracking
+  strategyVersion: text("strategy_version"),
+  entryDecisionSnapshot: jsonb("entry_decision_snapshot"),
+  entryScorecard: jsonb("entry_scorecard"),
+  entryLadderPlan: jsonb("entry_ladder_plan"),
+  filledEntrySteps: jsonb("filled_entry_steps"),
+  filledUnits: integer("filled_units"),
+  maxUnitsReached: integer("max_units_reached"),
+  avgEntryLine: integer("avg_entry_line"),
+  holdDecisionSnapshots: jsonb("hold_decision_snapshots"),
+  exitDecisionSnapshot: jsonb("exit_decision_snapshot"),
+  scaleOutHistory: jsonb("scale_out_history"),
+  plannedExitPolicy: jsonb("planned_exit_policy"),
+
+  entryTime: timestamp("entry_time").notNull().defaultNow(),
+  exitTime: timestamp("exit_time"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+
+// AI model specs catalog
+export const aiModelSpecs = pgTable("ai_model_specs", {
+  id: serial("id").primaryKey(),
+  modelId: text("model_id").notNull().unique(),
+  provider: text("provider").notNull(),
+  displayName: text("display_name").notNull(),
+  strengths: jsonb("strengths").notNull().default([]),
+  bestFor: jsonb("best_for").notNull().default([]),
+  contextWindow: integer("context_window"),
+  inputCostPer1m: decimal("input_cost_per_1m", { precision: 10, scale: 6 }),
+  outputCostPer1m: decimal("output_cost_per_1m", { precision: 10, scale: 6 }),
+  speedTier: text("speed_tier"),
+  reasoningScore: integer("reasoning_score"),
+  isActive: boolean("is_active").notNull().default(true),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// AI council analysis sessions (shadow/production)
+export const aiCouncilSessions = pgTable("ai_council_sessions", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  stockCode: text("stock_code").notNull(),
+  stockName: text("stock_name").notNull(),
+  sessionData: jsonb("session_data").notNull(),
+  finalAction: text("final_action"),
+  finalConfidence: decimal("final_confidence", { precision: 5, scale: 2 }),
+  targetPrice: decimal("target_price", { precision: 12, scale: 2 }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// Entry point calculator outputs
+export const entryPoints = pgTable("entry_points", {
+  id: serial("id").primaryKey(),
+  councilSessionId: integer("council_session_id").references(() => aiCouncilSessions.id, { onDelete: 'set null' }),
+  stockCode: text("stock_code").notNull(),
+  entryPrice: decimal("entry_price", { precision: 12, scale: 2 }),
+  stopLoss: decimal("stop_loss", { precision: 12, scale: 2 }),
+  takeProfit: decimal("take_profit", { precision: 12, scale: 2 }),
+  positionSize: integer("position_size"),
+  signalConfluence: integer("signal_confluence"),
+  executed: boolean("executed").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// Learning run records
+export const learningRecords = pgTable("learning_records", {
+  id: serial("id").primaryKey(),
+  modelId: integer("model_id").notNull().references(() => aiModels.id, { onDelete: 'cascade' }),
+  periodStart: timestamp("period_start"),
+  periodEnd: timestamp("period_end"),
+  totalTrades: integer("total_trades"),
+  winRate: decimal("win_rate", { precision: 5, scale: 2 }),
+  avgReturn: decimal("avg_return", { precision: 8, scale: 4 }),
+  patternInsights: jsonb("pattern_insights"),
+  appliedChanges: jsonb("applied_changes"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// Company filings (DART/공시)
+export const companyFilings = pgTable("company_filings", {
+  id: serial("id").primaryKey(),
+  stockCode: text("stock_code").notNull(),
+  stockName: text("stock_name").notNull(),
+  corpCode: text("corp_code"),
+  rceptNo: text("rcept_no").notNull(),
+  reportNm: text("report_nm").notNull(),
+  flrNm: text("flr_nm"),
+  rceptDt: text("rcept_dt"),
+  link: text("link"),
+  source: text("source").notNull().default('dart'),
+  payload: jsonb("payload"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// News articles cache (학습용 영속 뉴스)
+export const newsArticles = pgTable("news_articles", {
+  id: serial("id").primaryKey(),
+  stockCode: text("stock_code").notNull(),
+  stockName: text("stock_name").notNull(),
+  title: text("title").notNull(),
+  description: text("description"),
+  link: text("link").notNull(),
+  source: text("source"),
+  sentiment: text("sentiment").notNull().default('neutral'),
+  publishedAt: timestamp("published_at"),
+  payload: jsonb("payload"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// Snapshot of analysis materials used for AI/learning
+export const analysisMaterialSnapshots = pgTable("analysis_material_snapshots", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  stockCode: text("stock_code").notNull(),
+  stockName: text("stock_name").notNull(),
+  corpCode: text("corp_code"),
+  financialSummary: jsonb("financial_summary"),
+  marketIssues: jsonb("market_issues"),
+  filingIds: jsonb("filing_ids").notNull().default([]),
+  newsIds: jsonb("news_ids").notNull().default([]),
+  collectedAt: timestamp("collected_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// ==================== Kiwoom Agent Job Queue ====================
+
+// 집 PC 에이전트가 폴링해서 처리할 작업 큐
+// 구조: Replit(작업 등록) → 집 PC 에이전트(폴링+키움 호출) → Replit(결과 저장)
+export const kiwoomJobs = pgTable("kiwoom_jobs", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }), // 작업 소유자
+  jobType: text("job_type").notNull(), // 'watchlist.get', 'order.buy', 'order.sell', 'balance.get' 등
+  payload: jsonb("payload").notNull().default({}), // 작업 파라미터
+  status: text("status").notNull().default('pending'), // 'pending', 'processing', 'done', 'error'
+  result: jsonb("result"), // 집 PC 에이전트가 올린 결과
+  errorMessage: text("error_message"), // 실패 시 에러 메시지
+  agentId: text("agent_id"), // 처리한 에이전트 식별자 (AGENT_KEY 아님 — 안전한 식별값만 저장)
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  processedAt: timestamp("processed_at"), // 처리 완료 시각
+});
+
+// 자동매매 실행 상태(사용자별) - 최소 상태 머신/하트비트
+export const autoTradingRuns = pgTable("auto_trading_runs", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }).unique(),
+  state: text("state").notNull().default("stopped"), // stopped | running | paused | error
+  reason: text("reason"),
+  lastCycleAt: timestamp("last_cycle_at"),
+  lastHeartbeatAt: timestamp("last_heartbeat_at").notNull().defaultNow(),
+  lastError: text("last_error"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// 엔진/에이전트 이벤트 알림(사용자별)
+export const engineNotifications = pgTable("engine_notifications", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  severity: text("severity").notNull().default("info"), // info | warn | crit
+  type: text("type").notNull(), // agent_offline | token_failed | engine_error ...
+  message: text("message").notNull(),
+  payload: jsonb("payload"),
+  readAt: timestamp("read_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertKiwoomJobSchema = createInsertSchema(kiwoomJobs, {
+  userId: z.string().min(1),
+  jobType: z.string().min(1),
+  payload: z.any(),
+}).omit({ id: true, createdAt: true, updatedAt: true });
+
+export const insertAutoTradingRunSchema = createInsertSchema(autoTradingRuns).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  lastHeartbeatAt: true,
+});
+
+export const insertEngineNotificationSchema = createInsertSchema(engineNotifications).omit({
+  id: true,
+  createdAt: true,
+  readAt: true,
+});
+
+export type KiwoomJob = typeof kiwoomJobs.$inferSelect;
+export type InsertKiwoomJob = z.infer<typeof insertKiwoomJobSchema>;
+export type AutoTradingRun = typeof autoTradingRuns.$inferSelect;
+export type InsertAutoTradingRun = z.infer<typeof insertAutoTradingRunSchema>;
+export type EngineNotification = typeof engineNotifications.$inferSelect;
+export type InsertEngineNotification = z.infer<typeof insertEngineNotificationSchema>;
+
+// ==================== Insert Schemas ====================
+
+export const insertUserSchema = createInsertSchema(users, {
+  email: z.string().email(),
+  password: z.string().min(8).optional(),
+  name: z.string().optional(),
+}).omit({ id: true, createdAt: true });
+
+export const insertKiwoomAccountSchema = createInsertSchema(kiwoomAccounts, {
+  accountNumber: z.string().min(1),
+  accountType: z.enum(['mock', 'real']),
+}).omit({ id: true, createdAt: true });
+
+export const insertHoldingSchema = createInsertSchema(holdings).omit({ 
+  id: true, 
+  updatedAt: true 
+});
+
+export const insertOrderSchema = createInsertSchema(orders, {
+  stockCode: z.string().min(1),
+  orderType: z.enum(['buy', 'sell']),
+  orderMethod: z.enum(['market', 'limit', 'conditional']),
+  orderQuantity: z.number().int().positive(),
+  orderPrice: z.union([z.string(), z.number()]).optional().transform(val => 
+    val !== undefined && val !== null ? String(val) : undefined
+  ),
+}).omit({ 
+  id: true, 
+  createdAt: true, 
+  executedAt: true,
+  executedQuantity: true,
+  orderStatus: true 
+});
+
+export const insertAiModelSchema = createInsertSchema(aiModels, {
+  modelName: z.string().min(1),
+  modelType: z.enum(['momentum', 'value', 'technical', 'custom']),
+  config: z.any(),
+}).omit({ 
+  id: true, 
+  createdAt: true, 
+  updatedAt: true,
+  totalTrades: true 
+});
+
+export const updateAiModelSchema = z.object({
+  modelName: z.string().min(1).optional(),
+  description: z.string().optional(),
+  config: z.any().optional(),
+  isActive: z.boolean().optional(),
+});
+
+export const insertAiRecommendationSchema = createInsertSchema(aiRecommendations, {
+  action: z.enum(['buy', 'sell', 'hold']),
+  confidence: z.string().or(z.number()),
+}).omit({ 
+  id: true, 
+  createdAt: true,
+  isExecuted: true 
+});
+
+export const insertWatchlistSchema = createInsertSchema(watchlist, {
+  stockCode: z.string().min(1),
+  stockName: z.string().min(1),
+}).omit({ id: true, createdAt: true });
+
+export const insertWatchlistSyncSnapshotSchema = createInsertSchema(watchlistSyncSnapshots).omit({
+  id: true,
+  syncedAt: true,
+  updatedAt: true,
+});
+
+export const insertAlertSchema = createInsertSchema(alerts, {
+  alertType: z.enum(['price_above', 'price_below', 'volume_spike', 'ai_signal']),
+}).omit({ 
+  id: true, 
+  createdAt: true,
+  isTriggered: true,
+  triggeredAt: true 
+});
+
+export const insertUserSettingsSchema = createInsertSchema(userSettings, {
+  tradingMode: z.enum(['mock', 'real']),
+  riskLevel: z.enum(['low', 'medium', 'high']),
+  aiModel: z.enum(['gpt-5.1', 'gpt-5.1-chat-latest', 'gpt-5-mini', 'gpt-4.1', 'gpt-4o']),
+}).omit({ id: true, updatedAt: true });
+
+export const insertTradingLogSchema = createInsertSchema(tradingLogs).omit({ 
+  id: true, 
+  createdAt: true 
+});
+
+export const insertConditionFormulaSchema = createInsertSchema(conditionFormulas, {
+  conditionName: z.string().min(1),
+  formulaAst: z.any(),
+  marketType: z.enum(['ALL', 'KOSPI', 'KOSDAQ', 'KONEX']),
+}).omit({ 
+  id: true, 
+  createdAt: true, 
+  updatedAt: true,
+  matchCount: true,
+  lastMatchedAt: true
+});
+
+export const insertConditionResultSchema = createInsertSchema(conditionResults).omit({ 
+  id: true, 
+  createdAt: true 
+});
+
+export const insertChartFormulaSchema = createInsertSchema(chartFormulas, {
+  formulaName: z.string().min(1),
+  formulaType: z.enum(['indicator', 'signal', 'condition']),
+  formulaAst: z.any(),
+  rawFormula: z.string().min(1),
+  outputType: z.enum(['line', 'bar', 'signal']),
+}).omit({ 
+  id: true, 
+  createdAt: true, 
+  updatedAt: true,
+  version: true
+});
+
+export const insertWatchlistSignalSchema = createInsertSchema(watchlistSignals, {
+  signalData: z.any(),
+}).omit({ 
+  id: true, 
+  lastCalculatedAt: true,
+  updatedAt: true 
+});
+
+export const insertFinancialSnapshotSchema = createInsertSchema(financialSnapshots, {
+  stockCode: z.string().min(1),
+  fiscalYear: z.number().int().min(2000),
+}).omit({ 
+  id: true, 
+  createdAt: true, 
+  updatedAt: true 
+});
+
+export const insertMarketIssueSchema = createInsertSchema(marketIssues, {
+  issueDate: z.string().regex(/^\d{8}$/),
+  stockCode: z.string().min(1),
+  issueType: z.enum(['news', 'theme', 'volume', 'price', 'sector']),
+  impactLevel: z.enum(['low', 'medium', 'high']),
+}).omit({ 
+  id: true, 
+  createdAt: true 
+});
+
+export const insertAutoTradingSettingsSchema = createInsertSchema(autoTradingSettings, {
+  modelId: z.number().int().positive(),
+  rainbowLineSettings: z.any(),
+}).omit({ 
+  id: true, 
+  createdAt: true, 
+  updatedAt: true 
+});
+
+
+export const insertAiModelSpecSchema = createInsertSchema(aiModelSpecs).omit({ id: true, updatedAt: true });
+
+export const insertAiCouncilSessionSchema = createInsertSchema(aiCouncilSessions).omit({ id: true, createdAt: true });
+
+export const insertEntryPointSchema = createInsertSchema(entryPoints).omit({ id: true, createdAt: true });
+
+export const insertLearningRecordSchema = createInsertSchema(learningRecords).omit({ id: true, createdAt: true });
+
+export const insertCompanyFilingSchema = createInsertSchema(companyFilings).omit({ id: true, createdAt: true, updatedAt: true });
+
+export const insertNewsArticleSchema = createInsertSchema(newsArticles).omit({ id: true, createdAt: true, updatedAt: true });
+
+export const insertAnalysisMaterialSnapshotSchema = createInsertSchema(analysisMaterialSnapshots).omit({ id: true, createdAt: true, collectedAt: true });
+
+export const insertTradingPerformanceSchema = createInsertSchema(tradingPerformance, {
+  modelId: z.number().int().positive(),
+  stockCode: z.string().min(1),
+}).omit({ 
+  id: true, 
+  createdAt: true,
+  entryTime: true 
+});
+
+// ==================== Type Exports ====================
+
+export type User = typeof users.$inferSelect;
+export type InsertUser = z.infer<typeof insertUserSchema>;
+
+export type KiwoomAccount = typeof kiwoomAccounts.$inferSelect;
+export type InsertKiwoomAccount = z.infer<typeof insertKiwoomAccountSchema>;
+
+export type Holding = typeof holdings.$inferSelect;
+export type InsertHolding = z.infer<typeof insertHoldingSchema>;
+
+export type Order = typeof orders.$inferSelect;
+export type InsertOrder = z.infer<typeof insertOrderSchema>;
+
+export type AiModel = typeof aiModels.$inferSelect;
+export type InsertAiModel = z.infer<typeof insertAiModelSchema>;
+
+export type AiRecommendation = typeof aiRecommendations.$inferSelect;
+export type InsertAiRecommendation = z.infer<typeof insertAiRecommendationSchema>;
+
+export type WatchlistItem = typeof watchlist.$inferSelect;
+export type InsertWatchlistItem = z.infer<typeof insertWatchlistSchema>;
+
+export type WatchlistSyncSnapshot = typeof watchlistSyncSnapshots.$inferSelect;
+export type InsertWatchlistSyncSnapshot = z.infer<typeof insertWatchlistSyncSnapshotSchema>;
+
+export type Alert = typeof alerts.$inferSelect;
+export type InsertAlert = z.infer<typeof insertAlertSchema>;
+
+export type UserSettings = typeof userSettings.$inferSelect;
+export type InsertUserSettings = z.infer<typeof insertUserSettingsSchema>;
+
+export type TradingLog = typeof tradingLogs.$inferSelect;
+export type InsertTradingLog = z.infer<typeof insertTradingLogSchema>;
+
+export type ConditionFormula = typeof conditionFormulas.$inferSelect;
+export type InsertConditionFormula = z.infer<typeof insertConditionFormulaSchema>;
+
+export type ConditionResult = typeof conditionResults.$inferSelect;
+export type InsertConditionResult = z.infer<typeof insertConditionResultSchema>;
+
+export type ChartFormula = typeof chartFormulas.$inferSelect;
+export type InsertChartFormula = z.infer<typeof insertChartFormulaSchema>;
+
+export type WatchlistSignal = typeof watchlistSignals.$inferSelect;
+export type InsertWatchlistSignal = z.infer<typeof insertWatchlistSignalSchema>;
+
+export type FinancialSnapshot = typeof financialSnapshots.$inferSelect;
+export type InsertFinancialSnapshot = z.infer<typeof insertFinancialSnapshotSchema>;
+
+export type MarketIssue = typeof marketIssues.$inferSelect;
+export type InsertMarketIssue = z.infer<typeof insertMarketIssueSchema>;
+
+export type AutoTradingSettings = typeof autoTradingSettings.$inferSelect;
+export type InsertAutoTradingSettings = z.infer<typeof insertAutoTradingSettingsSchema>;
+
+export type TradingPerformance = typeof tradingPerformance.$inferSelect;
+export type InsertTradingPerformance = z.infer<typeof insertTradingPerformanceSchema>;
+
+
+export type AiModelSpec = typeof aiModelSpecs.$inferSelect;
+export type InsertAiModelSpec = z.infer<typeof insertAiModelSpecSchema>;
+
+export type AiCouncilSession = typeof aiCouncilSessions.$inferSelect;
+export type InsertAiCouncilSession = z.infer<typeof insertAiCouncilSessionSchema>;
+
+export type EntryPoint = typeof entryPoints.$inferSelect;
+export type InsertEntryPoint = z.infer<typeof insertEntryPointSchema>;
+
+export type LearningRecord = typeof learningRecords.$inferSelect;
+export type InsertLearningRecord = z.infer<typeof insertLearningRecordSchema>;
+
+export type CompanyFiling = typeof companyFilings.$inferSelect;
+export type InsertCompanyFiling = z.infer<typeof insertCompanyFilingSchema>;
+
+export type NewsArticleRecord = typeof newsArticles.$inferSelect;
+export type InsertNewsArticleRecord = z.infer<typeof insertNewsArticleSchema>;
+
+export type AnalysisMaterialSnapshot = typeof analysisMaterialSnapshots.$inferSelect;
+export type InsertAnalysisMaterialSnapshot = z.infer<typeof insertAnalysisMaterialSnapshotSchema>;
+
+export const candidateStocks = pgTable("candidate_stocks", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  modelId: integer("model_id").notNull(),
+  stockCode: text("stock_code").notNull(),
+  stockName: text("stock_name").notNull().default(''),
+  source: text("source").notNull().default('뒷차기2'),
+  scannedLine: integer("scanned_line"),
+  scannedAt: timestamp("scanned_at").notNull().defaultNow(),
+  evaluationResult: jsonb("evaluation_result"),
+  skipReason: text("skip_reason"),
+  evaluatedAt: timestamp("evaluated_at"),
+}, (table) => ({
+  uniqueCandidate: unique().on(table.userId, table.modelId, table.stockCode),
+}));
+
+export const insertCandidateStockSchema = createInsertSchema(candidateStocks).omit({ id: true, scannedAt: true });
+export type CandidateStock = typeof candidateStocks.$inferSelect;
+export type InsertCandidateStock = z.infer<typeof insertCandidateStockSchema>;
+
+// Candidate evaluation decision log (one row per AI evaluation)
+export const candidateDecisionLogs = pgTable("candidate_decision_logs", {
+  id: serial("id").primaryKey(),
+  modelId: integer("model_id").notNull().references(() => aiModels.id, { onDelete: 'cascade' }),
+  stockCode: text("stock_code").notNull(),
+  stockName: text("stock_name").notNull().default(''),
+  scorecard: jsonb("scorecard"),
+  aiDecision: jsonb("ai_decision"),
+  ladderPlan: jsonb("ladder_plan"),
+  accepted: boolean("accepted").notNull().default(false),
+  rejectReason: text("reject_reason"),
+  strategyVersion: text("strategy_version"),
+  decidedAt: timestamp("decided_at").notNull().defaultNow(),
+});
+
+export const insertCandidateDecisionLogSchema = createInsertSchema(candidateDecisionLogs).omit({ id: true, decidedAt: true });
+export type CandidateDecisionLog = typeof candidateDecisionLogs.$inferSelect;
+export type InsertCandidateDecisionLog = z.infer<typeof insertCandidateDecisionLogSchema>;
+
+// Position management decision log (one row per hold/scale/exit decision)
+export const positionDecisionLogs = pgTable("position_decision_logs", {
+  id: serial("id").primaryKey(),
+  performanceId: integer("performance_id").notNull().references(() => tradingPerformance.id, { onDelete: 'cascade' }),
+  modelId: integer("model_id").notNull().references(() => aiModels.id, { onDelete: 'cascade' }),
+  stockCode: text("stock_code").notNull(),
+  decisionType: text("decision_type").notNull(), // 'hold', 'scale_in', 'partial_exit', 'full_exit', 'stop_loss'
+  aiSnapshot: jsonb("ai_snapshot"),
+  action: jsonb("action"),
+  strategyVersion: text("strategy_version"),
+  decidedAt: timestamp("decided_at").notNull().defaultNow(),
+});
+
+export const insertPositionDecisionLogSchema = createInsertSchema(positionDecisionLogs).omit({ id: true, decidedAt: true });
+export type PositionDecisionLog = typeof positionDecisionLogs.$inferSelect;
+export type InsertPositionDecisionLog = z.infer<typeof insertPositionDecisionLogSchema>;
+
+export const assetSnapshots = pgTable("asset_snapshots", {
+  id: serial("id").primaryKey(),
+  accountId: integer("account_id").notNull().references(() => kiwoomAccounts.id, { onDelete: 'cascade' }),
+  totalAssets: text("total_assets").notNull().default('0'),
+  totalProfitLoss: text("total_profit_loss").notNull().default('0'),
+  totalProfitRate: text("total_profit_rate").notNull().default('0'),
+  snapshotAt: timestamp("snapshot_at").notNull().defaultNow(),
+});
+
+export const insertAssetSnapshotSchema = createInsertSchema(assetSnapshots).omit({ id: true, snapshotAt: true });
+export type AssetSnapshot = typeof assetSnapshots.$inferSelect;
+export type InsertAssetSnapshot = z.infer<typeof insertAssetSnapshotSchema>;
+
+// ==================== Agent Update Logs ====================
+
+export const agentUpdateLogs = pgTable("agent_update_logs", {
+  id: serial("id").primaryKey(),
+  timestamp: timestamp("timestamp").notNull().defaultNow(),
+  success: boolean("success").notNull(),
+  agentHashBefore: text("agent_hash_before"),
+  serverHash: text("server_hash"),
+  errorMessage: text("error_message"),
+});
+
+export const insertAgentUpdateLogSchema = createInsertSchema(agentUpdateLogs).omit({ id: true, timestamp: true });
+export type AgentUpdateLog = typeof agentUpdateLogs.$inferSelect;
+export type InsertAgentUpdateLog = z.infer<typeof insertAgentUpdateLogSchema>;
+
+// ==================== Agent Alert Logs ====================
+
+export const agentAlertLogs = pgTable("agent_alert_logs", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  sentAt: timestamp("sent_at").notNull().defaultNow(),
+  toEmail: text("to_email"),
+  alertType: text("alert_type").notNull(), // 'disconnect', 'recovery', 'test'
+  success: boolean("success").notNull(),
+  errorMessage: text("error_message"),
+});
+
+export const insertAgentAlertLogSchema = createInsertSchema(agentAlertLogs).omit({ id: true, sentAt: true });
+export type AgentAlertLog = typeof agentAlertLogs.$inferSelect;
+export type InsertAgentAlertLog = z.infer<typeof insertAgentAlertLogSchema>;
+
+// ==================== System Config (key-value, 잡 상태 영속화용) ====================
+
+export const systemConfig = pgTable("system_config", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// ==================== Trade Journal (매매 저널 — 개별 트랜잭션 기록) ====================
+
+export const tradeJournal = pgTable("trade_journal", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  accountId: integer("account_id").notNull().references(() => kiwoomAccounts.id, { onDelete: 'cascade' }),
+  modelId: integer("model_id").references(() => aiModels.id, { onDelete: 'set null' }),
+  stockCode: text("stock_code").notNull(),
+  stockName: text("stock_name").notNull(),
+  tradeDate: text("trade_date").notNull(),          // YYYYMMDD (KST)
+  tradeTime: text("trade_time").notNull(),          // HH:MM:SS (KST)
+  tradeType: text("trade_type").notNull(),          // 'buy' | 'sell' | 'additional_buy' | 'exit_sell'
+  price: decimal("price", { precision: 12, scale: 2 }),
+  quantity: integer("quantity").notNull(),
+  totalAmount: decimal("total_amount", { precision: 16, scale: 2 }),
+  avgPrice: decimal("avg_price", { precision: 12, scale: 2 }),
+  rainbowLine: integer("rainbow_line"),              // CL선 (10~100)
+  profitRate: decimal("profit_rate", { precision: 8, scale: 4 }),
+  profitLoss: decimal("profit_loss", { precision: 12, scale: 2 }),
+  aiConfidence: decimal("ai_confidence", { precision: 5, scale: 2 }),
+  exitReason: text("exit_reason"),
+  isAutoTrading: boolean("is_auto_trading").notNull().default(true),
+  memo: text("memo"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  uniqueTrade: unique().on(table.userId, table.stockCode, table.tradeDate, table.tradeTime),
+}));
+
+export const insertTradeJournalSchema = createInsertSchema(tradeJournal).omit({ id: true, createdAt: true });
+export type TradeJournal = typeof tradeJournal.$inferSelect;
+export type InsertTradeJournal = z.infer<typeof insertTradeJournalSchema>;
+
+// ==================== AI Usage Daily (AI 사용량 일별 집계) ====================
+
+export const aiUsageDaily = pgTable("ai_usage_daily", {
+  id: serial("id").primaryKey(),
+  usageDate: text("usage_date").notNull(),            // YYYY-MM-DD (KST)
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  scopeType: text("scope_type").notNull(),            // 'login' | 'account'
+  scopeKey: text("scope_key").notNull(),              // 'login:{userId}' | 'account:{accountId}'
+  accountId: integer("account_id"),
+  requestCount: integer("request_count").notNull().default(0),
+  promptTokens: integer("prompt_tokens").notNull().default(0),
+  completionTokens: integer("completion_tokens").notNull().default(0),
+  totalTokens: integer("total_tokens").notNull().default(0),
+  costUsd: decimal("cost_usd", { precision: 14, scale: 8 }).notNull().default('0'),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export type AiUsageDaily = typeof aiUsageDaily.$inferSelect;
+
+// ==================== Stock Status (Phase 2 종목 상태 필터링) ====================
+
+export const stockStatus = pgTable("stock_status", {
+  stockCode: varchar("stock_code", { length: 10 }).primaryKey(),
+  orderWarning: integer("order_warning"),     // 0=정상, 3=단기과열, 4=투자경고, 5=투자위험
+  state: text("state"),                       // 파이프 구분 문자열
+  auditInfo: text("audit_info"),              // 감사정보
+  isWarning: boolean("is_warning"),           // orderWarning >= 3
+  isDanger: boolean("is_danger"),             // orderWarning = 5
+  isAuditAlert: boolean("is_audit_alert"),    // auditInfo에 "환기" 포함
+  creditAvailable: boolean("credit_available"),// state에 "신용가능" 포함
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertStockStatusSchema = createInsertSchema(stockStatus).omit({ updatedAt: true });
+export type StockStatus = typeof stockStatus.$inferSelect;
+export type InsertStockStatus = z.infer<typeof insertStockStatusSchema>;

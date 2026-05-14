@@ -1,0 +1,12 @@
+
+> rest-express@1.0.0 dev
+> cross-env NODE_ENV=development tsx --env-file=.env server/index.ts
+
+♻️  Kiwoom 토큰 캐시에서 복원 (유효기간: AM 9:42:00 )
+♻️  Kiwoom 토큰 캐시에서 복원 (유효기간: AM 9:42:00 )
+♻️  Kiwoom 토큰 캐시에서 복원 (유효기간: AM 9:42:00 )
+♻️  Kiwoom 토큰 캐시에서 복원 (유효기간: AM 9:42:00 )
+♻️  Kiwoom 토큰 캐시에서 복원 (유효기간: AM 9:42:00 )
+♻️  Kiwoom 토큰 캐시에서 복원 (유효기간: AM 9:42:00 )
+[STARTUP] Registering routes...
+[STARTUP] Vite dev server...
