@@ -170,8 +170,11 @@ export function registerAccountRoutes(app: Router) {
         return 0;
       };
 
-      const stockEvalAmount = parseNum(output1.tot_evlu_amt, output1.evlu_amt_smtl_amt);
-      const depositRaw = parseNum(output1.prsm_dpst_aset_amt, output1.dnca_tot_amt);
+      const stockEvalAmount = parseNum(output1.evlu_amt_smtl_amt, output1.tot_evlu_amt);
+      // prsm_dpst_aset_amt = 추정예탁자산 (주식평가 + 현금 - 미수금 등, 이미 총자산 개념)
+      // dnca_tot_amt = D+0 현금 예수금
+      const totalAssetsWithDeposit = parseNum(output1.prsm_dpst_aset_amt) || (stockEvalAmount + parseNum(output1.dnca_tot_amt));
+      const depositAmount = parseNum(output1.dnca_tot_amt);
       const todayProfit = parseNum(output1.evlu_pfls_smtl_amt, output1.tot_evlu_pfls);
 
       // DB 보유종목 동기화 (parseHoldingItem: server/utils/balance-parser.ts)
@@ -181,19 +184,9 @@ export function registerAccountRoutes(app: Router) {
         const parsed = parseHoldingItem(item);
         if (!parsed.stockCode) continue;
         const { stockCode, ...updates } = parsed;
-        console.log(`[fetch-balance] 종목 파싱: code=${stockCode} name=${updates.stockName} qty=${updates.quantity} avgPrc=${updates.averagePrice} curPrc=${updates.currentPrice} pl=${updates.profitLoss} plRate=${updates.profitLossRate} rawFields={pchs_avg_pric:${item.pchs_avg_pric},pur_pric:${item.pur_pric},prft_rt:${item.prft_rt},evltv_prft:${item.evltv_prft}}`);
         await storage.createHolding({ accountId: account.id, stockCode, ...updates });
       }
 
-      // 응답마다 "추정예탁자산"의 의미가 다를 수 있다.
-      // - 케이스 A: depositRaw가 '총자산(예탁자산평가액)'인 경우 -> 현금 = 총자산 - 주식평가
-      // - 케이스 B: depositRaw가 '현금/예수금'인 경우 -> 총자산 = 주식평가 + 예수금
-      let totalAssetsWithDeposit = stockEvalAmount + depositRaw;
-      let depositAmount = depositRaw;
-      if (stockEvalAmount > 0 && depositRaw > 0 && depositRaw >= stockEvalAmount) {
-        totalAssetsWithDeposit = depositRaw;
-        depositAmount = Math.max(0, depositRaw - stockEvalAmount);
-      }
       const todayProfitRate = totalAssetsWithDeposit > 0 ? (todayProfit / totalAssetsWithDeposit) * 100 : 0;
 
       // 마지막 잔고 캐시를 계좌 레코드에 저장 (페이지 진입 시 표시용)

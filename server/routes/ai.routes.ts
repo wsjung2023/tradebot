@@ -226,6 +226,8 @@ export function registerAiRoutes(app: Router) {
           eps: ratiosData.eps || '0',
           bps: ratiosData.bps || '0',
           roe: ratiosData.roe || '0',
+          debt_ratio: ratiosData.debt_ratio || '0',
+          reserve_ratio: ratiosData.reserve_ratio || '0',
         } : undefined,
         priceHistory: chartData,
         news: newsData,

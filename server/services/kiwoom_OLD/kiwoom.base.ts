@@ -210,6 +210,15 @@ export class KiwoomBase {
             console.error("❌ 토큰 갱신 후 재시도 실패:", e);
           }
         }
+        // 429 rate limit 시 최대 3회 재시도 (1초, 2초, 4초 대기)
+        if (status === 429 && (error.config?._retryCount ?? 0) < 3) {
+          const retryCount = (error.config._retryCount ?? 0) + 1;
+          const waitMs = retryCount * 1000;
+          console.warn(`⚠️  Kiwoom 429 — ${waitMs}ms 후 재시도 (${retryCount}/3)`);
+          await new Promise(r => setTimeout(r, waitMs));
+          error.config._retryCount = retryCount;
+          return this.api.request(error.config);
+        }
         return Promise.reject(error);
       }
     );

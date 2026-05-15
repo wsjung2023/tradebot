@@ -566,7 +566,7 @@ Format as JSON.`;
     stockCode: string;
     stockName: string;
     currentPrice: number;
-    financialRatios?: { per: string; pbr: string; eps: string; bps: string; roe: string };
+    financialRatios?: { per: string; pbr: string; eps: string; bps: string; roe: string; debt_ratio?: string; reserve_ratio?: string };
     priceHistory?: Array<{ date: string; price: number; volume: number }>;
     news?: NewsResult;
     dartFilings?: Array<{ reportNm: string; rceptDt: string }>;
@@ -597,7 +597,7 @@ Format as JSON.`;
       : '관련 뉴스 없음';
 
     const financialSummary = financialRatios
-      ? `PER: ${financialRatios.per}, PBR: ${financialRatios.pbr}, EPS: ${financialRatios.eps}원, BPS: ${financialRatios.bps}원, ROE: ${financialRatios.roe}%`
+      ? `PER: ${financialRatios.per}, PBR: ${financialRatios.pbr}, EPS: ${financialRatios.eps}원, BPS: ${financialRatios.bps}원, ROE: ${financialRatios.roe}%, 부채비율: ${financialRatios.debt_ratio ?? '0'}%, 유보율: ${financialRatios.reserve_ratio ?? '0'}%`
       : '재무 데이터 없음';
 
     const priceSummary = priceHistory?.length
@@ -643,7 +643,7 @@ ${priceSummary}
 
 【채점 기준 — 반드시 준수】
 - newsScore(0-100): 최근 뉴스 감성. 긍정 뉴스 비율·강도 반영. 뉴스 없으면 50점 기본. 악재(횡령/소송/적자) -30 이상 감점.
-- financialScore(0-100): PER/PBR/ROE/EPS 종합. ROE>15%+PER<20 → 70+점. 재무데이터 없으면 40점(불확실성 반영).
+- financialScore(0-100): PER/PBR/ROE/EPS/부채비율/유보율 종합. ROE>15%+PER<20 → 70+점. 부채비율>200% → -10점. 유보율>500% → +5점(내부유보 풍부). 재무데이터 없으면 40점(불확실성 반영).
 - technicalScore(0-100): 가격 추세·모멘텀. 최근 5일 상승+거래량증가 → 65+. CL 근처 횡보 → 55. 지속 하락 → 30-.
 - themeScore(0-100): 섹터/테마 모멘텀. 종목명/업종에서 유추(AI·반도체·바이오·방산·2차전지 등 핫 섹터면 +). 뉴스와 독립 평가.
 - confidence(0-100): 위 4개 점수 + 레인보우 차트 추천을 종합한 전반적 확신도. 데이터가 충분하고 긍정 신호 다수면 높게.

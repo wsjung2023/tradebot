@@ -913,7 +913,8 @@ export class TradeExecutorService {
     const holdingUpdatedAt = holding.updatedAt ? new Date(holding.updatedAt) : new Date(0);
 
     // 당일의 매도 관련 주문들 (대기 중 + 잔고 반영 전 체결된 건)
-    const unsyncedSells = existingOrders.filter(o =>
+    const existingOrders = await storage.getOrders(activeAccount.id, 200);
+    const unsyncedSells = existingOrders.filter((o: any) =>
       o.stockCode === holding.stockCode &&
       o.orderType === 'sell' &&
       (
@@ -1037,6 +1038,8 @@ export class TradeExecutorService {
       eps: ratiosRaw.eps || '0',
       bps: ratiosRaw.bps || '0',
       roe: ratiosRaw.roe || '0',
+      debt_ratio: ratiosRaw.debt_ratio || '0',
+      reserve_ratio: ratiosRaw.reserve_ratio || '0',
     } : undefined;
 
     // ── 5단계: 뉴스 감성 데이터 ──────────────────────────────────────────

@@ -188,7 +188,7 @@ export default function BackAttackScan() {
   };
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
+    <div className="flex flex-col h-[calc(100vh-320px)] min-h-[400px] overflow-hidden bg-card/30 rounded-xl border shadow-xl mx-4 mb-6">
       {/* 헤더 */}
       <div className="p-6 border-b flex-shrink-0">
         <div className="flex flex-wrap items-center justify-between gap-4">
@@ -295,14 +295,15 @@ export default function BackAttackScan() {
 
       {/* 결과 — 2패널 레이아웃 */}
       {scanResult && (scanResult.stocks?.length ?? 0) > 0 && (
-        <div className="flex-1 flex overflow-hidden">
+        <div className="flex-1 flex overflow-hidden min-h-0">
           {/* 좌측: 종목 리스트 */}
-          <div className="w-72 border-r flex-shrink-0 overflow-y-auto">
-            <div className="p-3 border-b bg-muted/30">
+          <div className="w-80 border-r flex-shrink-0 flex flex-col bg-card">
+            <div className="p-3 border-b bg-muted/30 flex-shrink-0">
               <p className="text-xs font-medium text-muted-foreground">
                 {scanResult.stocks.length}개 종목 (추천 먼저 정렬)
               </p>
             </div>
+            <div className="flex-1 overflow-y-auto custom-scrollbar">
             {scanResult.stocks.map((stock) => (
               <button
                 key={stock.stockCode}
@@ -346,10 +347,11 @@ export default function BackAttackScan() {
                 </div>
               </button>
             ))}
+            </div>
 
             {/* 에러 종목 */}
             {(scanResult.errors?.length ?? 0) > 0 && (
-              <div className="p-3 border-t">
+              <div className="p-3 border-t bg-muted/10 flex-shrink-0">
                 <p className="text-xs text-muted-foreground font-medium mb-2">분석 실패</p>
                 {scanResult.errors!.map((err) => (
                   <div key={err.stockCode} className="text-xs text-destructive py-1">

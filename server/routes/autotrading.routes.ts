@@ -382,7 +382,7 @@ export function registerAutoTradingRoutes(app: Router) {
 
         processedCount++;
         if (processedCount < stockList.length) {
-          await new Promise((r) => setTimeout(r, 100));
+          await new Promise((r) => setTimeout(r, 300));
         }
       }
 

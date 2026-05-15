@@ -120,8 +120,8 @@ function AuthenticatedRouter() {
           <header className="flex items-center justify-between p-2 border-b border-white/50 bg-white/70 backdrop-blur-sm">
             <SidebarTrigger data-testid="button-sidebar-toggle" />
           </header>
-          <DecorativeHeroStrip />
           <main className="flex-1 overflow-auto pb-4">
+            <DecorativeHeroStrip />
             <div className="app-page-shell">
               <Switch>
                 <Route path="/" component={Dashboard} />

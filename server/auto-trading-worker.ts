@@ -13,6 +13,7 @@ import { getDartService } from './services/dart.service';
 import { AiModel, AutoTradingSettings } from '@shared/schema';
 import { getFeatureFlags } from './config/feature-flags';
 import { isKoreanMarketOpen } from './utils/market-hours';
+import { decrypt, isEncrypted } from './utils/crypto';
 
 const DART_DANGER_KEYWORDS = [
   '유상증자', '전환사채', '신주인수권부사채', '횡령', '배임', '관리종목', '상장폐지',
@@ -436,23 +437,18 @@ class AutoTradingWorker {
         return;
       }
 
-      const acctNum = targetAccount.accountNumber.replace(/\D/g, '').slice(0, 8);
-      let appKey = process.env[`KIWOOM_KEY_${acctNum}`];
-      let appSecret = process.env[`KIWOOM_SECRET_${acctNum}`];
+      const safeDecrypt = (val: string | null | undefined) =>
+        val ? (isEncrypted(val) ? decrypt(val) : val) : null;
+      const appKey = safeDecrypt(targetAccount.kiwoomAppKey);
+      const appSecret = safeDecrypt(targetAccount.kiwoomAppSecret);
 
       if (!appKey || !appSecret) {
-        if (targetAccount.accountType !== 'real') {
-          appKey = process.env.KIWOOM_APP_KEY;
-          appSecret = process.env.KIWOOM_APP_SECRET;
-        }
-        if (!appKey || !appSecret) {
-          await this.setRunState(model.userId, 'paused', model.id, 'missing_kiwoom_credentials', undefined, {
-            cycleId,
-            durationMs: Date.now() - startedAt,
-          });
-          console.log(`⚠️  No env keys KIWOOM_KEY_${acctNum} / KIWOOM_SECRET_${acctNum} - skipping`);
-          return;
-        }
+        await this.setRunState(model.userId, 'paused', model.id, 'missing_kiwoom_credentials', undefined, {
+          cycleId,
+          durationMs: Date.now() - startedAt,
+        });
+        console.log(`⚠️  계좌 ${targetAccount.accountNumber} API 키 미등록 — 계좌 설정에서 API 키를 등록하세요`);
+        return;
       }
 
       const kiwoomService = new KiwoomService({

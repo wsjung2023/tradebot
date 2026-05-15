@@ -82,10 +82,9 @@ export function SettingsMasterKeys() {
     queryKey: ["/api/master-settings"],
   });
 
+  // 키움 글로벌 키는 레거시 — 계좌별 키로 대체됨, UI에서만 숨김
   const groups = [
     { title: "AI / 공공데이터", items: keys.filter(k => k.key.includes("openai") || k.key.includes("dart")) },
-    { title: "키움 실계좌", items: keys.filter(k => k.key.includes("real")) },
-    { title: "키움 모의계좌", items: keys.filter(k => k.key.includes("mock")) },
   ];
 
   return (

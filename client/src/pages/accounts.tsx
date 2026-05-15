@@ -330,7 +330,9 @@ export default function Accounts() {
                       >
                         {account.hasApiKey
                           ? <><CheckCircle className="h-4 w-4 text-green-500" /><span className="font-mono text-xs text-muted-foreground">{account.maskedApiKey}</span></>
-                          : <><AlertCircle className="h-4 w-4 text-amber-500" /><span className="text-xs text-amber-600">미등록</span></>}
+                          : account.accountType === 'mock'
+                            ? <><CheckCircle className="h-4 w-4 text-blue-400" /><span className="text-xs text-blue-500">공유키 사용중</span></>
+                            : <><AlertCircle className="h-4 w-4 text-amber-500" /><span className="text-xs text-amber-600">미등록</span></>}
                       </button>
                     </TableCell>
                     <TableCell>{new Date(account.createdAt).toLocaleDateString('ko-KR')}</TableCell>

@@ -219,6 +219,9 @@ export function registerFormulaRoutes(app: Router) {
 
       const results = await getConditionSearchResultsForUser(user!.id, conditionSeq);
 
+      // 기존 결과 삭제 후 새로 저장 (누적 방지)
+      await storage.deleteConditionResults(conditionId);
+
       for (const result of results) {
         const stockCode = (result as any).stock_code || (result as any).stck_cd;
         const stockName = (result as any).stock_name || (result as any).stck_nm;
@@ -234,7 +237,11 @@ export function registerFormulaRoutes(app: Router) {
         let parsedRate: string | null = null;
         if (rawRate != null) {
           const n = parseFloat(String(rawRate));
-          if (!isNaN(n)) parsedRate = String(Math.max(-9999.9999, Math.min(9999.9999, n)));
+          if (!isNaN(n)) {
+            // Kiwoom 조건검색 prdy_ctrt는 |값|>100이면 /1000 (예: -8910 → -8.91%)
+            const normalized = Math.abs(n) > 100 ? n / 1000 : n;
+            parsedRate = String(Math.max(-9999.9999, Math.min(9999.9999, normalized)));
+          }
         }
 
         await storage.createConditionResult({

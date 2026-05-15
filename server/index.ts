@@ -105,10 +105,10 @@ const cookieSecure = isReplit || isProduction;
 
 const sessionStore = isProduction
   ? new PgSession({
-      pool,
-      createTableIfMissing: false,
-      tableName: 'session',
-    })
+    pool,
+    createTableIfMissing: false,
+    tableName: 'session',
+  })
   : undefined;
 
 const sessionMiddleware = session({

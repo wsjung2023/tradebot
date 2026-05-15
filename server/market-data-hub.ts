@@ -257,8 +257,8 @@ export class MarketDataHub {
     const output = data?.output || data?.raw || data || {};
     return {
       currentPrice: parseFloat(absNumberString(data?.currentPrice ?? output.stck_prpr ?? output.cur_prc)),
-      change: parseFloat(absNumberString(data?.change ?? output.prdy_vrss ?? output.prc_diff)),
-      changeRate: parseFloat(absNumberString(data?.changeRate ?? output.prdy_ctrt ?? output.flu_rt)),
+      change: parseFloat(String(data?.change ?? output.prdy_vrss ?? output.prc_diff ?? "0").replace(/,/g, "") || "0"),
+      changeRate: parseFloat(String(data?.changeRate ?? output.prdy_ctrt ?? output.flu_rt ?? "0").replace(/,/g, "") || "0"),
       openPrice: parseFloat(absNumberString(data?.open ?? output.stck_oprc ?? output.open_pric ?? output.oppr)),
       highPrice: parseFloat(absNumberString(data?.high ?? output.stck_hgpr ?? output.high_pric ?? output.hgpr)),
       lowPrice: parseFloat(absNumberString(data?.low ?? output.stck_lwpr ?? output.low_pric ?? output.lwpr)),

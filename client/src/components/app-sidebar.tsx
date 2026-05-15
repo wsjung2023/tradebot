@@ -11,7 +11,6 @@ import {
   ScrollText,
   BookOpen,
   Search,
-  ScanSearch,
   LineChart,
   Code2,
   Rainbow,
@@ -19,6 +18,7 @@ import {
   ServerCog,
   ClipboardList,
   Coins,
+  Wallet,
 } from "lucide-react";
 import {
   Sidebar,
@@ -48,10 +48,8 @@ const menuItems = [
   { title: "포트폴리오", url: "/portfolio", icon: Briefcase },
   { title: "거래 내역", url: "/trade-history", icon: ScrollText },
   { title: "매매 저널", url: "/trade-journal", icon: ClipboardList },
+  { title: "계좌 관리", url: "/accounts", icon: Wallet },
   { title: "조건검색", url: "/condition-formulas", icon: Search },
-  { title: "실시간 스크리닝", url: "/condition-screening", icon: ScanSearch },
-  { title: "시그널 분석", url: "/watchlist-signals", icon: LineChart },
-  { title: "차트 수식", url: "/chart-formula-editor", icon: Code2 },
   { title: "뒷차기2 스캔", url: "/backattack-scan", icon: Rainbow },
   { title: "실시간 모니터", url: "/monitoring", icon: Activity },
   { title: "선정/탈락 이력", url: "/candidate-decisions", icon: ClipboardList },

@@ -1,7 +1,7 @@
 import { storage } from "../storage";
 import { decrypt, isEncrypted } from "../utils/crypto";
 import { normalizePriceHistoryAsc } from "../utils/chart-normalization";
-import { createKiwoomService, getKiwoomService, type KiwoomService, type OrderRequest } from "./kiwoom";
+import { createKiwoomService, type KiwoomService, type OrderRequest } from "./kiwoom";
 
 type CachedService = {
   fingerprint: string;
@@ -19,53 +19,39 @@ function safeDecrypt(val: string): string {
 }
 
 export class UserKiwoomService {
-  private readonly MAX_LEGACY_CACHE = 50;
-  private globalLegacyKiwoom = getKiwoomService();
-  private legacyByUser = new Map<string, CachedService>();
-  private byAccount = new Map<number, CachedService>(); // 계좌별 캐시
+  private readonly MAX_CACHE = 50;
+  private byUser = new Map<string, CachedService>();
+  private byAccount = new Map<number, CachedService>();
 
-  private evictOldLegacyCache() {
-    if (this.legacyByUser.size <= this.MAX_LEGACY_CACHE) return;
-    const entries = Array.from(this.legacyByUser.entries())
-      .sort((a, b) => a[1].lastUsed - b[1].lastUsed);
-    const toRemove = entries.slice(0, entries.length - this.MAX_LEGACY_CACHE);
-    for (const [userId] of toRemove) {
-      this.legacyByUser.delete(userId);
-    }
+  private evictOldCache(cache: Map<any, CachedService>) {
+    if (cache.size <= this.MAX_CACHE) return;
+    const entries = Array.from(cache.entries()).sort((a, b) => a[1].lastUsed - b[1].lastUsed);
+    entries.slice(0, entries.length - this.MAX_CACHE).forEach(([k]) => cache.delete(k));
   }
 
-  private async getLegacyServiceForUser(userId: string): Promise<KiwoomService> {
+  // user_settings 기반 서비스 (없으면 null)
+  private async getServiceFromUserSettings(userId: string): Promise<KiwoomService | null> {
     const settings = await storage.getUserSettings(userId);
-    const hasUserKeys = !!settings?.kiwoomAppKey && !!settings?.kiwoomAppSecret;
+    if (!settings?.kiwoomAppKey || !settings?.kiwoomAppSecret) return null;
 
-    if (!hasUserKeys) {
-      this.legacyByUser.delete(userId);
-      return this.globalLegacyKiwoom;
-    }
-
-    const fingerprint = [
-      settings!.kiwoomAppKey,
-      settings!.kiwoomAppSecret,
-      settings!.tradingMode || "mock",
-    ].join(":");
-
-    const cached = this.legacyByUser.get(userId);
+    const fingerprint = [settings.kiwoomAppKey, settings.kiwoomAppSecret, settings.tradingMode || "mock"].join(":");
+    const cached = this.byUser.get(userId);
     if (cached?.fingerprint === fingerprint) {
       cached.lastUsed = Date.now();
       return cached.service;
     }
 
     const service = createKiwoomService({
-      appKey: decrypt(settings!.kiwoomAppKey!),
-      appSecret: decrypt(settings!.kiwoomAppSecret!),
-      accountType: settings!.tradingMode === "real" ? "real" : "mock",
+      appKey: safeDecrypt(settings.kiwoomAppKey),
+      appSecret: safeDecrypt(settings.kiwoomAppSecret),
+      accountType: settings.tradingMode === "real" ? "real" : "mock",
     });
-    this.legacyByUser.set(userId, { fingerprint, service, lastUsed: Date.now() });
-    this.evictOldLegacyCache();
+    this.byUser.set(userId, { fingerprint, service, lastUsed: Date.now() });
+    this.evictOldCache(this.byUser);
     return service;
   }
 
-  // 계좌별 전용 서비스 — DB에 등록된 키가 있으면 사용, 없으면 null
+  // 계좌 ID 기반 서비스 — DB 등록 키 사용, 없으면 null
   private async getServiceForAccount(accountId: number): Promise<KiwoomService | null> {
     const account = await storage.getKiwoomAccount(accountId);
     if (!account?.kiwoomAppKey || !account?.kiwoomAppSecret) return null;
@@ -86,23 +72,41 @@ export class UserKiwoomService {
     return service;
   }
 
+  // 유저의 어떤 유효한 키든 반환 (시세/차트 등 계좌 무관 조회용). 없으면 throw.
+  private async getAnyServiceForUser(userId: string): Promise<KiwoomService> {
+    const fromSettings = await this.getServiceFromUserSettings(userId);
+    if (fromSettings) return fromSettings;
+
+    const accounts = await storage.getKiwoomAccounts(userId);
+    for (const account of accounts) {
+      if (account.kiwoomAppKey && account.kiwoomAppSecret) {
+        const service = await this.getServiceForAccount(account.id);
+        if (service) return service;
+      }
+    }
+
+    throw new Error("API 키 미등록: 설정 > API 키에서 키움 API 키를 먼저 등록하세요.");
+  }
+
+  // 유저의 실계좌 키 반환 (조건검색 등 HTS 전용). 실계좌 없으면 아무 계좌 키로 시도.
+  private async getRealServiceForUser(userId: string): Promise<KiwoomService> {
+    const accounts = await storage.getKiwoomAccounts(userId);
+    const realAccounts = (accounts as any[]).filter((a) => a.accountType === "real");
+    for (const account of realAccounts) {
+      if (account.kiwoomAppKey && account.kiwoomAppSecret) {
+        const service = await this.getServiceForAccount(account.id);
+        if (service) return service;
+      }
+    }
+    return this.getAnyServiceForUser(userId);
+  }
+
   invalidateAccountCache(accountId: number): void {
     this.byAccount.delete(accountId);
   }
 
-  // 실계좌 전용 서비스 (KIWOOM_APP_KEY_REAL) — 모의키로 실서버 인증 방지
-  private realAccountService: KiwoomService | null = null;
-  private getRealAccountService(): KiwoomService {
-    if (!this.realAccountService) {
-      const appKey = process.env.KIWOOM_APP_KEY_REAL || process.env.KIWOOM_APP_KEY || "stub";
-      const appSecret = process.env.KIWOOM_APP_SECRET_REAL || process.env.KIWOOM_APP_SECRET || "stub";
-      this.realAccountService = createKiwoomService({ appKey, appSecret, accountType: "real" });
-    }
-    return this.realAccountService;
-  }
-
   async getPrice(userId: string, stockCode: string) {
-    const kiwoom = await this.getLegacyServiceForUser(userId);
+    const kiwoom = await this.getAnyServiceForUser(userId);
     const price = await kiwoom.getStockPrice(stockCode);
     const output = price?.output || {};
     return {
@@ -121,22 +125,22 @@ export class UserKiwoomService {
   }
 
   async getOrderbook(userId: string, stockCode: string) {
-    const kiwoom = await this.getLegacyServiceForUser(userId);
+    const kiwoom = await this.getAnyServiceForUser(userId);
     return kiwoom.getStockOrderbook(stockCode);
   }
 
   async getChart(userId: string, stockCode: string, period: string = "D", count = 100) {
-    const kiwoom = await this.getLegacyServiceForUser(userId);
+    const kiwoom = await this.getAnyServiceForUser(userId);
     return kiwoom.getStockChart(stockCode, period, count);
   }
 
   async searchStock(userId: string, keyword: string) {
-    const kiwoom = await this.getLegacyServiceForUser(userId);
+    const kiwoom = await this.getAnyServiceForUser(userId);
     return kiwoom.searchStock(keyword);
   }
 
   async getStockInfo(userId: string, stockCode: string) {
-    const kiwoom = await this.getLegacyServiceForUser(userId);
+    const kiwoom = await this.getAnyServiceForUser(userId);
     const [info, price] = await Promise.allSettled([
       kiwoom.getStockInfo(stockCode),
       kiwoom.getStockPrice(stockCode),
@@ -149,51 +153,43 @@ export class UserKiwoomService {
       marketName: infoValue?.marketName || "",
       state: infoValue?.state || "",
       currentPrice: priceOutput.stck_prpr || undefined,
+      raw: infoValue?.raw || {},
     };
   }
 
   async getWatchlist(userId: string, stockCodes: string[]) {
-    const kiwoom = await this.getLegacyServiceForUser(userId);
+    const kiwoom = await this.getAnyServiceForUser(userId);
     return kiwoom.getWatchlistInfo(stockCodes);
   }
 
   async getConditionList(userId: string) {
-    // 조건식은 HTS 실계좌 기준 → 항상 실계좌 WS 사용
-    const response = await this.getRealAccountService().getConditionList();
+    const service = await this.getRealServiceForUser(userId);
+    const response = await service.getConditionList();
     return response?.output ?? [];
   }
 
   async runCondition(userId: string, seq: string) {
-    // 조건식은 HTS 실계좌 기준 → 항상 실계좌 WS 사용
-    const response = await this.getRealAccountService().getConditionSearchResults(seq, 0);
+    const service = await this.getRealServiceForUser(userId);
+    const response = await service.getConditionSearchResults(seq, 0);
     return response?.output ?? [];
   }
 
   async getBalance(userId: string, accountNumber: string, accountType: "mock" | "real" = "real", accountId?: number) {
-    // 계좌별 키가 등록되어 있으면 우선 사용
-    if (accountId) {
-      const accountService = await this.getServiceForAccount(accountId);
-      if (accountService) return accountService.getAccountBalance(accountNumber, accountType);
-    }
-    if (accountType === "real") {
-      return this.getRealAccountService().getAccountBalance(accountNumber, "real");
-    }
-    const kiwoom = await this.getLegacyServiceForUser(userId);
-    return kiwoom.getAccountBalance(accountNumber, accountType);
+    if (!accountId) throw new Error("계좌 ID가 필요합니다.");
+    const service = await this.getServiceForAccount(accountId);
+    if (!service) throw new Error(`계좌 ${accountNumber}에 API 키가 등록되지 않았습니다. 계좌 설정에서 API 키를 등록하세요.`);
+    return service.getAccountBalance(accountNumber, accountType);
   }
 
   async placeOrder(userId: string, orderRequest: OrderRequest, accountId?: number) {
-    // 계좌별 키가 등록되어 있으면 우선 사용
-    if (accountId) {
-      const accountService = await this.getServiceForAccount(accountId);
-      if (accountService) return accountService.placeOrder(orderRequest);
-    }
-    const kiwoom = await this.getLegacyServiceForUser(userId);
-    return kiwoom.placeOrder(orderRequest);
+    if (!accountId) throw new Error("계좌 ID가 필요합니다.");
+    const service = await this.getServiceForAccount(accountId);
+    if (!service) throw new Error("계좌에 API 키가 등록되지 않았습니다. 계좌 설정에서 API 키를 등록하세요.");
+    return service.placeOrder(orderRequest);
   }
 
   async getFinancials(userId: string, stockCode: string) {
-    const kiwoom = await this.getLegacyServiceForUser(userId);
+    const kiwoom = await this.getAnyServiceForUser(userId);
     return kiwoom.getFinancialStatements(stockCode);
   }
 

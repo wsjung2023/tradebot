@@ -6,6 +6,7 @@ import { insertOrderSchema } from "@shared/schema";
 import { AgentTimeoutError } from "../services/agent-proxy.service";
 import { getUserKiwoomService } from "../services/user-kiwoom.service";
 import { RainbowChartAnalyzer } from "../formula/rainbow-chart";
+import { getDartService } from "../services/dart.service";
 
 export function registerTradingRoutes(app: Router) {
   const userKiwoomService = getUserKiwoomService();
@@ -95,15 +96,17 @@ export function registerTradingRoutes(app: Router) {
     try {
       const user = getCurrentUser(req);
       const period = (req.query.period as string) || "D";
-      // 240봉 lookback + 충분한 표시 구간 확보 (약 450봉)
-      const rawData = await userKiwoomService.getChart(user!.id, req.params.stockCode, period, 450);
+      // 기간별 lookback: 일봉 240봉, 주봉 100봉, 월봉 60봉
+      const lookback = period === "M" ? 60 : period === "W" ? 100 : 240;
+      const fetchCount = lookback + 200; // lookback + 표시 구간
+      const rawData = await userKiwoomService.getChart(user!.id, req.params.stockCode, period, fetchCount);
       const chartItems: any[] = Array.isArray(rawData) ? rawData : (rawData?.items || []);
-      if (chartItems.length < 240) return res.json([]);
+      if (chartItems.length < lookback) return res.json([]);
 
       // Kiwoom API → 최신순(newest-first). 수식은 oldest-first 필요
       const oldestFirst = [...chartItems].reverse();
 
-      const perBarData = RainbowChartAnalyzer.computePerBarChartData(oldestFirst, 240);
+      const perBarData = RainbowChartAnalyzer.computePerBarChartData(oldestFirst, lookback);
       // perBarData는 oldest-first (차트에 바로 사용 가능)
       res.json(perBarData);
     } catch (error: any) {
@@ -184,13 +187,16 @@ export function registerTradingRoutes(app: Router) {
       const user = getCurrentUser(req);
       const stockCode = req.params.stockCode;
 
-      const [infoResult, financialsResult] = await Promise.allSettled([
+      const dartService = getDartService();
+      const [infoResult, financialsResult, dartResult] = await Promise.allSettled([
         userKiwoomService.getStockInfo(user!.id, stockCode),
         userKiwoomService.getFinancials(user!.id, stockCode),
+        dartService.getFinancialStatements(stockCode),
       ]);
 
       const info = infoResult.status === "fulfilled" ? infoResult.value : null;
       const financials = financialsResult.status === "fulfilled" ? financialsResult.value : null;
+      const dart = dartResult.status === "fulfilled" ? dartResult.value : {};
 
       // 재무 데이터 정규화 — 에이전트·레거시 모두 대응
       const fin = financials?.output?.[0] || financials?.[0] || financials || {};
@@ -202,20 +208,57 @@ export function registerTradingRoutes(app: Router) {
         marketName: (info as any)?.marketName || (rawInfo as any)?.mrkt_cls_nm || "",
         currentPrice: (info as any)?.currentPrice || (rawInfo as any)?.cur_prc || 0,
         // 재무비율
-        per:    String((rawInfo as any)?.per   || (rawInfo as any)?.PER   || fin?.per   || "-"),
-        pbr:    String((rawInfo as any)?.pbr   || (rawInfo as any)?.PBR   || fin?.pbr   || "-"),
-        roe:    String((rawInfo as any)?.roe   || (rawInfo as any)?.ROE   || fin?.roe   || "-"),
-        eps:    String((rawInfo as any)?.eps   || (rawInfo as any)?.EPS   || fin?.eps   || "-"),
-        bps:    String((rawInfo as any)?.bps   || (rawInfo as any)?.BPS   || fin?.bps   || "-"),
-        debtRatio:    String((rawInfo as any)?.debt_ratio    || "-"),
-        reserveRatio: String((rawInfo as any)?.reserve_ratio || "-"),
-        // 재무제표 스냅샷 (최신 단일 데이터 — Kiwoom REST API 한계)
-        revenue:       String(fin?.sale_account || fin?.sale_acnt || "-"),
-        operatingProfit: String(fin?.bsop_prti  || fin?.oprt_prft || "-"),
-        netIncome:     String(fin?.ntin         || fin?.net_incm  || "-"),
-        totalAssets:   String(fin?.total_aset   || fin?.tot_aset  || "-"),
-        totalDebt:     String(fin?.total_lblt   || fin?.tot_lblt  || "-"),
-        capital:       String(fin?.cpfn         || fin?.cap       || "-"),
+        per: (() => {
+          const v = Number((rawInfo as any)?.per ?? fin?.per);
+          if (v !== 0) return String(v);
+          // per=0 (적자 등) → 현재가/EPS로 계산
+          const eps = Number((rawInfo as any)?.eps ?? fin?.eps);
+          const price = Number((info as any)?.currentPrice ?? (rawInfo as any)?.cur_prc);
+          if (eps && price) return (price / eps).toFixed(2);
+          return "-";
+        })(),
+        pbr:    String(fin?.pbr   || (rawInfo as any)?.pbr   || (rawInfo as any)?.PBR   || "-"),
+        roe:    String(fin?.roe   || (rawInfo as any)?.roe   || (rawInfo as any)?.ROE   || "-"),
+        eps:    String(fin?.eps   || (rawInfo as any)?.eps   || (rawInfo as any)?.EPS   || "-"),
+        bps:    String(fin?.bps   || (rawInfo as any)?.bps   || (rawInfo as any)?.BPS   || "-"),
+        // 부채비율/유보율: DART 또는 계산
+        debtRatio: (() => {
+          if ((dart as any)?.totalAssets && (dart as any)?.totalDebt) {
+            const equity = Number((dart as any).totalAssets) - Number((dart as any).totalDebt);
+            if (equity > 0) return String((Number((dart as any).totalDebt) / equity * 100).toFixed(2));
+          }
+          return "-";
+        })(),
+        reserveRatio: (() => {
+          const retained = Number((dart as any)?.retainedEarnings);
+          const cap = Number((rawInfo as any)?.cap) * 100_000_000 || Number((dart as any)?.capital);
+          if (retained && cap) return String((retained / cap * 100).toFixed(2));
+          return "-";
+        })(),
+        // 총자산/총부채: DART
+        totalAssets: (dart as any)?.totalAssets || "-",
+        totalDebt:   (dart as any)?.totalDebt   || "-",
+        // 재무제표: Kiwoom ka10001 (억원→원) + DART fallback
+        revenue: (() => {
+          const kv = Number((rawInfo as any)?.sale_amt);
+          if (kv) return String(kv * 100_000_000);
+          return (dart as any)?.revenue || "-";
+        })(),
+        operatingProfit: (() => {
+          const kv = Number((rawInfo as any)?.bus_pro);
+          if (kv) return String(kv * 100_000_000);
+          return (dart as any)?.operatingProfit || "-";
+        })(),
+        netIncome: (() => {
+          const kv = Number((rawInfo as any)?.cup_nga);
+          if (kv) return String(kv * 100_000_000);
+          return (dart as any)?.netIncome || "-";
+        })(),
+        capital: (() => {
+          const kv = Number((rawInfo as any)?.cap || fin?.cpfn);
+          if (kv) return String(kv * 100_000_000);
+          return (dart as any)?.capital || "-";
+        })(),
         // 원본 응답 (디버깅용)
         _raw: process.env.NODE_ENV !== "production" ? { info, financials } : undefined,
       };
@@ -291,7 +334,7 @@ export function registerTradingRoutes(app: Router) {
         orderQuantity: orderData.orderQuantity,
         orderPrice: orderData.orderPrice ? parseFloat(orderData.orderPrice) : undefined,
         accountNumber: account.accountNumber,
-      });
+      }, orderData.accountId);
 
       const updatedOrder = await storage.updateOrder(order.id, {
         orderNumber: kiwoomOrder?.output?.ord_no || kiwoomOrder?.output?.ODNO,

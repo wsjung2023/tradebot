@@ -36,6 +36,9 @@ export class KiwoomCondition extends KiwoomBase {
   private async wsRequest(apiId: string, payload: Record<string, string>): Promise<any> {
     await this.ensureValidToken();
 
+    // CNSRREQ는 같은 WS 연결에서 CNSRLST를 먼저 보내야 응답에 종목 데이터가 포함됨
+    const needsCnsrlstFirst = payload.trnm === "CNSRREQ";
+
     return new Promise((resolve, reject) => {
       if (!this.accessToken) {
         reject(new Error("Kiwoom 토큰이 없습니다."));
@@ -49,84 +52,107 @@ export class KiwoomCondition extends KiwoomBase {
         },
       });
 
+      let settled = false;
+      const reqId = Math.random().toString(36).slice(2, 6);
+      console.log(`[KiwoomWS:${reqId}] created apiId=${apiId} needsCnsrlstFirst=${needsCnsrlstFirst}`);
+
       const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        console.log(`[KiwoomWS:${reqId}] 타임아웃 fired`);
         ws.terminate();
-        reject(new Error("조건검색 WebSocket 타임아웃 (15초)"));
-      }, 15_000);
+        reject(new Error("조건검색 WebSocket 타임아웃 (60초)"));
+      }, 60_000);
 
-      let loginSent = false;
       let loginDone = false;
-      let realMessages: any[] = [];
-      let collectTimer: ReturnType<typeof setTimeout> | null = null;
+      let cnsrlstDone = false; // CNSRREQ 전 CNSRLST 완료 여부
 
-      const finishWithReal = () => {
-        if (collectTimer) clearTimeout(collectTimer);
+      const finish = (result: any) => {
+        if (settled) return;
+        settled = true;
         clearTimeout(timer);
         ws.close();
-        resolve({ trnm: payload.trnm, return_code: 0, data: realMessages });
+        resolve(result);
+      };
+
+      const fail = (err: Error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        ws.close();
+        reject(err);
       };
 
       ws.on("open", () => {
-        console.log(`[KiwoomWS] open apiId=${apiId} → LOGIN 메시지 전송`);
+        console.log(`[KiwoomWS:${reqId}] open → LOGIN`);
         ws.send(JSON.stringify({ trnm: "LOGIN", token: this.accessToken }));
-        loginSent = true;
       });
 
       ws.on("message", (raw: Buffer) => {
         try {
           const msg = JSON.parse(raw.toString());
-          console.log(`[KiwoomWS] message loginDone=${loginDone} trnm=${msg.trnm}:`, JSON.stringify(msg).slice(0, 200));
+          console.log(`[KiwoomWS:${reqId}] msg trnm=${msg.trnm} rc=${msg.return_code} loginDone=${loginDone} cnsrlstDone=${cnsrlstDone}`);
 
-          // REAL: 조건검색 결과 종목 수집
-          if (msg.trnm === "REAL") {
-            if (loginDone) realMessages.push(msg);
-            return;
-          }
-
-          const rc = msg.return_code;
-
-          // LOGIN ack 처리
-          if (!loginDone && loginSent) {
+          // LOGIN ack
+          if (!loginDone) {
+            const rc = msg.return_code;
             if (rc !== undefined && rc !== null && rc !== 0 && String(rc) !== "0") {
-              clearTimeout(timer);
-              ws.close();
-              reject(new Error(`WS 로그인 실패 ${rc}: ${msg.return_msg ?? "unknown"}`));
+              fail(new Error(`WS 로그인 실패 ${rc}: ${msg.return_msg ?? "unknown"}`));
               return;
             }
             loginDone = true;
-            console.log(`[KiwoomWS] 로그인 완료 → payload 전송:`, JSON.stringify(payload));
+            if (needsCnsrlstFirst) {
+              console.log(`[KiwoomWS:${reqId}] 로그인 완료 → CNSRLST 먼저 전송`);
+              ws.send(JSON.stringify({ trnm: "CNSRLST" }));
+            } else {
+              console.log(`[KiwoomWS:${reqId}] 로그인 완료 → payload 전송`);
+              ws.send(JSON.stringify(payload));
+            }
+            return;
+          }
+
+          // CNSRLST 응답 → 실제 payload(CNSRREQ) 전송
+          if (needsCnsrlstFirst && !cnsrlstDone && msg.trnm === "CNSRLST") {
+            cnsrlstDone = true;
+            console.log(`[KiwoomWS:${reqId}] CNSRLST 완료 → CNSRREQ 전송 seq=${payload.seq}`);
             ws.send(JSON.stringify(payload));
             return;
           }
 
-          // PING = 구독 ack (CNSRREQ), 3초 수집 후 종료
+          // PING = 구독 ack (CNSRREQ 후) — 이미 CNSRREQ 응답에서 종목을 받았으므로 종료
           if (msg.trnm === "PING") {
-            if (collectTimer === null) {
-              console.log(`[KiwoomWS] PING 수신 → 3초 REAL 수집 후 종료`);
-              collectTimer = setTimeout(finishWithReal, 3_000);
-            }
-            return;
+            console.log(`[KiwoomWS:${reqId}] PING 수신 (구독 완료) → 종료`);
+            return; // already settled by CNSRREQ response; if not yet, ignore
           }
 
-          // 일반 응답 (CNSRLST 등)
-          clearTimeout(timer);
-          ws.close();
+          // REAL = 실시간 업데이트 (이미 종료된 경우 무시)
+          if (msg.trnm === "REAL") return;
+
+          // 일반 응답 (CNSRLST 단독, CNSRREQ 결과 등)
+          console.log(`[KiwoomWS:${reqId}] 일반 응답 trnm=${msg.trnm} rc=${msg.return_code}`);
+          const rc = msg.return_code;
           if (rc !== undefined && rc !== null && rc !== 0 && String(rc) !== "0") {
-            reject(new Error(`조건검색 오류 ${rc}: ${msg.return_msg ?? "unknown"}`));
+            fail(new Error(`조건검색 오류 ${rc}: ${msg.return_msg ?? "unknown"}`));
           } else {
-            resolve(msg);
+            finish(msg);
           }
         } catch (error) {
+          fail(error as Error);
+        }
+      });
+
+      ws.on("close", (code) => {
+        console.log(`[KiwoomWS:${reqId}] close code=${code} settled=${settled}`);
+        if (!settled) {
+          settled = true;
           clearTimeout(timer);
-          ws.close();
-          reject(error);
+          reject(new Error(`WebSocket 연결 종료 (code=${code})`));
         }
       });
 
       ws.on("error", (error) => {
-        console.log(`[KiwoomWS] error:`, error.message);
-        clearTimeout(timer);
-        reject(error);
+        console.log(`[KiwoomWS:${reqId}] error:`, error.message);
+        fail(error);
       });
     });
   }
@@ -174,19 +200,15 @@ export class KiwoomCondition extends KiwoomBase {
       next_key: "",
     });
 
-    // res.data = REAL 메시지 배열 (각 메시지 = 종목 1개)
+    // res.data = CNSRREQ 응답의 종목 배열 (각 항목 = 종목 1개)
     const rows: any[] = res.data || res.output1 || res.output || [];
     return {
-      output: rows.map((item: any) => {
-        // REAL 메시지: item 자체가 메시지, 데이터는 item.data 또는 item 직접
-        const d = item?.data ?? item;
-        return {
-          stock_code: String(d["9001"] ?? d.stck_cd ?? d.stock_code ?? "").replace(/^A/, ""),
-          stock_name: String(d["302"] ?? d.stck_nm ?? d.stock_name ?? ""),
-          current_price: String(d["10"] ?? d.stck_prpr ?? d.current_price ?? "0"),
-          change_rate: String(d["12"] ?? d.prdy_ctrt ?? d.change_rate ?? "0"),
-        };
-      }),
+      output: rows.map((item: any) => ({
+        stock_code: String(item["9001"] ?? item.stck_cd ?? item.stock_code ?? "").replace(/^A/, ""),
+        stock_name: String(item["302"] ?? item.stck_nm ?? item.stock_name ?? ""),
+        current_price: String(item["10"] ?? item.stck_prpr ?? item.current_price ?? "0"),
+        change_rate: String(item["12"] ?? item.prdy_ctrt ?? item.change_rate ?? "0"),
+      })),
     };
   }
 
