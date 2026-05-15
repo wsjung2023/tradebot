@@ -139,7 +139,7 @@ export default function Dashboard() {
     window.localStorage.setItem(DASHBOARD_ACCOUNT_STORAGE_KEY, String(selectedAccountId));
   }, [selectedAccountId]);
 
-  // 계좌 ?�택?�면 ?�동?�로 ?�고 조회 (계좌 ?�환 �??�형 변�??�에???�조??
+  // 계좌 선택되면 자동으로 잔고 조회 (계좌 전환 및 유형 변경 시에도 재조회)
   useEffect(() => {
     if (!selectedAccount) return;
     kiwoom.fetch(
@@ -149,8 +149,8 @@ export default function Dashboard() {
     );
   }, [selectedAccount?.id, selectedAccount?.accountType]);
 
-  // ACCOUNT_TYPE_MISMATCH / IP_NOT_REGISTERED ?�러 ?�스???�시
-  // fetchedAccountId === selectedAccountId ???�만 ?�시 (계좌 ?�환 ???�테???�류 방�?)
+  // ACCOUNT_TYPE_MISMATCH / IP_NOT_REGISTERED 에러 토스트 표시
+  // fetchedAccountId === selectedAccountId 일 때만 표시 (계좌 전환 시 스테일 오류 방지)
   useEffect(() => {
     if (selectedAccount?.accountType !== "real") return;
     if (kiwoom.fetchedAccountId !== selectedAccount?.id) return;
@@ -158,14 +158,14 @@ export default function Dashboard() {
     if (kiwoom.errorCode === "ACCOUNT_TYPE_MISMATCH") {
       toast({
         variant: "destructive",
-        title: "?�계�?API ?��? ?�록?��? ?�았?�니??,
-        description: `${selectedAccount.accountNumber || "?�택??계좌"}???�용 API ?��? ?�정?�주?�요.`,
+        title: "실계좌 API 키가 등록되지 않았습니다",
+        description: `${selectedAccount.accountNumber || "선택한 계좌"}의 전용 API 키를 설정해주세요.`,
       });
     } else if (kiwoom.errorCode === "IP_NOT_REGISTERED") {
       toast({
         variant: "destructive",
-        title: "?�버 IP가 ?��? ?�털???�록?��? ?�았?�니??,
-        description: "?�정 ?�이지?�서 ?�재 IP�??�인?�고 ?��? OpenAPI ?�털??지?�단말기 IP�??�록?�세??",
+        title: "서버 IP가 키움 포털에 등록되지 않았습니다",
+        description: "설정 페이지에서 현재 IP를 확인하고 키움 OpenAPI 포털의 지정단말기 IP로 등록하세요.",
       });
     }
   }, [kiwoom.errorCode, selectedAccount?.id]);
@@ -188,10 +188,10 @@ export default function Dashboard() {
       queryClient.invalidateQueries({ queryKey: ['/api/accounts'] });
       setDialogOpen(false);
       setAccountNumber(""); setAccountName(""); setAccountType("mock");
-      toast({ title: "계좌 추�? ?�료" });
+      toast({ title: "계좌 추가 완료" });
     },
     onError: (error: any) => {
-      toast({ variant: "destructive", title: "계좌 추�? ?�패", description: error.message });
+      toast({ variant: "destructive", title: "계좌 추가 실패", description: error.message });
     },
   });
 
@@ -203,11 +203,11 @@ export default function Dashboard() {
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['/api/accounts'] });
-      const newType = variables.currentType === "mock" ? "?�전?�자" : "모의?�자";
-      toast({ title: `계좌 ?�형 변경됨`, description: `${newType}?�로 변경되?�습?�다` });
+      const newType = variables.currentType === "mock" ? "실전투자" : "모의투자";
+      toast({ title: `계좌 유형 변경됨`, description: `${newType}으로 변경되었습니다` });
     },
     onError: (error: any) => {
-      toast({ variant: "destructive", title: "계좌 ?�형 변�??�패", description: error.message });
+      toast({ variant: "destructive", title: "계좌 유형 변경 실패", description: error.message });
     },
   });
 
@@ -219,10 +219,10 @@ export default function Dashboard() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/accounts'] });
       setSelectedAccountId(null);
-      toast({ title: "계좌 ??�� ?�료" });
+      toast({ title: "계좌 삭제 완료" });
     },
     onError: (error: any) => {
-      toast({ variant: "destructive", title: "계좌 ??�� ?�패", description: error.message });
+      toast({ variant: "destructive", title: "계좌 삭제 실패", description: error.message });
     },
   });
 
@@ -235,7 +235,7 @@ export default function Dashboard() {
       queryClient.invalidateQueries({ queryKey: ['/api/settings'] });
     },
     onError: (error: any) => {
-      toast({ variant: "destructive", title: "거래 모드 ?�기???�패", description: error.message });
+      toast({ variant: "destructive", title: "거래 모드 동기화 실패", description: error.message });
     },
   });
 
@@ -243,7 +243,7 @@ export default function Dashboard() {
     if (value === undefined || value === null) return "-";
     const n = typeof value === "string" ? parseFloat(value) : value;
     if (isNaN(n)) return "-";
-    return `??{n.toLocaleString("ko-KR")}`;
+    return `₩${n.toLocaleString("ko-KR")}`;
   };
 
   const fmtPct = (value: number | string | undefined) => {
@@ -253,7 +253,7 @@ export default function Dashboard() {
     return `${n >= 0 ? "+" : ""}${n.toFixed(2)}%`;
   };
 
-  // kiwoom 결과가 ?�재 ?�택??계좌??것인지 ?�인 (계좌 ?�환 ???�테??방�?)
+  // kiwoom 결과가 현재 선택된 계좌의 것인지 확인 (계좌 전환 시 스테일 방지)
   const kiwoomIsForCurrentAccount = kiwoom.fetchedAccountId === selectedAccountId;
   const isIdle = kiwoom.status === "idle" || !kiwoomIsForCurrentAccount;
   const isLoading = kiwoom.status === "loading" && kiwoomIsForCurrentAccount;
@@ -266,7 +266,6 @@ export default function Dashboard() {
     depositAmount: parseFloat((selectedAccount as any).lastDepositAmount || "0"),
   } : null);
 
-
   const assetHistory = assetSnapshots?.map((s: any) => ({
     date: s.snapshotAt ? new Date(s.snapshotAt).toLocaleDateString("ko-KR", { month: "short", day: "numeric" }) : s.date,
     totalAssets: parseFloat(s.totalAssets || "0"),
@@ -278,7 +277,7 @@ export default function Dashboard() {
       <div className="fixed inset-0 bg-gradient-to-br from-[hsl(var(--background))] via-[hsl(var(--neon-cyan))]/5 to-[hsl(var(--neon-purple))]/5 animate-gradient-flow -z-10" />
 
       <div className="p-3 md:p-6 space-y-4 md:space-y-6 relative z-0">
-        {/* ?��? ?�스???��? 배너 */}
+        {/* 키움 시스템 점검 배너 */}
         {sysStatus && sysStatus.status !== "ok" && (
           <div
             data-testid="banner-kiwoom-system-status"
@@ -291,8 +290,8 @@ export default function Dashboard() {
             <AlertTriangle className="h-4 w-4 shrink-0" />
             <span className="flex-1">
               {sysStatus.status === "maintenance"
-                ? `?��?증권 ?�스???��? �????�고·?�큰 조회가 ?�시?�으�?불�??�니?? (${sysStatus.message})`
-                : `?��? ?�버 ?�태 ?�인 불�? ??${sysStatus.message}`}
+                ? `키움증권 시스템 점검 중 — 잔고·토큰 조회가 일시적으로 불가합니다. (${sysStatus.message})`
+                : `키움 서버 상태 확인 불가 — ${sysStatus.message}`}
             </span>
             <Button
               variant="ghost"
@@ -302,7 +301,7 @@ export default function Dashboard() {
               data-testid="button-recheck-system-status"
             >
               <RefreshCw className={`h-3 w-3 mr-1 ${sysStatusChecking ? "animate-spin" : ""}`} />
-              ?�확??
+              재확인
             </Button>
           </div>
         )}
@@ -312,43 +311,43 @@ export default function Dashboard() {
             className="flex items-center gap-2 rounded-md px-4 py-2 text-xs bg-green-500/10 border border-green-500/30 text-green-700 dark:text-green-400"
           >
             <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
-            <span>?��? API ?�버 ?�상</span>
+            <span>키움 API 서버 정상</span>
             {sysStatus.cached && <span className="text-muted-foreground">(캐시)</span>}
           </div>
         )}
 
-        {/* ?�더 */}
+        {/* 헤더 */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <h1 className="text-2xl md:text-3xl font-bold text-gradient-cyber" data-testid="text-dashboard-title">?�?�보??/h1>
-            <p className="text-sm md:text-base text-muted-foreground">AI 기반 ?�동매매 ?�랫??/p>
+            <h1 className="text-2xl md:text-3xl font-bold text-gradient-cyber" data-testid="text-dashboard-title">대시보드</h1>
+            <p className="text-sm md:text-base text-muted-foreground">AI 기반 자동매매 플랫폼</p>
           </div>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
-              <Button data-testid="button-add-account"><Plus className="h-4 w-4 mr-2" />계좌 추�?</Button>
+              <Button data-testid="button-add-account"><Plus className="h-4 w-4 mr-2" />계좌 추가</Button>
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>?��?증권 계좌 추�?</DialogTitle>
-                <DialogDescription>?��?증권 계좌 ?�보�??�력?�세??/DialogDescription>
+                <DialogTitle>키움증권 계좌 추가</DialogTitle>
+                <DialogDescription>키움증권 계좌 정보를 입력하세요</DialogDescription>
               </DialogHeader>
               <div className="space-y-4 py-4">
                 <div className="space-y-2">
                   <Label>계좌번호</Label>
-                  <Input placeholder="81208166 (8?�리)" value={accountNumber} onChange={(e) => setAccountNumber(e.target.value)} data-testid="input-account-number" />
-                  <p className="text-xs text-muted-foreground">8?�리 계좌번호�??�력?�세?? 주식계좌???�품코드(11)가 ?�동?�로 추�??�니??</p>
+                  <Input placeholder="81208166 (8자리)" value={accountNumber} onChange={(e) => setAccountNumber(e.target.value)} data-testid="input-account-number" />
+                  <p className="text-xs text-muted-foreground">8자리 계좌번호를 입력하세요. 주식계좌는 상품코드(11)가 자동으로 추가됩니다.</p>
                 </div>
                 <div className="space-y-2">
-                  <Label>계좌�?(?�택)</Label>
+                  <Label>계좌명 (선택)</Label>
                   <Input placeholder="주식 계좌" value={accountName} onChange={(e) => setAccountName(e.target.value)} data-testid="input-account-name" />
                 </div>
                 <div className="space-y-2">
-                  <Label>계좌 ?�형</Label>
+                  <Label>계좌 유형</Label>
                   <Select value={accountType} onValueChange={(v: any) => setAccountType(v)}>
                     <SelectTrigger data-testid="select-account-type"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="mock">모의?�자</SelectItem>
-                      <SelectItem value="real">?�계�?/SelectItem>
+                      <SelectItem value="mock">모의투자</SelectItem>
+                      <SelectItem value="real">실계좌</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -358,24 +357,24 @@ export default function Dashboard() {
                   className="w-full"
                   data-testid="button-submit-account"
                 >
-                  {addAccountMutation.isPending ? "추�? �?.." : "계좌 추�?"}
+                  {addAccountMutation.isPending ? "추가 중..." : "계좌 추가"}
                 </Button>
               </div>
             </DialogContent>
           </Dialog>
         </div>
 
-        {/* 계좌 ?�택 */}
+        {/* 계좌 선택 */}
         {accounts && accounts.length > 0 && (
           <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
-            <Label className="text-sm">계좌 ?�택:</Label>
+            <Label className="text-sm">계좌 선택:</Label>
             <div className="flex items-center gap-2 flex-1">
               <Select value={selectedAccountId?.toString()} onValueChange={(v) => { setSelectedAccountId(parseInt(v)); }}>
                 <SelectTrigger className="w-full sm:w-64" data-testid="select-account"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {accounts.map((acc: any) => (
                     <SelectItem key={acc.id} value={acc.id.toString()}>
-                      {acc.accountName || acc.accountNumber} ({acc.accountType === "real" ? "?�계�? : "모의?�자"})
+                      {acc.accountName || acc.accountNumber} ({acc.accountType === "real" ? "실계좌" : "모의투자"})
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -384,14 +383,14 @@ export default function Dashboard() {
                 <>
                   {selectedAccount.accountType === "real" && hasError && (kiwoom.errorCode === "ACCOUNT_TYPE_MISMATCH" || kiwoom.errorCode === "IP_NOT_REGISTERED") ? (
                     <Badge variant="destructive" data-testid="badge-account-type-error">
-                      {kiwoom.errorCode === "ACCOUNT_TYPE_MISMATCH" ? "API ???�류" : "IP 미등�?}
+                      {kiwoom.errorCode === "ACCOUNT_TYPE_MISMATCH" ? "API 키 오류" : "IP 미등록"}
                     </Badge>
                   ) : (
                     <Badge
                       variant={selectedAccount.accountType === "real" ? "default" : "secondary"}
                       data-testid="badge-account-type"
                     >
-                      {selectedAccount.accountType === "real" ? "?�전" : "모의"}
+                      {selectedAccount.accountType === "real" ? "실전" : "모의"}
                     </Badge>
                   )}
                   <Button
@@ -399,7 +398,7 @@ export default function Dashboard() {
                     size="icon"
                     onClick={() => toggleAccountTypeMutation.mutate({ id: selectedAccount.id, currentType: selectedAccount.accountType as "mock" | "real" })}
                     disabled={toggleAccountTypeMutation.isPending}
-                    title={`${selectedAccount.accountType === "real" ? "모의?�자" : "?�전?�자"}�??�환`}
+                    title={`${selectedAccount.accountType === "real" ? "모의투자" : "실전투자"}로 전환`}
                     data-testid="button-toggle-account-type"
                   >
                     <ArrowLeftRight className="h-4 w-4" />
@@ -416,45 +415,45 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* ?�러 ?�태 */}
+        {/* 에러 상태 */}
         {hasError && (
           <Card className="border-destructive/40 bg-destructive/5">
             <CardContent className="pt-4 pb-4 flex items-start gap-3">
               <WifiOff className="h-5 w-5 text-destructive mt-0.5 shrink-0" />
               <div>
                 <p className="text-sm font-medium text-destructive">
-                  ?�고 조회 ?�패
+                  잔고 조회 실패
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  {kiwoom.error || "?????�는 ?�류"}
+                  {kiwoom.error || "알 수 없는 오류"}
                 </p>
               </div>
             </CardContent>
           </Card>
         )}
 
-        {/* ?�약 카드 */}
+        {/* 요약 카드 */}
         <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
           <Card className="hover-elevate transition-all duration-300 border-[hsl(var(--neon-cyan))]/20">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 gap-2">
-              <CardTitle className="text-xs md:text-sm font-medium">�??�산</CardTitle>
+              <CardTitle className="text-xs md:text-sm font-medium">총 자산</CardTitle>
               <Wallet className="h-4 w-4 text-[hsl(var(--neon-cyan))]" />
             </CardHeader>
             <CardContent className="pt-0">
               <div className="text-lg md:text-2xl font-bold font-mono text-glow-cyan truncate" data-testid="text-total-assets">
-                {isLoading ? <span className="text-muted-foreground text-base">조회 �?..</span>
-                  : (balance && balance.totalAssets > 0) ? fmt(balance.totalAssets)
-                  : hasError ? <span className="text-muted-foreground text-sm">조회 ?�패</span>
+                {balance && balance.totalAssets > 0 ? fmt(balance.totalAssets)
+                  : isLoading ? <span className="text-muted-foreground text-base">조회 중...</span>
+                  : hasError ? <span className="text-muted-foreground text-sm">조회 실패</span>
                   : <span className="text-muted-foreground text-sm">-</span>}
               </div>
-              {!selectedAccountId && <p className="text-xs text-muted-foreground">계좌�??�결?�주?�요</p>}
-              {selectedAccountId && isIdle && <p className="text-xs text-muted-foreground">?�로고침 버튼?�로 조회</p>}
+              {!selectedAccountId && <p className="text-xs text-muted-foreground">계좌를 연결해주세요</p>}
+              {selectedAccountId && isIdle && <p className="text-xs text-muted-foreground">새로고침 버튼으로 조회</p>}
             </CardContent>
           </Card>
 
           <Card className="hover-elevate transition-all duration-300 border-[hsl(var(--neon-green))]/20">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 gap-2">
-              <CardTitle className="text-xs md:text-sm font-medium">?��??�익</CardTitle>
+              <CardTitle className="text-xs md:text-sm font-medium">평가손익</CardTitle>
               <TrendingUp className="h-4 w-4 text-[hsl(var(--neon-green))]" />
             </CardHeader>
             <CardContent className="pt-0">
@@ -465,9 +464,8 @@ export default function Dashboard() {
                 }`}
                 data-testid="text-today-profit"
               >
-                {isLoading ? <span className="text-muted-foreground text-base">조회 �?..</span>
-                  : balance ? fmt(balance.todayProfit)
-                  : hasError ? <span className="text-muted-foreground text-sm">조회 ?�패</span>
+                {balance ? fmt(balance.todayProfit)
+                  : isLoading ? <span className="text-muted-foreground text-base">조회 중...</span>
                   : <span className="text-muted-foreground text-sm">-</span>}
               </div>
               <p className={`text-xs ${
@@ -482,17 +480,16 @@ export default function Dashboard() {
 
           <Card className="hover-elevate transition-all duration-300 border-[hsl(var(--neon-purple))]/20">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 gap-2">
-              <CardTitle className="text-xs md:text-sm font-medium">?�수�?/CardTitle>
+              <CardTitle className="text-xs md:text-sm font-medium">예수금</CardTitle>
               <Target className="h-4 w-4 text-[hsl(var(--neon-purple))]" />
             </CardHeader>
             <CardContent className="pt-0">
               <div className="text-lg md:text-2xl font-bold font-mono" data-testid="text-total-return">
-                {isLoading ? <span className="text-muted-foreground text-base">조회 �?..</span>
-                  : balance ? fmt(balance.depositAmount)
-                  : hasError ? <span className="text-muted-foreground text-sm">조회 ?�패</span>
+                {balance ? fmt(balance.depositAmount)
+                  : isLoading ? <span className="text-muted-foreground text-base">조회 중...</span>
                   : <span className="text-muted-foreground text-sm">-</span>}
               </div>
-              <p className="text-xs text-muted-foreground">출금가?�금??/p>
+              <p className="text-xs text-muted-foreground">출금가능금액</p>
             </CardContent>
           </Card>
 
@@ -503,23 +500,23 @@ export default function Dashboard() {
             </CardHeader>
             <CardContent className="pt-0">
               <div className="text-lg md:text-2xl font-bold" data-testid="text-trading-mode">
-                {selectedAccount ? (selectedAccount.accountType === "real" ? "?�전" : "모의") : (settings?.tradingMode === "real" ? "?�전" : "모의")}
+                {selectedAccount ? (selectedAccount.accountType === "real" ? "실전" : "모의") : (settings?.tradingMode === "real" ? "실전" : "모의")}
               </div>
-              <p className="text-xs text-muted-foreground">?�정?�서 변�?가??/p>
+              <p className="text-xs text-muted-foreground">설정에서 변경 가능</p>
             </CardContent>
           </Card>
         </div>
 
-        {/* ?�트?�리??& 보유종목 ??API 조회 ?�공 ?�에�??�시 */}
+        {/* 포트폴리오 & 보유종목 — API 조회 성공 시에만 표시 */}
         {isSuccess && holdings && holdings.length > 0 && (
           <div className="grid gap-3 md:gap-4 grid-cols-1 md:grid-cols-2">
             <Card className="hover-elevate">
               <CardHeader className="pb-2">
                 <CardTitle className="flex items-center gap-2 text-base md:text-lg">
-                  ?�트?�리??구성
+                  포트폴리오 구성
                   <div className="w-2 h-2 rounded-full bg-[hsl(var(--neon-cyan))] animate-pulse-glow" />
                 </CardTitle>
-                <CardDescription className="text-xs md:text-sm">종목�?비중</CardDescription>
+                <CardDescription className="text-xs md:text-sm">종목별 비중</CardDescription>
               </CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={200} className="md:!h-[300px]">
@@ -548,7 +545,7 @@ export default function Dashboard() {
                   보유 종목
                   <div className="w-2 h-2 rounded-full bg-[hsl(var(--neon-purple))] animate-pulse-glow" />
                 </CardTitle>
-                <CardDescription>종목�??�익�?/CardDescription>
+                <CardDescription>종목별 수익률</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-2">
@@ -566,7 +563,7 @@ export default function Dashboard() {
                           <p className="text-sm text-muted-foreground">{h.stockCode}</p>
                         </div>
                         <div className="text-right">
-                          <p className="font-mono text-sm">{h.quantity}�?/p>
+                          <p className="font-mono text-sm">{h.quantity}주</p>
                           <p className={`text-sm font-medium ${rate > 0 ? "text-green-600 dark:text-green-400" : rate < 0 ? "text-red-600 dark:text-red-400" : "text-muted-foreground"}`}>
                             {isNaN(rate) ? "-" : fmtPct(rate)}
                           </p>
@@ -580,15 +577,15 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* ?�산 추이 ???�제 ?�냅???�이?��? ?�을 ?�만 ?�시 */}
+        {/* 자산 추이 — 실제 스냅샷 데이터가 있을 때만 표시 */}
         {assetHistory.length > 0 && (
           <Card className="hover-elevate">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                ?�산 추이
+                자산 추이
                 <TrendingUp className="w-4 h-4 text-[hsl(var(--neon-green))]" />
               </CardTitle>
-              <CardDescription>최근 30??총자??변??/CardDescription>
+              <CardDescription>최근 30일 총자산 변화</CardDescription>
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={300}>
@@ -598,8 +595,8 @@ export default function Dashboard() {
                   <YAxis />
                   <Tooltip formatter={(v: any) => fmt(v)} />
                   <Legend />
-                  <Line type="monotone" dataKey="totalAssets" stroke="#8884d8" name="총자?? strokeWidth={2} />
-                  <Line type="monotone" dataKey="profit" stroke="#82ca9d" name="?�익" strokeWidth={2} />
+                  <Line type="monotone" dataKey="totalAssets" stroke="#8884d8" name="총자산" strokeWidth={2} />
+                  <Line type="monotone" dataKey="profit" stroke="#82ca9d" name="수익" strokeWidth={2} />
                 </LineChart>
               </ResponsiveContainer>
             </CardContent>
@@ -613,7 +610,7 @@ export default function Dashboard() {
               최근 거래
               <div className="w-2 h-2 rounded-full bg-[hsl(var(--neon-cyan))] animate-pulse-glow" />
             </CardTitle>
-            <CardDescription>최근 5건의 매매 ?�역</CardDescription>
+            <CardDescription>최근 5건의 매매 내역</CardDescription>
           </CardHeader>
           <CardContent>
             {recentTrades && recentTrades.length > 0 ? (
@@ -623,17 +620,19 @@ export default function Dashboard() {
                     <div>
                       <p className="text-sm font-semibold">{trade.stockName} ({trade.stockCode})</p>
                       <p className="text-xs text-muted-foreground">
-                        {trade.orderType === 'buy' ? '매수' : '매도'} {trade.orderQuantity}�?                        {" @ "}
+                        {trade.orderType === 'buy' ? '매수' : '매도'} {trade.orderQuantity}주
+                        {" @ "}
                         {(trade.executedPrice ?? trade.orderPrice)
                           ? Number(trade.executedPrice ?? trade.orderPrice).toLocaleString("ko-KR")
                           : "-"}
-                        ??                      </p>
+                        원
+                      </p>
                     </div>
                     <div className="text-right">
                       <p className="text-sm font-semibold">
-                        {trade.orderStatus === "completed" ? "체결?�료" :
-                         trade.orderStatus === "partial" ? "부분체�? :
-                         trade.orderStatus === "pending" ? "?��? : "취소"}
+                        {trade.orderStatus === "completed" ? "체결완료" :
+                         trade.orderStatus === "partial" ? "부분체결" :
+                         trade.orderStatus === "pending" ? "대기" : "취소"}
                       </p>
                       <p className="text-xs text-muted-foreground">
                         {new Date(trade.createdAt).toLocaleString("ko-KR")}
@@ -643,7 +642,7 @@ export default function Dashboard() {
                 ))}
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground text-center py-8">거래 ?�역???�습?�다</p>
+              <p className="text-sm text-muted-foreground text-center py-8">거래 내역이 없습니다</p>
             )}
           </CardContent>
         </Card>
@@ -652,8 +651,8 @@ export default function Dashboard() {
       <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>계좌 ??��</AlertDialogTitle>
-            <AlertDialogDescription>??계좌�???��?�시겠습?�까? ??�� ?�에??복구?????�습?�다.</AlertDialogDescription>
+            <AlertDialogTitle>계좌 삭제</AlertDialogTitle>
+            <AlertDialogDescription>이 계좌를 삭제하시겠습니까? 삭제 후에는 복구할 수 없습니다.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>취소</AlertDialogCancel>
@@ -661,7 +660,7 @@ export default function Dashboard() {
               onClick={() => { if (selectedAccountId) deleteAccountMutation.mutate(selectedAccountId); }}
               data-testid="button-confirm-delete"
             >
-              ??��
+              삭제
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
