@@ -1,0 +1,308 @@
+
+> rest-express@1.0.0 dev
+> cross-env NODE_ENV=development tsx --env-file=.env server/index.ts
+
+♻️  Kiwoom 토큰 캐시에서 복원 (유효기간: AM 10:07:08 )
+♻️  Kiwoom 토큰 캐시에서 복원 (유효기간: AM 10:07:08 )
+♻️  Kiwoom 토큰 캐시에서 복원 (유효기간: AM 10:07:08 )
+♻️  Kiwoom 토큰 캐시에서 복원 (유효기간: AM 10:07:08 )
+♻️  Kiwoom 토큰 캐시에서 복원 (유효기간: AM 10:07:08 )
+♻️  Kiwoom 토큰 캐시에서 복원 (유효기간: AM 10:07:08 )
+[SECURITY] AGENT_KEY는 32자 이상을 권장합니다.
+[STARTUP] Registering routes...
+[STARTUP] Vite dev server...
+10:13:08 PM [express] serving on port 5002
+10:13:08 PM [express] GET /condition-formulas 404 in 12ms
+10:13:08 PM [express] GET /api/auto-trading/engine-status 401 in 2ms
+[JobManager] 초기화 — DB에서 잡 상태/인터벌 로드 중...
+[JobManager]  scan: 시작
+✅ Scan Job started (schedule: */30 * * * *)
+[JobManager]  auto-trading: 시작
+✅ Auto Trading Worker started (schedule: */1 * * * *)
+[JobManager]  learning: 시작
+✅ Learning System started (schedule: 0 16 * * *)
+[JobManager]  balance-refresh: 시작
+[BalanceRefresh] 서비스 시작 — 5분마다 실계좌 잔고 자동 갱신 (KST 08:30~18:00 월~금)
+[BalanceRefresh] 서비스 등록 완료 (KST 08:30~18:00, 월~금 활성)
+[JobManager] 초기화 완료
+[STARTUP] Ready ✓  [DEV] port=5002
+10:13:10 PM [express] GET / 200 in 69ms
+10:13:10 PM [express] GET /@react-refresh 304 in 9ms
+10:13:11 PM [express] GET /manifest.json 304 in 2ms
+10:13:11 PM [express] GET /@vite/client 200 in 423ms
+10:13:11 PM [express] GET /@fs/D:/Projects/tradebot-dev/node_modules/vite/dist/client/env.mjs 304 in 0ms
+10:13:11 PM [express] GET /src/main.tsx 200 in 488ms
+10:13:11 PM [express] GET /src/App.tsx 200 in 31ms
+10:13:11 PM [express] GET /src/lib/register-sw.ts 200 in 38ms
+
+A PostCSS plugin did not pass the `from` option to `postcss.parse`. This may cause imported assets to be incorrectly transformed. If you've recently added a PostCSS plugin that raised this warning, please contact the package author to fix the issue.
+10:13:12 PM [express] GET /src/index.css 200 in 686ms
+10:13:13 PM [express] GET /src/lib/queryClient.ts 304 in 1247ms
+10:13:13 PM [express] GET /src/pages/not-found.tsx 304 in 69ms
+10:13:13 PM [express] GET /src/components/ui/toaster.tsx 304 in 590ms
+10:13:13 PM [express] GET /src/components/ui/tooltip.tsx 304 in 79ms
+10:13:13 PM [express] GET /src/components/app-sidebar.tsx 200 in 97ms
+10:13:13 PM [express] GET /src/components/ui/sidebar.tsx 304 in 130ms
+10:13:13 PM [express] GET /src/pages/login.tsx 304 in 0ms
+10:13:13 PM [express] GET /src/pages/register.tsx 304 in 0ms
+10:13:13 PM [express] GET /src/pages/dashboard.tsx 304 in 0ms
+10:13:13 PM [express] GET /src/pages/trading.tsx 304 in 0ms
+10:13:13 PM [express] GET /src/pages/ai-analysis.tsx 304 in 0ms
+10:13:13 PM [express] GET /src/pages/auto-trading.tsx 304 in 0ms
+10:13:13 PM [express] GET /src/pages/portfolio.tsx 304 in 1ms
+10:13:13 PM [express] GET /src/pages/trade-history.tsx 304 in 1ms
+10:13:13 PM [express] GET /src/pages/trade-journal.tsx 304 in 0ms
+10:13:13 PM [express] GET /src/pages/watchlist.tsx 304 in 0ms
+10:13:13 PM [express] GET /src/pages/settings.tsx 304 in 1ms
+10:13:13 PM [express] GET /src/pages/guide.tsx 304 in 1ms
+10:13:13 PM [express] GET /src/pages/tutorial.tsx 304 in 1ms
+10:13:13 PM [express] GET /src/pages/accounts.tsx 304 in 1ms
+10:13:13 PM [express] GET /src/pages/condition-formulas.tsx 304 in 0ms
+10:13:13 PM [express] GET /src/pages/condition-screening.tsx 304 in 0ms
+10:13:13 PM [express] GET /src/pages/watchlist-signals.tsx 304 in 0ms
+10:13:13 PM [express] GET /src/pages/chart-formula-editor.tsx 304 in 1ms
+10:13:13 PM [express] GET / 204 in 0ms
+10:13:13 PM [express] GET /src/pages/backattack-scan.tsx 304 in 1ms
+10:13:13 PM [express] GET /src/pages/admin-jobs.tsx 304 in 1ms
+10:13:13 PM [express] GET /src/pages/monitoring.tsx 304 in 1ms
+10:13:13 PM [express] GET /src/pages/candidate-decisions.tsx 304 in 0ms
+10:13:13 PM [express] GET /src/pages/ai-usage.tsx 304 in 1ms
+10:13:13 PM [express] GET /@fs/D:/Projects/tradebot-dev/attached_assets/stock_images/futuristic_ai_artifi_11460e5f.jpg 304 in 1ms
+10:13:13 PM [express] GET /@fs/D:/Projects/tradebot-dev/attached_assets/stock_images/dynamic_stock_market_da45a7fb.jpg 304 in 1ms
+10:13:13 PM [express] GET /@fs/D:/Projects/tradebot-dev/attached_assets/stock_images/futuristic_ai_artifi_f9d4da05.jpg 304 in 0ms
+10:13:13 PM [express] GET /src/components/ui/card.tsx 304 in 19ms
+10:13:13 PM [express] GET /src/hooks/use-toast.ts 304 in 0ms
+10:13:13 PM [express] GET /src/components/ui/toast.tsx 304 in 0ms
+10:13:13 PM [express] GET /src/lib/utils.ts 304 in 1ms
+10:13:13 PM [express] GET /src/components/ui/button.tsx 304 in 0ms
+10:13:13 PM [express] GET /@fs/D:/Projects/tradebot-dev/attached_assets/stock_images/dynamic_stock_market_0d6bd401.jpg 304 in 0ms
+10:13:13 PM [express] GET /src/hooks/use-mobile.tsx 304 in 0ms
+10:13:13 PM [express] GET /src/components/ui/input.tsx 304 in 1ms
+10:13:13 PM [express] GET /src/components/ui/separator.tsx 304 in 0ms
+10:13:13 PM [express] GET /src/components/ui/sheet.tsx 304 in 1ms
+10:13:13 PM [express] GET /src/components/ui/skeleton.tsx 304 in 0ms
+10:13:13 PM [express] GET /src/components/ui/label.tsx 304 in 0ms
+10:13:13 PM [express] GET /src/components/ui/select.tsx 304 in 1ms
+10:13:13 PM [express] GET /src/components/ui/tabs.tsx 304 in 1ms
+10:13:13 PM [express] GET /src/components/ui/badge.tsx 304 in 0ms
+10:13:13 PM [express] GET /src/hooks/use-market-stream.ts 304 in 0ms
+10:13:13 PM [express] GET /src/components/connection-status.tsx 304 in 0ms
+10:13:13 PM [express] GET /src/components/stocks/StockSelector.tsx 304 in 0ms
+10:13:13 PM [express] GET /src/components/stocks/StockCandleChart.tsx 304 in 0ms
+10:13:13 PM [express] GET /src/components/ai-analysis/AIStockAnalysis.tsx 304 in 1ms
+10:13:13 PM [express] GET /src/components/ai-analysis/AIPortfolioAnalysis.tsx 304 in 0ms
+10:13:13 PM [express] GET /src/components/ai-analysis/IntegratedAnalysis.tsx 304 in 0ms
+10:13:13 PM [express] GET /src/components/ui/dialog.tsx 304 in 0ms
+10:13:13 PM [express] GET /src/components/ui/alert-dialog.tsx 304 in 0ms
+10:13:13 PM [express] GET /src/hooks/use-kiwoom-balance.ts 304 in 0ms
+10:13:13 PM [express] GET /src/components/auto-trading/AutoTradingModelDialog.tsx 304 in 0ms
+10:13:14 PM [express] GET /src/components/auto-trading/AutoTradingModelList.tsx 304 in 0ms
+10:13:14 PM [express] GET /src/components/auto-trading/AutoTradingSettings.tsx 304 in 0ms
+10:13:14 PM [express] GET /src/components/auto-trading/AutoTradingRecommendations.tsx 304 in 1ms
+10:13:14 PM [express] GET /src/components/auto-trading/AutoTradingLearningRecords.tsx 304 in 0ms
+10:13:14 PM [express] GET /src/components/auto-trading/MarketIssuesManager.tsx 304 in 0ms
+10:13:14 PM [express] GET /src/components/ui/table.tsx 304 in 0ms
+10:13:14 PM [express] GET /src/components/ui/scroll-area.tsx 304 in 1ms
+10:13:14 PM [express] GET /src/components/settings/SettingsKiwoom.tsx 304 in 0ms
+10:13:14 PM [express] GET /src/components/settings/SettingsTrading.tsx 304 in 1ms
+10:13:14 PM [express] GET /src/components/settings/SettingsNotifications.tsx 304 in 0ms
+10:13:14 PM [express] GET /src/components/settings/SettingsStockAlerts.tsx 304 in 0ms
+10:13:14 PM [express] GET /src/components/settings/SettingsMasterKeys.tsx 304 in 0ms
+10:13:14 PM [express] GET /src/components/settings/SettingsAI.tsx 304 in 0ms
+10:13:14 PM [express] GET /api/auto-trading/engine-status 401 in 1ms
+10:13:14 PM [express] GET /src/components/settings/SettingsAppInfo.tsx 304 in 0ms
+10:13:14 PM [express] GET /src/components/condition-formulas/ConditionFormDialog.tsx 304 in 1ms
+10:13:14 PM [express] GET /src/components/condition-formulas/ConditionList.tsx 304 in 0ms
+10:13:14 PM [express] GET /src/components/ui/switch.tsx 304 in 0ms
+10:13:14 PM [express] GET /src/components/chart-formula/ChartFormulaFormDialog.tsx 304 in 0ms
+10:13:14 PM [express] GET /src/components/chart-formula/ChartFormulaList.tsx 304 in 1ms
+10:13:14 PM [express] GET /src/components/ui/alert.tsx 304 in 1ms
+10:13:14 PM [express] GET /src/components/rainbow-chart.tsx 304 in 0ms
+10:13:14 PM [express] GET /src/lib/stocks.ts 304 in 0ms
+10:13:14 PM [express] GET /src/components/ui/textarea.tsx 304 in 1ms
+10:13:14 PM [express] GET /src/components/ui/collapsible.tsx 304 in 0ms
+10:13:14 PM [express] GET /src/components/ui/slider.tsx 304 in 0ms
+10:13:14 PM [express] GET /api/auth/me 401 in 0ms
+10:13:14 PM [express] GET /favicon.png 304 in 1ms
+10:13:14 PM [express] GET /Projects/tradebot-dev/attached_assets/stock_images/futuristic_ai_artifi_11460e5f.jpg 304 in 1ms
+10:13:14 PM [express] GET / 204 in 0ms
+(node:41908) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+10:13:15 PM [express] GET /api/auth/google 302 in 4ms
+10:13:15 PM [express] GET / 204 in 0ms
+10:13:16 PM [express] GET /api/auth/google/callback 302 in 748ms
+10:13:16 PM [express] GET / 200 in 9ms
+10:13:16 PM [express] GET / 204 in 1ms
+10:13:16 PM [express] GET /src/main.tsx 200 in 1ms
+10:13:16 PM [express] GET /manifest.json 304 in 1ms
+10:13:16 PM [express] GET /@react-refresh 304 in 3ms
+10:13:16 PM [express] GET /src/index.css 200 in 3ms
+10:13:16 PM [express] GET /src/lib/register-sw.ts 200 in 2ms
+10:13:16 PM [express] GET /@vite/client 304 in 1ms
+10:13:16 PM [express] GET /@fs/D:/Projects/tradebot-dev/node_modules/vite/dist/client/env.mjs 304 in 0ms
+10:13:16 PM [express] GET /src/App.tsx 200 in 1ms
+10:13:16 PM [express] GET /src/lib/queryClient.ts 304 in 1ms
+10:13:16 PM [express] GET /src/components/ui/toaster.tsx 304 in 2ms
+10:13:16 PM [express] GET /src/components/ui/tooltip.tsx 304 in 2ms
+10:13:16 PM [express] GET /src/components/ui/sidebar.tsx 304 in 2ms
+10:13:16 PM [express] GET /src/components/app-sidebar.tsx 304 in 2ms
+10:13:16 PM [express] GET /src/pages/not-found.tsx 304 in 2ms
+10:13:16 PM [express] GET /src/pages/login.tsx 304 in 2ms
+10:13:16 PM [express] GET /src/pages/register.tsx 304 in 2ms
+10:13:16 PM [express] GET /src/pages/dashboard.tsx 304 in 2ms
+10:13:16 PM [express] GET /src/pages/trading.tsx 304 in 2ms
+10:13:16 PM [express] GET /src/pages/ai-analysis.tsx 304 in 2ms
+10:13:16 PM [express] GET /src/pages/auto-trading.tsx 304 in 2ms
+10:13:16 PM [express] GET /src/pages/portfolio.tsx 304 in 3ms
+10:13:16 PM [express] GET /src/pages/trade-history.tsx 304 in 3ms
+10:13:16 PM [express] GET /src/pages/trade-journal.tsx 304 in 2ms
+10:13:16 PM [express] GET /src/pages/watchlist.tsx 304 in 1ms
+10:13:16 PM [express] GET /src/pages/settings.tsx 304 in 2ms
+10:13:16 PM [express] GET /src/pages/guide.tsx 304 in 2ms
+10:13:16 PM [express] GET /src/pages/tutorial.tsx 304 in 2ms
+10:13:16 PM [express] GET /src/pages/accounts.tsx 304 in 2ms
+10:13:16 PM [express] GET /src/pages/condition-formulas.tsx 304 in 1ms
+10:13:16 PM [express] GET /src/pages/condition-screening.tsx 304 in 2ms
+10:13:16 PM [express] GET /src/pages/watchlist-signals.tsx 304 in 1ms
+10:13:16 PM [express] GET /src/pages/chart-formula-editor.tsx 304 in 2ms
+10:13:16 PM [express] GET /src/pages/backattack-scan.tsx 304 in 1ms
+10:13:16 PM [express] GET /src/pages/admin-jobs.tsx 304 in 2ms
+10:13:16 PM [express] GET /src/pages/monitoring.tsx 304 in 1ms
+10:13:16 PM [express] GET /src/pages/candidate-decisions.tsx 304 in 1ms
+10:13:16 PM [express] GET /src/pages/ai-usage.tsx 304 in 1ms
+10:13:16 PM [express] GET /@fs/D:/Projects/tradebot-dev/attached_assets/stock_images/futuristic_ai_artifi_11460e5f.jpg 304 in 2ms
+10:13:16 PM [express] GET /@fs/D:/Projects/tradebot-dev/attached_assets/stock_images/dynamic_stock_market_da45a7fb.jpg 304 in 2ms
+10:13:16 PM [express] GET /@fs/D:/Projects/tradebot-dev/attached_assets/stock_images/futuristic_ai_artifi_f9d4da05.jpg 304 in 2ms
+10:13:16 PM [express] GET /src/hooks/use-toast.ts 304 in 2ms
+10:13:16 PM [express] GET /src/components/ui/toast.tsx 304 in 1ms
+10:13:16 PM [express] GET /src/lib/utils.ts 304 in 2ms
+10:13:16 PM [express] GET /src/hooks/use-mobile.tsx 304 in 2ms
+10:13:16 PM [express] GET /src/components/ui/button.tsx 304 in 1ms
+10:13:16 PM [express] GET /src/components/ui/input.tsx 304 in 2ms
+10:13:16 PM [express] GET /src/components/ui/separator.tsx 304 in 2ms
+10:13:16 PM [express] GET /src/components/ui/sheet.tsx 304 in 2ms
+10:13:16 PM [express] GET /src/components/ui/skeleton.tsx 304 in 1ms
+10:13:16 PM [express] GET /@fs/D:/Projects/tradebot-dev/attached_assets/stock_images/dynamic_stock_market_0d6bd401.jpg 304 in 2ms
+10:13:16 PM [express] GET /src/components/ui/card.tsx 304 in 1ms
+10:13:16 PM [express] GET /src/components/ui/label.tsx 304 in 1ms
+10:13:16 PM [express] GET /src/components/ui/dialog.tsx 304 in 2ms
+10:13:16 PM [express] GET /src/components/ui/alert-dialog.tsx 304 in 1ms
+10:13:16 PM [express] GET /src/components/ui/select.tsx 304 in 1ms
+10:13:16 PM [express] GET /src/components/ui/badge.tsx 304 in 1ms
+10:13:16 PM [express] GET /src/hooks/use-kiwoom-balance.ts 304 in 2ms
+10:13:16 PM [express] GET /src/components/ui/tabs.tsx 304 in 2ms
+10:13:16 PM [express] GET /src/hooks/use-market-stream.ts 304 in 2ms
+10:13:16 PM [express] GET /src/components/connection-status.tsx 304 in 3ms
+10:13:16 PM [express] GET /src/components/stocks/StockSelector.tsx 304 in 2ms
+10:13:16 PM [express] GET /src/components/stocks/StockCandleChart.tsx 304 in 2ms
+10:13:16 PM [express] GET /src/components/ai-analysis/AIStockAnalysis.tsx 304 in 2ms
+10:13:16 PM [express] GET /src/components/ai-analysis/AIPortfolioAnalysis.tsx 304 in 1ms
+10:13:16 PM [express] GET /src/components/ai-analysis/IntegratedAnalysis.tsx 304 in 1ms
+10:13:16 PM [express] GET /src/components/auto-trading/AutoTradingModelDialog.tsx 304 in 1ms
+10:13:16 PM [express] GET /src/components/auto-trading/AutoTradingModelList.tsx 304 in 1ms
+10:13:16 PM [express] GET /src/components/auto-trading/AutoTradingSettings.tsx 304 in 1ms
+10:13:16 PM [express] GET /src/components/auto-trading/AutoTradingRecommendations.tsx 304 in 2ms
+10:13:16 PM [express] GET /src/components/auto-trading/AutoTradingLearningRecords.tsx 304 in 2ms
+10:13:16 PM [express] GET /src/components/auto-trading/MarketIssuesManager.tsx 304 in 1ms
+10:13:16 PM [express] GET /src/components/ui/table.tsx 304 in 1ms
+10:13:16 PM [express] GET /src/components/ui/scroll-area.tsx 304 in 1ms
+10:13:16 PM [express] GET /src/components/settings/SettingsKiwoom.tsx 304 in 2ms
+10:13:16 PM [express] GET /src/components/settings/SettingsTrading.tsx 304 in 1ms
+10:13:16 PM [express] GET /src/components/settings/SettingsNotifications.tsx 304 in 2ms
+10:13:16 PM [express] GET /src/components/settings/SettingsStockAlerts.tsx 304 in 2ms
+10:13:16 PM [express] GET /src/components/settings/SettingsMasterKeys.tsx 304 in 3ms
+10:13:17 PM [express] GET /src/components/settings/SettingsAI.tsx 304 in 2ms
+10:13:17 PM [express] GET /src/components/settings/SettingsAppInfo.tsx 304 in 2ms
+10:13:17 PM [express] GET /src/components/condition-formulas/ConditionFormDialog.tsx 304 in 2ms
+10:13:17 PM [express] GET /src/components/condition-formulas/ConditionList.tsx 304 in 2ms
+10:13:17 PM [express] GET /src/components/ui/switch.tsx 304 in 2ms
+10:13:17 PM [express] GET /src/components/chart-formula/ChartFormulaFormDialog.tsx 304 in 2ms
+10:13:17 PM [express] GET /src/components/chart-formula/ChartFormulaList.tsx 304 in 2ms
+10:13:17 PM [express] GET /src/components/ui/alert.tsx 304 in 3ms
+10:13:17 PM [express] GET /src/components/rainbow-chart.tsx 304 in 2ms
+10:13:17 PM [express] GET /src/lib/stocks.ts 304 in 1ms
+10:13:17 PM [express] GET /src/components/ui/textarea.tsx 304 in 2ms
+10:13:17 PM [express] GET /src/components/ui/collapsible.tsx 304 in 1ms
+10:13:17 PM [express] GET /src/components/ui/slider.tsx 304 in 0ms
+10:13:17 PM [express] GET /api/auth/me 304 in 1ms
+10:13:17 PM [express] GET /Projects/tradebot-dev/attached_assets/stock_images/futuristic_ai_artifi_11460e5f.jpg 304 in 1ms
+10:13:17 PM [express] GET /api/accounts 200 in 82ms
+10:13:17 PM [express] GET /api/settings 200 in 84ms
+10:13:17 PM [express] GET /Projects/tradebot-dev/attached_assets/stock_images/dynamic_stock_market_0d6bd401.jpg 304 in 3ms
+10:13:17 PM [express] GET /Projects/tradebot-dev/attached_assets/stock_images/dynamic_stock_market_da45a7fb.jpg 304 in 2ms
+10:13:17 PM [express] GET /Projects/tradebot-dev/attached_assets/stock_images/futuristic_ai_artifi_f9d4da05.jpg 304 in 2ms
+♻️  Kiwoom 토큰 캐시에서 복원 (유효기간: AM 9:49:31 )
+♻️  Kiwoom 토큰 캐시에서 복원 (유효기간: AM 9:49:31 )
+♻️  Kiwoom 토큰 캐시에서 복원 (유효기간: AM 9:49:31 )
+♻️  Kiwoom 토큰 캐시에서 복원 (유효기간: AM 9:49:31 )
+♻️  Kiwoom 토큰 캐시에서 복원 (유효기간: AM 9:49:31 )
+♻️  Kiwoom 토큰 캐시에서 복원 (유효기간: AM 9:49:31 )
+10:13:17 PM [express] GET /api/accounts/19/holdings 200 in 63ms
+10:13:17 PM [express] GET /api/accounts/19/orders 304 in 66ms
+10:13:17 PM [express] GET /api/accounts/19/asset-snapshots 200 in 66ms
+✅ [KiwoomAccount] 잔고조회 성공 — 실전 서버, 보유종목 2건, 예수금 9,134원
+[fetch-balance] 종목 파싱: code=123260 name=(폐)파인넥스 qty=1000 avgPrc=000000000000073 curPrc=000000000000 pl=-00000000073010 plRate=0.00 rawFields={pchs_avg_pric:0,pur_pric:000000000000073,prft_rt:0.00,evltv_prft:-00000000073010}
+[fetch-balance] 종목 파싱: code=382840 name=원준 qty=1452 avgPrc=000000000032594 curPrc=000000008000 pl=-00000035743011 plRate=-75.52 rawFields={pchs_avg_pric:0,pur_pric:000000000032594,prft_rt:-75.52,evltv_prft:-00000035743011}
+10:13:17 PM [express] GET /api/accounts/19/fetch-balance 200 in 164ms
+10:13:17 PM [express] GET /api/accounts/19/holdings 200 in 2ms
+10:13:17 PM [express] GET / 204 in 0ms
+10:13:18 PM [express] GET / 204 in 0ms
+10:13:19 PM [express] GET /api/auto-trading/engine-status 401 in 0ms
+10:13:19 PM [express] GET / 204 in 0ms
+10:13:20 PM [express] GET / 204 in 1ms
+10:13:21 PM [express] GET / 204 in 1ms
+10:13:22 PM [express] GET / 204 in 0ms
+10:13:23 PM [express] GET / 204 in 1ms
+10:13:24 PM [express] GET /api/auto-trading/engine-status 401 in 0ms
+10:13:24 PM [express] GET / 204 in 0ms
+10:13:25 PM [express] GET / 204 in 1ms
+10:13:26 PM [express] GET / 204 in 1ms
+10:13:27 PM [express] GET / 204 in 0ms
+10:13:28 PM [express] GET / 204 in 0ms
+10:13:29 PM [express] GET / 204 in 0ms
+10:13:30 PM [express] GET /api/auto-trading/engine-status 401 in 0ms
+10:13:30 PM [express] GET / 204 in 0ms
+10:13:31 PM [express] GET /api/admin/jobs 401 in 1ms
+10:13:31 PM [express] GET /api/auto-trading/engine-status 401 in 1ms
+10:13:31 PM [express] GET /api/auto-trading/candidates 401 in 0ms
+10:13:31 PM [express] GET /api/auto-trading/notifications 401 in 0ms
+10:13:31 PM [express] GET /api/auto-trading/notifications/summary 401 in 1ms
+10:13:31 PM [express] GET /api/ai/learning-summary 401 in 1ms
+10:13:31 PM [express] GET / 204 in 1ms
+10:13:32 PM [express] GET / 204 in 0ms
+10:13:33 PM [express] GET / 204 in 0ms
+10:13:34 PM [express] GET / 204 in 0ms
+10:13:35 PM [express] GET /api/auto-trading/engine-status 401 in 0ms
+10:13:35 PM [express] GET / 204 in 1ms
+10:13:36 PM [express] GET / 204 in 0ms
+10:13:37 PM [express] GET / 204 in 0ms
+10:13:38 PM [express] GET / 204 in 0ms
+10:13:39 PM [express] GET / 204 in 1ms
+10:13:40 PM [express] GET /api/auto-trading/engine-status 401 in 1ms
+10:13:40 PM [express] GET / 204 in 0ms
+10:13:41 PM [express] GET / 204 in 1ms
+10:13:42 PM [express] GET / 204 in 0ms
+10:13:46 PM [express] GET /api/auto-trading/engine-status 401 in 1ms
+10:13:51 PM [express] GET /api/auto-trading/engine-status 401 in 0ms
+10:13:56 PM [express] GET /api/auto-trading/engine-status 401 in 1ms
+[AutoTrading][trading-1778850840016] 🕒 Outside market hours - skipping
+10:14:02 PM [express] GET /api/auto-trading/engine-status 401 in 0ms
+10:14:03 PM [express] GET / 204 in 1ms
+10:14:04 PM [express] GET / 204 in 0ms
+10:14:05 PM [express] GET / 204 in 1ms
+10:14:06 PM [express] GET / 204 in 0ms
+10:14:07 PM [express] GET / 204 in 1ms
+10:14:07 PM [express] GET /api/auto-trading/engine-status 401 in 0ms
+10:14:08 PM [express] GET / 204 in 1ms
+10:14:09 PM [express] GET / 204 in 0ms
+10:14:10 PM [express] GET / 204 in 0ms
+10:14:11 PM [express] GET / 204 in 0ms
+10:14:12 PM [express] GET / 204 in 1ms
+10:14:12 PM [express] GET /api/auto-trading/engine-status 401 in 1ms
+10:14:13 PM [express] GET / 204 in 0ms
+10:14:14 PM [express] GET / 204 in 1ms
+10:14:18 PM [express] GET /api/auto-trading/engine-status 401 in 1ms
+10:14:18 PM [express] GET / 204 in 0ms
+10:14:19 PM [express] GET / 204 in 0ms
+10:14:20 PM [express] GET / 204 in 1ms
+10:14:21 PM [express] GET / 204 in 0ms

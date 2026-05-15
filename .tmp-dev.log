@@ -1,0 +1,14 @@
+♻️  Kiwoom 토큰 캐시에서 복원 (유효기간: AM 10:07:08 )
+♻️  Kiwoom 토큰 캐시에서 복원 (유효기간: AM 10:07:08 )
+♻️  Kiwoom 토큰 캐시에서 복원 (유효기간: AM 10:07:08 )
+♻️  Kiwoom 토큰 캐시에서 복원 (유효기간: AM 10:07:08 )
+♻️  Kiwoom 토큰 캐시에서 복원 (유효기간: AM 10:07:08 )
+♻️  Kiwoom 토큰 캐시에서 복원 (유효기간: AM 10:07:08 )
+[SECURITY] AGENT_KEY는 32자 이상을 권장합니다.
+[STARTUP] Registering routes...
+[STARTUP] Vite dev server...
+[CRASH] Uncaught Exception: listen EADDRINUSE: address already in use 0.0.0.0:5002 Error: listen EADDRINUSE: address already in use 0.0.0.0:5002
+    at Server.setupListenHandle [as _listen2] (node:net:1948:16)
+    at listenInCluster (node:net:2005:12)
+    at node:net:2214:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
