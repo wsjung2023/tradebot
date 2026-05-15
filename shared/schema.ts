@@ -50,6 +50,8 @@ export const kiwoomAccounts = pgTable("kiwoom_accounts", {
   lastTodayProfit: decimal("last_today_profit", { precision: 16, scale: 2 }),
   lastTodayProfitRate: decimal("last_today_profit_rate", { precision: 10, scale: 4 }),
   lastBalanceFetchedAt: timestamp("last_balance_fetched_at"),
+  kiwoomAppKey: text("kiwoom_app_key"),    // Encrypted — 계좌별 API 키
+  kiwoomAppSecret: text("kiwoom_app_secret"), // Encrypted
 });
 
 // Portfolio holdings

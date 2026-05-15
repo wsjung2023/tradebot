@@ -294,12 +294,19 @@ export function registerAiRoutes(app: Router) {
   app.post("/api/ai/analyze-stock", isAuthenticated, async (req, res) => {
     try {
       const user = getCurrentUser(req);
-      const { stockCode, stockName, currentPrice } = req.body;
+      let { stockCode, stockName, currentPrice } = req.body;
+      if (!stockCode) return res.status(400).json({ error: "stockCode 필수" });
+      // currentPrice 미전달 시 서버에서 직접 조회
+      if (!currentPrice || !stockName) {
+        const priceData = await userKiwoomService.getPrice(user!.id, stockCode);
+        currentPrice = currentPrice ?? Number(priceData.currentPrice);
+        stockName = stockName ?? priceData.stockName;
+      }
       const settings = await storage.getUserSettings(user!.id);
       const model = settings?.aiModel || "gpt-5-mini";
       const scopedAccountId = req.body?.accountId ? Number(req.body.accountId) : (settings?.defaultAccountId ?? null);
       const analysis = await aiService.analyzeStock(
-        { stockCode, stockName, currentPrice },
+        { stockCode, stockName, currentPrice: Number(currentPrice) },
         model,
         {
           userId: user!.id,

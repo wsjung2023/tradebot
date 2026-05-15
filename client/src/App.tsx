@@ -5,7 +5,6 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
-import { AgentStatusBanner } from "@/components/agent-status-banner";
 import NotFound from "@/pages/not-found";
 import Login from "@/pages/login";
 import Register from "@/pages/register";
@@ -121,7 +120,6 @@ function AuthenticatedRouter() {
           <header className="flex items-center justify-between p-2 border-b border-white/50 bg-white/70 backdrop-blur-sm">
             <SidebarTrigger data-testid="button-sidebar-toggle" />
           </header>
-          <AgentStatusBanner />
           <DecorativeHeroStrip />
           <main className="flex-1 overflow-auto pb-4">
             <div className="app-page-shell">

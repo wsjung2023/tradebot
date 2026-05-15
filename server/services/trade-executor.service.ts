@@ -7,7 +7,7 @@ import { RainbowChartAnalyzer } from '../formula/rainbow-chart';
 import { normalizeChartDataAsc } from '../utils/chart-normalization';
 import { getNewsService } from './news.service';
 import { getDartService } from './dart.service';
-import { callViaAgent } from './agent-proxy.service';
+import { getUserKiwoomService } from './user-kiwoom.service';
 
 // 위험 공시 키워드 → 매수 자동 차단
 const DART_DANGER_KEYWORDS = [
@@ -1128,9 +1128,8 @@ export class TradeExecutorService {
     kiwoomService: KiwoomService,
     userId?: string
   ): Promise<RainbowEval> {
-    // 차트 데이터는 에이전트 경유 (실전 서버 데이터, 모의계좌와 무관)
     const chartRaw = userId
-      ? await callViaAgent(userId, 'chart.get', { stockCode: stock.code, period: 'D', count: 250 }, 20000)
+      ? await getUserKiwoomService().getChart(userId, stock.code, 'D', 250)
       : await kiwoomService.getStockChart(stock.code, 'D', 250);
     const ohlcv = normalizeChartDataAsc(Array.isArray(chartRaw) ? chartRaw : (chartRaw?.output || chartRaw));
     const result = RainbowChartAnalyzer.analyze(stock.code, ohlcv, 240);

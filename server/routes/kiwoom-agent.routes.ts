@@ -256,11 +256,9 @@ export function registerKiwoomAgentRoutes(app: Express): void {
       const agentVersionHeader = (req.headers["x-agent-version"] as string | undefined) ?? null;
       touchAgentSeen(agentVersionHeader);
 
-      // 폴링 스위치 OFF — 에이전트에게 24시간 대기 지시
-      // 에이전트를 재시작하면 즉시 재개 가능
+      // 폴링 스위치 OFF — job 없음으로 응답 (pollingDisabled 플래그 제거: 에이전트가 sleep하면 다른 서버 폴링도 막힘)
       if (!_pollingEnabled) {
-        res.setHeader("Retry-After", "30");
-        return res.json({ job: null, pollingDisabled: true, retryAfter: 30 });
+        return res.json({ job: null });
       }
 
       const supportsRaw =

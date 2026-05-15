@@ -3,7 +3,7 @@ import type { Router } from "express";
 import { storage } from "../storage";
 import { isAuthenticated, getCurrentUser } from "../auth";
 import { insertOrderSchema } from "@shared/schema";
-import { callViaAgent, AgentTimeoutError } from "../services/agent-proxy.service";
+import { AgentTimeoutError } from "../services/agent-proxy.service";
 import { getUserKiwoomService } from "../services/user-kiwoom.service";
 import { RainbowChartAnalyzer } from "../formula/rainbow-chart";
 
@@ -284,17 +284,17 @@ export function registerTradingRoutes(app: Router) {
       if (!account) return res.status(404).json({ error: "Account not found" });
 
       const user = getCurrentUser(req);
-      const jobType = orderData.orderType === "buy" ? "order.buy" : "order.sell";
-      const kiwoomOrder = await callViaAgent(user!.id, jobType, {
+      const kiwoomOrder = await userKiwoomService.placeOrder(user!.id, {
         stockCode: orderData.stockCode,
-        orderType: orderData.orderMethod || "market",
-        quantity: orderData.orderQuantity,
-        price: orderData.orderPrice ? parseFloat(orderData.orderPrice) : 0,
+        orderType: orderData.orderType as "buy" | "sell",
+        orderMethod: (orderData.orderMethod as "market" | "limit") || "market",
+        orderQuantity: orderData.orderQuantity,
+        orderPrice: orderData.orderPrice ? parseFloat(orderData.orderPrice) : undefined,
         accountNumber: account.accountNumber,
       });
 
       const updatedOrder = await storage.updateOrder(order.id, {
-        orderNumber: kiwoomOrder?.ord_no || kiwoomOrder?.ODNO || kiwoomOrder?.orderNumber,
+        orderNumber: kiwoomOrder?.output?.ord_no || kiwoomOrder?.output?.ODNO,
       });
 
       await storage.createTradingLog({

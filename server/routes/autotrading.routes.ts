@@ -2,7 +2,7 @@
 import type { Router } from "express";
 import { storage } from "../storage";
 import { isAuthenticated, getCurrentUser } from "../auth";
-import { AgentTimeoutError, callViaAgent } from "../services/agent-proxy.service";
+import { AgentTimeoutError } from "../services/agent-proxy.service";
 import { getUserKiwoomService } from "../services/user-kiwoom.service";
 import { RainbowChartAnalyzer } from "../formula/rainbow-chart";
 import { normalizeChartDataAsc } from "../utils/chart-normalization";
@@ -267,12 +267,12 @@ export function registerAutoTradingRoutes(app: Router) {
       // 원본 조건검색 결과(종목명/현재가/등락률 포함)
       let conditionResultFull: any[] = [];
 
-      // stockCodes 미전달 시 에이전트로 조건검색 실행
+      // stockCodes 미전달 시 직접 조건검색 실행
       if (!stockCodes || stockCodes.length === 0) {
         const seq = effectiveSeq;
-        console.log(`[backattack-scan] stockCodes 없음 → 에이전트 condition.run(seq=${seq}) 실행`);
+        console.log(`[backattack-scan] stockCodes 없음 → condition.run(seq=${seq}) 직접 실행`);
         try {
-          const conditionResult = await callViaAgent(user.id, "condition.run", { seq }, 30000);
+          const conditionResult = await getUserKiwoomService().runCondition(user.id, seq);
           if (Array.isArray(conditionResult) && conditionResult.length > 0) {
             conditionResultFull = conditionResult;
             stockCodes = conditionResult
@@ -287,11 +287,8 @@ export function registerAutoTradingRoutes(app: Router) {
               sync: { syncedModels: 0, syncedCandidates: 0 },
             });
           }
-        } catch (agentErr: any) {
-          if (agentErr instanceof AgentTimeoutError) {
-            return res.status(503).json({ error: `에이전트 응답 없음: ${agentErr.message}` });
-          }
-          return res.status(500).json({ error: `조건검색 실행 실패: ${agentErr.message}` });
+        } catch (condErr: any) {
+          return res.status(500).json({ error: `조건검색 실행 실패: ${condErr.message}` });
         }
       }
 

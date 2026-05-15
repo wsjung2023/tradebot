@@ -54,21 +54,67 @@ export class KiwoomCondition extends KiwoomBase {
         reject(new Error("조건검색 WebSocket 타임아웃 (15초)"));
       }, 15_000);
 
+      let loginSent = false;
+      let loginDone = false;
+      let realMessages: any[] = [];
+      let collectTimer: ReturnType<typeof setTimeout> | null = null;
+
+      const finishWithReal = () => {
+        if (collectTimer) clearTimeout(collectTimer);
+        clearTimeout(timer);
+        ws.close();
+        resolve({ trnm: payload.trnm, return_code: 0, data: realMessages });
+      };
+
       ws.on("open", () => {
-        ws.send(JSON.stringify(payload));
+        console.log(`[KiwoomWS] open apiId=${apiId} → LOGIN 메시지 전송`);
+        ws.send(JSON.stringify({ trnm: "LOGIN", token: this.accessToken }));
+        loginSent = true;
       });
 
       ws.on("message", (raw: Buffer) => {
         try {
           const msg = JSON.parse(raw.toString());
-          if (msg.trnm !== "REAL") {
-            clearTimeout(timer);
-            ws.close();
-            if (msg.return_code !== 0 && String(msg.return_code) !== "0") {
-              reject(new Error(`조건검색 오류 ${msg.return_code}: ${msg.return_msg ?? "unknown"}`));
-            } else {
-              resolve(msg);
+          console.log(`[KiwoomWS] message loginDone=${loginDone} trnm=${msg.trnm}:`, JSON.stringify(msg).slice(0, 200));
+
+          // REAL: 조건검색 결과 종목 수집
+          if (msg.trnm === "REAL") {
+            if (loginDone) realMessages.push(msg);
+            return;
+          }
+
+          const rc = msg.return_code;
+
+          // LOGIN ack 처리
+          if (!loginDone && loginSent) {
+            if (rc !== undefined && rc !== null && rc !== 0 && String(rc) !== "0") {
+              clearTimeout(timer);
+              ws.close();
+              reject(new Error(`WS 로그인 실패 ${rc}: ${msg.return_msg ?? "unknown"}`));
+              return;
             }
+            loginDone = true;
+            console.log(`[KiwoomWS] 로그인 완료 → payload 전송:`, JSON.stringify(payload));
+            ws.send(JSON.stringify(payload));
+            return;
+          }
+
+          // PING = 구독 ack (CNSRREQ), 3초 수집 후 종료
+          if (msg.trnm === "PING") {
+            if (collectTimer === null) {
+              console.log(`[KiwoomWS] PING 수신 → 3초 REAL 수집 후 종료`);
+              collectTimer = setTimeout(finishWithReal, 3_000);
+            }
+            return;
+          }
+
+          // 일반 응답 (CNSRLST 등)
+          clearTimeout(timer);
+          ws.close();
+          if (rc !== undefined && rc !== null && rc !== 0 && String(rc) !== "0") {
+            reject(new Error(`조건검색 오류 ${rc}: ${msg.return_msg ?? "unknown"}`));
+          } else {
+            resolve(msg);
           }
         } catch (error) {
           clearTimeout(timer);
@@ -78,6 +124,7 @@ export class KiwoomCondition extends KiwoomBase {
       });
 
       ws.on("error", (error) => {
+        console.log(`[KiwoomWS] error:`, error.message);
         clearTimeout(timer);
         reject(error);
       });
@@ -127,14 +174,19 @@ export class KiwoomCondition extends KiwoomBase {
       next_key: "",
     });
 
+    // res.data = REAL 메시지 배열 (각 메시지 = 종목 1개)
     const rows: any[] = res.data || res.output1 || res.output || [];
     return {
-      output: rows.map((item: any) => ({
-        stock_code: String(item["9001"] ?? item.stck_cd ?? item.stock_code ?? "").replace(/^A/, ""),
-        stock_name: String(item["302"] ?? item.stck_nm ?? item.stock_name ?? ""),
-        current_price: String(item["10"] ?? item.stck_prpr ?? item.current_price ?? "0"),
-        change_rate: String(item["12"] ?? item.prdy_ctrt ?? item.change_rate ?? "0"),
-      })),
+      output: rows.map((item: any) => {
+        // REAL 메시지: item 자체가 메시지, 데이터는 item.data 또는 item 직접
+        const d = item?.data ?? item;
+        return {
+          stock_code: String(d["9001"] ?? d.stck_cd ?? d.stock_code ?? "").replace(/^A/, ""),
+          stock_name: String(d["302"] ?? d.stck_nm ?? d.stock_name ?? ""),
+          current_price: String(d["10"] ?? d.stck_prpr ?? d.current_price ?? "0"),
+          change_rate: String(d["12"] ?? d.prdy_ctrt ?? d.change_rate ?? "0"),
+        };
+      }),
     };
   }
 

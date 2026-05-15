@@ -52,15 +52,47 @@ export class DartService {
     }
   }
 
-  // 종목코드로 최근 공시 조회 (고유번호 자동 해결)
+  // 종목코드로 최근 공시 조회 (stock_code 직접 사용 — corp_code 변환 불필요)
   async getFilingsByStockCode(stockCode: string, days: number = 30): Promise<DartFilingItem[]> {
-    if (!this.isAvailable) return [];
-    const corpCode = await this.resolveCorpCode(stockCode);
-    if (!corpCode) return [];
-    return this.getRecentFilings(corpCode, days);
+    if (!this.isAvailable || !stockCode) return [];
+
+    const end = new Date();
+    const start = new Date();
+    start.setDate(end.getDate() - Math.max(days, 1));
+    const bgnDe = start.toISOString().slice(0, 10).replace(/-/g, '');
+    const endDe = end.toISOString().slice(0, 10).replace(/-/g, '');
+
+    try {
+      const resp = await axios.get(this.baseUrl, {
+        params: {
+          crtfc_key: this.apiKey,
+          stock_code: stockCode.replace(/\D/g, ''),
+          bgn_de: bgnDe,
+          end_de: endDe,
+          page_no: 1,
+          page_count: 20,
+        },
+        timeout: 10000,
+      });
+
+      const list = Array.isArray(resp.data?.list) ? resp.data.list : [];
+      return list.map((row: any) => ({
+        rceptNo: String(row.rcept_no || ''),
+        reportNm: String(row.report_nm || ''),
+        flrNm: String(row.flr_nm || ''),
+        rceptDt: String(row.rcept_dt || ''),
+        corpCode: String(row.corp_code || ''),
+        source: 'dart' as const,
+        link: row.rcept_no ? `https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${row.rcept_no}` : '',
+        payload: row,
+      })).filter((row: DartFilingItem) => row.rceptNo && row.reportNm);
+    } catch (error: any) {
+      console.warn('[DartService] getFilingsByStockCode failed:', error?.message);
+      return [];
+    }
   }
 
-  // DART 고유번호로 공시 직접 조회
+  // DART 고유번호로 공시 직접 조회 (레거시)
   async getRecentFilings(corpCode: string, days: number = 30): Promise<DartFilingItem[]> {
     if (!this.isAvailable || !corpCode) return [];
 

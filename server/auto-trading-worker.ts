@@ -13,7 +13,6 @@ import { getDartService } from './services/dart.service';
 import { AiModel, AutoTradingSettings } from '@shared/schema';
 import { getFeatureFlags } from './config/feature-flags';
 import { isKoreanMarketOpen } from './utils/market-hours';
-import { isAgentConnected, getAgentLastSeenSecondsAgo } from './routes/kiwoom-agent.routes';
 
 const DART_DANGER_KEYWORDS = [
   '유상증자', '전환사채', '신주인수권부사채', '횡령', '배임', '관리종목', '상장폐지',
@@ -157,13 +156,6 @@ class AutoTradingWorker {
     if (!isKoreanMarketOpen()) return;
     if (this.isScanRunning) {
       console.log('[ScanJob] ⏭️  이전 스캔 사이클 실행 중 — 건너뜀');
-      return;
-    }
-    // 에이전트 미연결 시 스캔 자체를 skip — runCondition은 에이전트 경유 호출
-    if (!isAgentConnected(60)) {
-      const ago = getAgentLastSeenSecondsAgo();
-      const agoLabel = ago === null ? '한 번도 폴링 없음' : `마지막 폴링 ${ago}초 전`;
-      console.log(`[ScanJob] ⏭️  에이전트 미연결 — 사이클 스킵 (${agoLabel})`);
       return;
     }
     this.isScanRunning = true;
@@ -334,13 +326,6 @@ class AutoTradingWorker {
     try {
       if (!this.isMarketHours()) {
         console.log(`[AutoTrading][${cycleId}] 🕒 Outside market hours - skipping`);
-        return;
-      }
-      // 에이전트 미연결 시 매매 사이클 자체를 skip — 모든 시세/주문 호출이 에이전트 경유
-      if (!isAgentConnected(60)) {
-        const ago = getAgentLastSeenSecondsAgo();
-        const agoLabel = ago === null ? '한 번도 폴링 없음' : `마지막 폴링 ${ago}초 전`;
-        console.log(`[AutoTrading][${cycleId}] ⏭️  에이전트 미연결 — 사이클 스킵 (${agoLabel})`);
         return;
       }
       console.log(`[AutoTrading][${cycleId}] 🔄 Starting auto trading cycle...`);
