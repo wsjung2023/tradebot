@@ -38,230 +38,198 @@ const steps: TutorialStep[] = [
   {
     id: 1,
     phase: "연결",
-    title: "설정 페이지에서 연동 준비",
+    title: "설정 및 에이전트 연동",
     icon: Settings2,
     color: "neon-cyan",
-    trigger: "최초 1회 / 재시작 후",
-    goal: "실제 주문 가능한 연결 상태를 만든다",
+    trigger: "최초 실행 또는 시스템 재시작 시",
+    goal: "실제 주문 및 조회가 가능한 물리적 연결 상태를 확보한다.",
     operatorAction: [
-      "설정 > 키움증권 API 키(APP KEY/APP SECRET)를 저장한다.",
-      "설정 > 집 PC 에이전트 연결 배지(연결됨/미연결)를 확인한다.",
-      "설정 > 거래 모드(모의투자/실전투자)를 의도대로 맞춘다.",
+      "설정 > 키움증권 APP KEY/SECRET을 입력하고 '저장' 버튼 클릭",
+      "설정 > 거래 모드(모의/실전)가 자신의 계좌와 맞는지 재확인",
+      "집 PC에서 Kiwoom Agent를 실행하고 대시보드에서 '연결됨' 배지 확인",
     ],
     systemAction: [
-      "서버 URL, 마지막 폴링, 폴링 횟수를 표시한다.",
-      "에이전트 미연결 시 미연결 상태와 점검 안내를 보여준다.",
+      "DB에 암호화된 API 키를 저장하고 에이전트와 보안 터널을 형성한다.",
+      "에이전트로부터 마지막 폴링 시각과 상태 값을 수신하여 UI에 표시한다.",
     ],
     checkpoints: [
-      "에이전트 상태가 '연결됨'",
-      "키움 키 저장 완료 토스트 확인",
+      "에이전트 상태 배지가 초록색 '연결됨'으로 표시되는가?",
+      "대시보드 상단에 계좌 잔고 데이터가 로드되는가?",
     ],
     failCase: {
-      condition: "에이전트가 미연결 또는 폴링 지연",
-      action: "집 PC 에이전트(.env REPLIT_URLS 포함)부터 복구한 후 진행한다.",
+      condition: "에이전트 미연결 또는 API 429 에러 발생",
+      action: "잡(Job) 주기를 1분 이상으로 늘리고 에이전트 프로그램을 재시작한다.",
     },
-    output: "연결 준비 완료",
+    output: "물리적 연동 성공",
   },
   {
     id: 2,
     phase: "모델",
-    title: "자동매매 모델 생성 및 작동 전환",
+    title: "AI 매매 전략 모델 수립",
     icon: Bot,
     color: "neon-purple",
-    trigger: "새 전략 추가 시",
-    goal: "운영할 전략 모델을 만들고 활성화한다",
+    trigger: "운영 전략 결정 시",
+    goal: "트레이딩 성향에 맞는 AI 모델을 생성하고 기본 골격을 잡는다.",
     operatorAction: [
-      "자동매매 > AI 모델 생성 버튼을 누른다.",
-      "전략 유형(모멘텀/가치투자/기술적분석/커스텀)을 선택한다.",
-      "모델 카드의 스위치를 켜서 '작동중'으로 전환한다.",
+      "자동매매 > 'AI 모델 생성' 버튼을 클릭",
+      "전략 유형(모멘텀/가치투자 등) 선택 및 모델명 설정",
+      "모델 카드의 스위치를 '작동중'으로 변경하여 엔진 가동 준비",
     ],
     systemAction: [
-      "모델별 기본 프리셋(손절 정책/라더/가중치)을 생성한다.",
-      "모델 목록 카드에 수익률/승률/총거래 지표를 표시한다.",
+      "모델 고유 ID를 생성하고 기본 손절정책/가중치 프리셋을 DB에 할당한다.",
+      "해당 모델이 매매 엔진의 루프에 포함되도록 대기 상태로 전환한다.",
     ],
     checkpoints: [
-      "모델 카드가 목록에 생성됨",
-      "스위치 ON 후 상태가 작동중으로 변경됨",
+      "모델 목록에 카드가 정상적으로 나타나는가?",
+      "작동중 스위치가 활성화되었는가?",
     ],
-    output: "활성 모델 준비",
+    output: "전략 모델 베이스라인 확정",
   },
   {
     id: 3,
-    phase: "세부설정",
-    title: "모델 상세 설정 저장",
+    phase: "상세설정",
+    title: "AI 지능 및 리스크 세부 튜닝",
     icon: SlidersHorizontal,
     color: "neon-green",
-    trigger: "모델 선택 후",
-    goal: "진입/청산/리스크 기준을 모델별로 확정한다",
+    trigger: "모델 생성 직후",
+    goal: "AI가 어떤 지표에 가중치를 둘지, 얼마나 공격적으로 진입할지 확정한다.",
     operatorAction: [
-      "모델 카드를 클릭해 자동매매 설정 카드를 연다.",
-      "계좌(account), maxDailyTrades, AI 최소 신뢰도, 가중치를 조정한다.",
-      "entryLadder, stopLossPolicy, AI 재량 스위치를 설정하고 저장한다.",
+      "모델 카드를 클릭하여 상세 설정 패널 진입",
+      "가중치 설정: 뉴스/재무/테마 등의 가중치 합을 100%로 맞춤",
+      "최소 신뢰도: AI 진입 승인을 위한 허들(보통 60~70) 설정",
+      "Entry Ladder: 하락 시 추가 매수할 비중(유닛) 배분 설정",
     ],
     systemAction: [
-      "가중치 합계가 100%가 아니면 저장을 거부한다.",
-      "라더 총 유닛이 종목당 최대 유닛을 초과하면 저장을 거부한다.",
-      "구형 설정 감지 시 전환 안내를 표시한다.",
+      "가중치 합계 검증 로직 실행 (100%가 아니면 저장 거부)",
+      "라더 유닛 합계와 종목당 최대 유닛 일치 여부 확인",
     ],
     checkpoints: [
-      "설정 저장 완료 토스트",
-      "저장 후 값 재조회 시 동일하게 반영됨",
+      "설정 저장 시 '성공적으로 저장되었습니다' 알림이 뜨는가?",
+      "가중치 합이 정확히 100인가?",
     ],
     failCase: {
-      condition: "조건검색식(conditionSearchSequences)이 비어 있음",
-      action: "조건검색식 섹션에서 최소 1개를 추가하지 않으면 스캔이 실행되지 않는다.",
+      condition: "조건검색식이 설정되지 않음",
+      action: "하단의 '조건검색식' 섹션에서 키움에서 만든 검색식 명칭을 반드시 추가한다.",
     },
-    output: "모델별 운용 기준 확정",
+    output: "AI 매매 지능 설정 완료",
   },
   {
     id: 4,
-    phase: "이슈",
-    title: "시장 이슈 종목 등록(선택)",
-    icon: Newspaper,
-    color: "neon-cyan",
-    trigger: "requireMarketIssue 사용 시",
-    goal: "당일 이슈 종목만 진입하도록 제어한다",
+    phase: "잡제어",
+    title: "배치잡(Jobs) 루프 가동",
+    icon: ServerCog,
+    color: "neon-purple",
+    trigger: "장 시작 전 또는 운영 개시 시",
+    goal: "스캔 -> 평가 -> 주문으로 이어지는 자동화 사이클을 시작한다.",
     operatorAction: [
-      "자동매매 > 시장 이슈 종목 관리에서 날짜를 선택한다.",
-      "종목/유형/영향도를 입력해 등록한다.",
-      "모델 설정에서 requireMarketIssue ON 여부를 결정한다.",
+      "배치잡 관리 > '스캔 잡'과 '매매 잡'의 상태를 '실행 중'으로 변경",
+      "주기 설정: 스캔(2~5분), 매매(1~2분) 권장 주기 확인",
     ],
     systemAction: [
-      "이슈 데이터는 날짜(YYYYMMDD) 기준으로 저장/조회한다.",
-      "requireMarketIssue ON이면 당일 미등록 종목을 SKIP 처리한다.",
+      "설정된 주기에 따라 백그라운드 프로세스를 스케줄링한다.",
+      "서버 재시작 후에도 이전 잡 상태를 유지하도록 DB를 업데이트한다.",
     ],
     checkpoints: [
-      "테이블에 등록 종목이 보임",
-      "모니터 피드에 시장이슈 미등록 SKIP 사유가 기록됨",
+      "잡 상태가 초록색 '실행 중' 배지로 변경되는가?",
+      "마지막 실행 시간과 다음 실행 시간이 실시간으로 갱신되는가?",
     ],
-    output: "이슈 기반 진입 필터 구성",
+    output: "자동 매매 엔진 엔진 풀 가동",
   },
   {
     id: 5,
-    phase: "잡제어",
-    title: "배치잡 시작 및 주기 조정",
-    icon: ServerCog,
-    color: "neon-purple",
-    trigger: "운영 시작 전",
-    goal: "스캔/매매/학습 등 백그라운드 작업을 실행한다",
+    phase: "스캔",
+    title: "후보 종목 자동 수집 및 DART 필터링",
+    icon: Search,
+    color: "neon-green",
+    trigger: "스캔 잡 주기 도달 시",
+    goal: "조건검색식에 걸린 종목 중 리스크가 없는 후보군을 선별한다.",
     operatorAction: [
-      "배치잡 관리에서 필요한 잡을 시작한다.",
-      "필요 시 분/초/시각 주기를 수정한다.",
-      "테스트 시 즉시 실행 버튼으로 단발 검증한다.",
+      "실시간 모니터 > '후보 종목' 테이블에서 현재 수집된 리스트 확인",
+      "특정 종목이 왜 빠졌는지 DART 필터 기록 확인",
     ],
     systemAction: [
-      "잡 상태, 마지막/다음 실행, 오류 횟수를 표시한다.",
-      "시작/중지 상태와 주기 설정을 DB에 저장해 재시작 후 유지한다.",
+      "에이전트를 통해 조건검색 결과 수집",
+      "DART API 연동: 최근 공시 중 횡령/부도 등 치명적 키워드 종목 즉시 제외",
+      "유효한 종목만 candidate_stocks 테이블에 업서트(Upsert)",
     ],
     checkpoints: [
-      "대상 잡 상태가 '실행 중'",
-      "다음 실행 시간(nextRun)이 갱신됨",
+      "후보 종목 리스트가 주기에 맞춰 갱신되는가?",
+      "DART 위험 공시 종목이 걸러지는가?",
     ],
-    output: "자동 실행 루프 가동",
+    output: "신뢰할 수 있는 매수 후보군 확보",
   },
   {
     id: 6,
-    phase: "스캔",
-    title: "후보 종목 수집 사이클",
-    icon: Search,
-    color: "neon-green",
-    trigger: "스캔 잡 주기 도달",
-    goal: "매수 평가 대상 후보를 최신화한다",
+    phase: "평가",
+    title: "AI 통합 분석 및 레인보우 차트 검증",
+    icon: Layers,
+    color: "neon-cyan",
+    trigger: "매매 잡 실행 시",
+    goal: "후보 종목의 차트 위치와 AI 점수를 대조하여 최종 진입을 결정한다.",
     operatorAction: [
-      "실시간 모니터에서 후보 종목 수와 스캔 시각을 확인한다.",
-      "후보가 0건이면 조건검색식/에이전트/장시간 여부를 점검한다.",
+      "실시간 모니터 > '매매 결정 피드'에서 AI의 실시간 생각 읽기",
+      "Confidence 점수와 레인보우 CL 위치(40-55%) 확인",
     ],
     systemAction: [
-      "장중 + 에이전트 연결 상태에서만 스캔 사이클을 진행한다.",
-      "조건검색식 결과를 수집하고 DART 위험공시 종목을 제외한다.",
-      "최종 후보를 candidate_stocks로 저장한다.",
+      "레인보우 차트 계산: 현재가가 CL(Center Line) 근처인지 판별",
+      "AI 모델(GPT-4/Claude 등)에 뉴스, 재무, 차트 데이터를 보내 종합 점수 수신",
+      "신뢰도 >= 허들 AND 위치 == 초록구간 일 때 주문 명령 생성",
     ],
     checkpoints: [
-      "후보 종목 테이블 갱신",
-      "DART 차단/스킵 사유 로그 확인",
+      "결정 피드에 'BUY', 'SKIP' 사유가 상세히 기록되는가?",
+      "레인보우 차트 위치가 50% 근처일 때 진입이 발생하는가?",
     ],
-    output: "평가 가능한 후보군 확보",
+    failCase: {
+      condition: "신뢰도는 높으나 레인보우 위치가 노랑/빨강 구간(60% 초과)",
+      action: "AI가 '고점 추격 매수' 위험으로 판단하여 진입을 거절(SKIP)한다.",
+    },
+    output: "데이터 기반 정밀 진입 결정",
   },
   {
     id: 7,
     phase: "매매",
-    title: "평가·진입·포지션 관리",
-    icon: Layers,
-    color: "neon-cyan",
-    trigger: "매매 잡 주기 도달",
-    goal: "보유 포지션 관리와 신규 진입을 수행한다",
+    title: "주문 실행 및 포지션 관리",
+    icon: CheckCircle2,
+    color: "neon-green",
+    trigger: "진입 승인(Accepted) 시",
+    goal: "설정된 라더(Ladder)에 따라 주문을 내고 수익을 확정한다.",
     operatorAction: [
-      "모니터 피드에서 BUY/SELL/SKIP 사유를 추적한다.",
-      "동일 종목 반복 평가를 줄이려면 후보 재평가 쿨다운(120분/하루3회/하루1회)을 설정한다.",
-      "SKIP이 많으면 minAiConfidence/필터/투기성 허용값을 재조정한다.",
+      "보유 종목 페이지에서 매수된 종목의 수익률 모니터링",
+      "AI 재량 스위치(목표초과보유 등) 작동 여부 관찰",
     ],
     systemAction: [
-      "보유 포지션은 익절/손절정책/동적청산/AI결정으로 관리한다.",
-      "후보는 시장이슈/신뢰도/재무/유동성/DART/투기성 필터를 통과해야 한다.",
-      "AI 진입정책 승인 시 라더 기반 신규 매수, 이후 스케일인/부분익절을 수행한다.",
+      "에이전트를 통해 키움 서버에 실제 매수/매도 주문 전송",
+      "진입 후 가격 하락 시 라더 계획에 따라 스케일인(추가매수) 실행",
+      "익절/손절가 도달 시 또는 AI 청산 결정 시 전량/분할 매도 실행",
     ],
     checkpoints: [
-      "매매 결정 피드에 사유와 점수가 함께 기록됨",
-      "점수 계산식(confidence=가중합/가중치합)과 최소 신뢰도 비교값이 표시됨",
-      "포지션/주문 데이터가 누락 없이 반영됨",
+      "실제 계좌에 주문이 체결되는가?",
+      "평가손익과 실시간 잔고가 대시보드에 반영되는가?",
     ],
-    failCase: {
-      condition: "모의 모드인데 실계좌가 선택됨",
-      action: "안전장치로 거래가 차단된다. 거래 모드 또는 계좌 타입을 맞춰야 한다.",
-    },
-    output: "전략 기준 자동 매매 실행",
+    output: "자동 수익 창출 사이클 완성",
   },
   {
     id: 8,
     phase: "학습",
-    title: "학습 잡 실행과 자동 최적화",
+    title: "데이터 피드백 및 전략 최적화",
     icon: GraduationCap,
-    color: "neon-green",
-    trigger: "매일 16:00 / 즉시 실행",
-    goal: "성과 데이터로 다음 사이클 파라미터를 개선한다",
-    operatorAction: [
-      "배치잡 관리에서 학습 잡 시각(기본 16:00)을 확인한다.",
-      "테스트 시 학습 잡 '즉시 실행'으로 결과를 점검한다.",
-      "자동매매 페이지에서 학습 기록/추천 내용을 확인한다.",
-    ],
-    systemAction: [
-      "ENABLE_ADVANCED_LEARNING=true 일 때만 학습 사이클을 수행한다.",
-      "20건 미만은 추천/기록만 만들고 적용은 하지 않는다.",
-      "50건 이상 + 안전조건 충족 시에만 자동 반영한다.",
-      "가중치/신뢰도/라더/손절정책을 업데이트하고 learning_records에 저장한다.",
-    ],
-    checkpoints: [
-      "학습 실행 후 learning_records가 증가",
-      "적용 조건 충족 시 설정값 변경 로그 확인",
-    ],
-    failCase: {
-      condition: "ENABLE_ADVANCED_LEARNING=false 또는 거래 건수 부족",
-      action: "학습은 skip되거나 추천만 생성된다. 환경변수와 거래 데이터 수를 먼저 확인한다.",
-    },
-    output: "학습 결과 기록 및 조건부 자동 최적화",
-  },
-  {
-    id: 9,
-    phase: "모니터",
-    title: "실시간 운영 점검",
-    icon: Monitor,
     color: "neon-purple",
-    trigger: "운영 중 상시",
-    goal: "문제를 조기에 감지하고 안전하게 재개한다",
+    trigger: "매일 16:00 (장 종료 후)",
+    goal: "오늘의 매매 결과를 학습하여 내일의 가중치와 허들을 개선한다.",
     operatorAction: [
-      "실시간 모니터에서 엔진 상태 배지와 최근 사이클 시각을 확인한다.",
-      "알림 요약(미확인/경고/긴급)을 우선 처리한다.",
-      "반복 타임아웃 시 잡 중지 후 에이전트 복구 뒤 재개한다.",
+      "자동매매 > '학습 기록' 탭에서 AI의 개선 추천안 확인",
+      "승률/수익률 지표를 보고 수동으로 설정을 보정하거나 자동 반영 확인",
     ],
     systemAction: [
-      "30초 주기로 잡 상태/후보/결정 피드를 자동 갱신한다.",
-      "에이전트 타임아웃 누적 시 자동 일시중지/쿨다운을 적용할 수 있다.",
+      "오늘의 매매 로그와 수익률 데이터를 AI에 전달하여 패턴 분석",
+      "성과가 좋은 지표의 가중치를 높이고, 나쁜 지표는 낮추는 최적화안 생성",
+      "안전 조건 충족 시 모델 설정값 자동 업데이트",
     ],
     checkpoints: [
-      "엔진 상태가 running으로 유지",
-      "critical/warn 알림이 누적되지 않음",
+      "학습 기록 테이블에 새로운 분석 리포트가 생성되었는가?",
+      "설정값이 성과에 맞춰 조금씩 조정되는가?",
     ],
-    output: "안정적인 장중 운영",
+    output: "진화하는 트레이딩 엔진",
   },
 ];
 
@@ -271,17 +239,20 @@ export default function Tutorial() {
   const Icon = step.icon;
 
   return (
-    <div className="p-4 md:p-6 max-w-4xl mx-auto space-y-4" data-testid="text-tutorial-title">
-      <div>
-        <h1 className="text-3xl font-bold mb-1">튜토리얼</h1>
-        <p className="text-muted-foreground text-sm">
-          최신 UI 기준 운영 흐름입니다. 각 단계에서 화면에서 무엇을 눌러야 하는지 중심으로 구성했습니다.
+    <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-6" data-testid="text-tutorial-title">
+      <div className="text-center space-y-2 mb-4">
+        <h1 className="text-4xl font-extrabold tracking-tight lg:text-5xl bg-gradient-to-r from-[hsl(var(--neon-green))] to-[hsl(var(--neon-cyan))] bg-clip-text text-transparent">
+          TradeBot 운영 튜토리얼
+        </h1>
+        <p className="text-muted-foreground text-sm max-w-xl mx-auto">
+          연결부터 자동 수익 실현까지, 시스템 운영의 모든 단계를 시뮬레이션합니다. 
+          각 단계별 핵심 체크포인트를 확인하세요.
         </p>
       </div>
 
-      <Card className="border-border/40">
+      <Card className="border-border/40 bg-slate-900/20 backdrop-blur-sm overflow-hidden">
         <CardContent className="py-4">
-          <div className="flex flex-wrap items-center gap-1.5 text-xs">
+          <div className="flex flex-wrap items-center justify-center gap-2 text-xs">
             {steps.map((s, i) => {
               const SI = s.icon;
               return (
@@ -289,18 +260,18 @@ export default function Tutorial() {
                   <button
                     onClick={() => setCurrentStep(i)}
                     data-testid={`button-quick-step-${i + 1}`}
-                    className={`flex min-h-11 items-center gap-1 px-2 py-1 rounded-md border transition-colors md:min-h-7 ${
+                    className={`flex h-10 items-center gap-2 px-3 py-1 rounded-full border transition-all duration-300 ${
                       i === currentStep
-                        ? `bg-[hsl(var(--${s.color}))]/20 border-[hsl(var(--${s.color}))]/50 text-[hsl(var(--${s.color}))]`
+                        ? `bg-[hsl(var(--${s.color}))]/20 border-[hsl(var(--${s.color}))]/50 text-[hsl(var(--${s.color}))] scale-105 shadow-lg shadow-[hsl(var(--${s.color}))]/10`
                         : i < currentStep
-                          ? "bg-muted/50 border-border/30 text-muted-foreground"
+                          ? "bg-[hsl(var(--neon-green))]/5 border-[hsl(var(--neon-green))]/20 text-[hsl(var(--neon-green))]/60"
                           : "border-border/30 text-muted-foreground hover:bg-muted/30"
                     }`}
                   >
-                    <SI className="w-3 h-3" />
-                    <span>{s.phase}</span>
+                    <SI className="w-3.5 h-3.5" />
+                    <span className="font-semibold">{s.phase}</span>
                   </button>
-                  {i < steps.length - 1 && <ChevronRight className="w-3 h-3 text-muted-foreground" />}
+                  {i < steps.length - 1 && <div className="w-4 h-[1px] bg-border/30" />}
                 </div>
               );
             })}
@@ -308,104 +279,140 @@ export default function Tutorial() {
         </CardContent>
       </Card>
 
-      <Card className={`border-[hsl(var(--${step.color}))]/30`}>
-        <CardHeader className="pb-3">
-          <div className="flex items-start gap-4 flex-wrap">
-            <div className={`w-12 h-12 rounded-full bg-[hsl(var(--${step.color}))]/15 flex items-center justify-center shrink-0`}>
-              <Icon className={`w-6 h-6 text-[hsl(var(--${step.color}))]`} />
+      <Card className={`border-[hsl(var(--${step.color}))]/30 shadow-2xl shadow-[hsl(var(--${step.color}))]/5 bg-slate-900/40`}>
+        <CardHeader className="pb-4 border-b border-white/5 bg-[hsl(var(--${step.color}))]/5">
+          <div className="flex items-start gap-5 flex-wrap">
+            <div className={`w-14 h-14 rounded-2xl bg-[hsl(var(--${step.color}))]/15 flex items-center justify-center shrink-0 shadow-inner`}>
+              <Icon className={`w-7 h-7 text-[hsl(var(--${step.color}))]`} />
             </div>
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap mb-1">
-                <Badge className={`bg-[hsl(var(--${step.color}))]/20 text-[hsl(var(--${step.color}))] border-[hsl(var(--${step.color}))]/30 text-xs`}>
-                  Step {step.id} / {steps.length}
+              <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                <Badge className={`bg-[hsl(var(--${step.color}))]/20 text-[hsl(var(--${step.color}))] border-[hsl(var(--${step.color}))]/30 text-[10px] font-bold px-2 py-0.5`}>
+                  STEP {step.id} / {steps.length}
                 </Badge>
-                <Badge variant="outline" className="text-xs">{step.phase}</Badge>
+                <Badge variant="outline" className="text-[10px] font-mono uppercase tracking-tighter opacity-70">{step.phase}</Badge>
               </div>
-              <CardTitle className="text-xl">{step.title}</CardTitle>
-              <div className="flex items-center gap-1.5 mt-1">
+              <CardTitle className="text-2xl font-bold tracking-tight">{step.title}</CardTitle>
+              <div className="flex items-center gap-1.5 mt-2">
                 <Clock className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                <span className="text-xs text-muted-foreground font-mono">{step.trigger}</span>
+                <span className="text-[11px] text-muted-foreground font-mono uppercase tracking-widest">{step.trigger}</span>
               </div>
             </div>
           </div>
         </CardHeader>
 
-        <CardContent className="space-y-4">
-          <div className="p-3 rounded-md border border-border/30 bg-muted/20">
-            <p className="text-xs text-muted-foreground mb-1">목표</p>
-            <p className="text-sm">{step.goal}</p>
+        <CardContent className="space-y-6 pt-6">
+          <div className="p-4 rounded-xl border border-white/5 bg-slate-950/40 relative overflow-hidden group">
+            <div className={`absolute top-0 left-0 w-1 h-full bg-[hsl(var(--${step.color}))]`} />
+            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">운영 목표</p>
+            <p className="text-base text-foreground leading-relaxed font-medium">{step.goal}</p>
           </div>
 
-          <div className="grid md:grid-cols-2 gap-3">
-            <div className="p-3 rounded-md border border-border/30 bg-muted/20">
-              <p className="text-sm font-semibold mb-2">운영자 할 일</p>
-              <div className="space-y-1.5">
+          <div className="grid md:grid-cols-2 gap-4">
+            <div className="p-4 rounded-xl border border-white/5 bg-slate-950/20 hover:bg-slate-950/40 transition-colors">
+              <p className="text-xs font-bold mb-3 flex items-center gap-2">
+                <div className="w-1.5 h-1.5 rounded-full bg-blue-400" />
+                운영자 액션 가이드
+              </p>
+              <div className="space-y-2.5">
                 {step.operatorAction.map((item, idx) => (
-                  <p key={idx} className="text-xs text-muted-foreground">{idx + 1}. {item}</p>
+                  <div key={idx} className="flex gap-2 text-[13px] leading-relaxed">
+                    <span className="text-muted-foreground font-mono">{idx + 1}.</span>
+                    <p className="text-muted-foreground/90">{item}</p>
+                  </div>
                 ))}
               </div>
             </div>
-            <div className="p-3 rounded-md border border-border/30 bg-muted/20">
-              <p className="text-sm font-semibold mb-2">시스템 동작</p>
-              <div className="space-y-1.5">
+            <div className="p-4 rounded-xl border border-white/5 bg-slate-950/20 hover:bg-slate-950/40 transition-colors">
+              <p className="text-xs font-bold mb-3 flex items-center gap-2 text-[hsl(var(--${step.color}))]">
+                <div className={`w-1.5 h-1.5 rounded-full bg-[hsl(var(--${step.color}))]`} />
+                시스템 자동 동작
+              </p>
+              <div className="space-y-2.5">
                 {step.systemAction.map((item, idx) => (
-                  <p key={idx} className="text-xs text-muted-foreground">{idx + 1}. {item}</p>
+                  <div key={idx} className="flex gap-2 text-[13px] leading-relaxed">
+                    <span className="text-muted-foreground font-mono">{idx + 1}.</span>
+                    <p className="text-muted-foreground/90">{item}</p>
+                  </div>
                 ))}
               </div>
             </div>
           </div>
 
-          <div className="p-3 rounded-md border border-border/30 bg-muted/20">
-            <p className="text-sm font-semibold mb-2">확인 포인트</p>
-            <div className="space-y-1.5">
+          <div className="p-4 rounded-xl border border-[hsl(var(--neon-green))]/10 bg-[hsl(var(--neon-green))]/5">
+            <p className="text-xs font-bold mb-3 flex items-center gap-2 text-[hsl(var(--neon-green))]">
+              <CheckCircle2 className="w-4 h-4" />
+              성공 체크포인트
+            </p>
+            <div className="grid sm:grid-cols-2 gap-2">
               {step.checkpoints.map((item, idx) => (
-                <p key={idx} className="text-xs text-muted-foreground">{idx + 1}. {item}</p>
+                <div key={idx} className="flex items-center gap-2 p-2 rounded bg-slate-950/40 border border-white/5">
+                  <div className="w-1 h-1 rounded-full bg-[hsl(var(--neon-green))]" />
+                  <p className="text-[11px] text-muted-foreground">{item}</p>
+                </div>
               ))}
             </div>
           </div>
 
           {step.failCase && (
-            <div className="flex items-start gap-2 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-md">
-              <AlertTriangle className="w-4 h-4 text-yellow-500 mt-0.5 shrink-0" />
+            <div className="flex items-start gap-4 p-4 bg-red-500/10 border border-red-500/20 rounded-xl relative">
+              <AlertTriangle className="w-5 h-5 text-red-500 mt-0.5 shrink-0" />
               <div>
-                <p className="text-xs font-semibold mb-0.5">실패 분기</p>
-                <p className="text-xs text-muted-foreground">조건: {step.failCase.condition}</p>
-                <p className="text-xs text-muted-foreground">조치: {step.failCase.action}</p>
+                <p className="text-xs font-bold text-red-400 mb-1">장애 분기 및 해결책</p>
+                <p className="text-xs text-red-200/70 mb-1.5"><span className="font-bold">조건:</span> {step.failCase.condition}</p>
+                <p className="text-xs text-foreground bg-red-500/20 p-2 rounded border border-red-500/30 font-medium">
+                  <span className="text-red-300 font-bold mr-1">조치:</span> {step.failCase.action}
+                </p>
               </div>
             </div>
           )}
 
-          <div className="flex items-start gap-2 p-3 bg-[hsl(var(--neon-green))]/10 border border-[hsl(var(--neon-green))]/20 rounded-md">
-            <CheckCircle2 className="w-4 h-4 text-[hsl(var(--neon-green))] mt-0.5 shrink-0" />
-            <div>
-              <p className="text-xs font-semibold text-[hsl(var(--neon-green))] mb-0.5">단계 결과</p>
-              <p className="text-xs">{step.output}</p>
+          <div className="flex items-center justify-between p-4 bg-[hsl(var(--neon-green))]/10 border border-[hsl(var(--neon-green))]/20 rounded-xl border-dashed">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-[hsl(var(--neon-green))]/20 flex items-center justify-center">
+                <CheckCircle2 className="w-4 h-4 text-[hsl(var(--neon-green))]" />
+              </div>
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-[hsl(var(--neon-green))]">최종 결과</p>
+                <p className="text-sm font-bold">{step.output}</p>
+              </div>
             </div>
+            <Monitor className="w-6 h-6 text-[hsl(var(--neon-green))]/20" />
           </div>
         </CardContent>
       </Card>
 
-      <div className="flex justify-between items-center">
+      <div className="flex justify-between items-center px-2">
         <Button
-          variant="outline"
+          variant="ghost"
           onClick={() => setCurrentStep(s => Math.max(0, s - 1))}
           disabled={currentStep === 0}
-          className="gap-2"
+          className="gap-2 text-muted-foreground hover:text-foreground"
           data-testid="button-prev-step"
         >
           <ChevronLeft className="w-4 h-4" />
-          이전
+          이전 단계
         </Button>
 
-        <span className="text-xs text-muted-foreground">{currentStep + 1} / {steps.length}</span>
+        <div className="flex gap-1.5">
+          {steps.map((_, i) => (
+            <div 
+              key={i} 
+              className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${
+                i === currentStep ? "w-6 bg-[hsl(var(--neon-green))]" : "bg-muted-foreground/30"
+              }`} 
+            />
+          ))}
+        </div>
 
         <Button
+          variant="outline"
           onClick={() => setCurrentStep(s => Math.min(steps.length - 1, s + 1))}
           disabled={currentStep === steps.length - 1}
-          className="gap-2"
+          className="gap-2 border-[hsl(var(--neon-green))]/30 text-[hsl(var(--neon-green))] hover:bg-[hsl(var(--neon-green))]/10"
           data-testid="button-next-step"
         >
-          다음
+          다음 단계
           <ChevronRight className="w-4 h-4" />
         </Button>
       </div>
