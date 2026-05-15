@@ -12,7 +12,6 @@ import { registerFormulaRoutes } from "./formula.routes";
 import { registerAutoTradingRoutes } from "./autotrading.routes";
 import { registerAdminRoutes } from "./admin.routes";
 import { registerSettingsRoutes } from "./settings.routes";
-import { registerKiwoomAgentRoutes } from "./kiwoom-agent.routes";
 import { masterSettingsRouter } from "./master-settings.routes";
 import { storage } from "../storage";
 import { getOrderSyncService } from "../services/order-sync.service";
@@ -29,7 +28,6 @@ export async function registerRoutes(app: Express, httpServer: Server, sessionMi
   registerAutoTradingRoutes(app as any);
   registerAdminRoutes(app as any);
   registerSettingsRoutes(app as any);
-  registerKiwoomAgentRoutes(app as any);
   app.use("/api/master-settings", masterSettingsRouter);
 
   const orderSyncService = getOrderSyncService();
