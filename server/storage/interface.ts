@@ -37,6 +37,7 @@ import {
   type PositionDecisionLog, type InsertPositionDecisionLog,
   type AiUsageDaily,
   type TradeJournal, type InsertTradeJournal,
+  type StockStatus, type InsertStockStatus,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -342,6 +343,6 @@ export interface IStorage {
   }): Promise<TradeJournal[]>;
 
   // Stock Status (Phase 2)
-  upsertStockStatus(status: schema.InsertStockStatus): Promise<schema.StockStatus>;
-  getStockStatus(stockCode: string): Promise<schema.StockStatus | null>;
+  upsertStockStatus(status: InsertStockStatus): Promise<StockStatus>;
+  getStockStatus(stockCode: string): Promise<StockStatus | null>;
 }
