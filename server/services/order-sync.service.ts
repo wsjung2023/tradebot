@@ -1,5 +1,5 @@
 // order-sync.service.ts — 주문 상태 동기화 및 오래된 대기중 주문 정리
-// 1. expireOldPendingOrders(): 전일 이전 pending → cancelled (키움 장 마감 후 자동 취소 반영)
+// 1. expireOldPendingOrders(): 전일 이전 pending → cancelled, 오늘 orderNumber 없이 1시간 이상 → failed
 // 2. syncTodayOrders(): kt00007로 오늘 주문 상태를 실제 체결/취소 상태로 업데이트
 
 import { storage } from '../storage';
@@ -18,22 +18,32 @@ export class OrderSyncService {
 
   // ── 1. 오래된 pending 주문 자동 만료 ──────────────────────────────────
   // 키움은 장 마감(15:30) 후 미체결 주문을 자동으로 취소한다.
-  // 따라서 전일 날짜(KST 기준 오늘 0시 이전)의 pending 주문은 모두 cancelled 처리.
+  // 전일 pending → cancelled, 오늘 orderNumber 없이 1시간 이상 pending → failed (API 실패 고스트)
   async expireOldPendingOrders(accountId: number): Promise<number> {
     const cutoff = kstMidnightUtcMs();
+    const oneHourAgo = Date.now() - 60 * 60 * 1000;
     const orders = await storage.getOrders(accountId, 500);
-    const stale = orders.filter(o =>
-      o.orderStatus === 'pending' &&
-      o.createdAt &&
-      new Date(o.createdAt).getTime() < cutoff
-    );
-    for (const o of stale) {
-      await storage.updateOrder(o.id, { orderStatus: 'cancelled' });
+    let count = 0;
+
+    for (const o of orders) {
+      if (o.orderStatus !== 'pending' || !o.createdAt) continue;
+      const ts = new Date(o.createdAt).getTime();
+
+      if (ts < cutoff) {
+        // 전일 이전 → cancelled
+        await storage.updateOrder(o.id, { orderStatus: 'cancelled' });
+        count++;
+      } else if (!o.orderNumber && ts < oneHourAgo) {
+        // 오늘이지만 orderNumber 없이 1시간 이상 → 키움 API 실패 고스트 → failed
+        await storage.updateOrder(o.id, { orderStatus: 'failed' });
+        console.log(`[OrderSync] 계좌 ${accountId}: 고스트 주문 failed 처리 — ${o.stockName}(${o.stockCode}) id=${o.id}`);
+        count++;
+      }
     }
-    if (stale.length > 0) {
-      console.log(`[OrderSync] 계좌 ${accountId}: 만료 주문 ${stale.length}건 → 'cancelled' 처리`);
+    if (count > 0) {
+      console.log(`[OrderSync] 계좌 ${accountId}: 만료/고스트 주문 ${count}건 처리 완료`);
     }
-    return stale.length;
+    return count;
   }
 
   // ── 2. 오늘 주문 상태 키움 동기화 (kt00007) ──────────────────────────
