@@ -55,17 +55,18 @@ export class TradeExecutorService {
     return String(code ?? "").trim().replace(/^A/i, "");
   }
 
-  // ── 오늘 KST 기준 자동매매 매수 주문 횟수 조회 ──
+  // ── 오늘 KST 기준 신규 진입 종목 수 조회 (추가매수 제외, 고유 종목 기준) ──
   private async countTodayAutoTrades(accountId: number): Promise<number> {
     const orders = await storage.getOrders(accountId, 200);
-    // KST 오늘 자정(UTC)
     const nowUtc = Date.now();
     const kstMidnightUtc = Math.floor((nowUtc + 9 * 3600000) / 86400000) * 86400000 - 9 * 3600000;
-    return orders.filter(o => {
+    const todayBuys = orders.filter(o => {
       if (!o.isAutoTrading || o.orderType !== 'buy') return false;
       const ts = o.createdAt ? new Date(o.createdAt).getTime() : 0;
       return ts >= kstMidnightUtc;
-    }).length;
+    });
+    // 종목별 첫 매수만 카운트 (추가매수는 같은 종목이므로 중복 제거)
+    return new Set(todayBuys.map(o => o.stockCode)).size;
   }
 
   // ── 오늘 날짜 YYYYMMDD (KST) ──
