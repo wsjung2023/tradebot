@@ -1,10 +1,9 @@
 // balance-refresh.service.ts — 장중(KST 08:30~18:00, 월~금) 자동 잔고 갱신 서비스
-// 5분 간격으로 모든 실계좌의 balance.get 잡을 생성하고 결과로 holdings를 갱신한다.
+// Agent-less: KiwoomService를 통해 서버가 직접 키움 REST API 호출
 import * as cron from 'node-cron';
 import { storage } from '../storage';
-import { callViaAgent } from './agent-proxy.service';
 import { parseHoldingItem } from '../utils/balance-parser';
-import { isAgentConnected, getAgentLastSeenSecondsAgo } from '../routes/kiwoom-agent.routes';
+import { getUserKiwoomService } from './user-kiwoom.service';
 
 /**
  * KST 현재 시각 기준으로 장중(08:30~18:00, 월~금)인지 확인.
@@ -77,14 +76,6 @@ export class BalanceRefreshService {
   async refreshAllRealAccounts(): Promise<void> {
     if (!isKstMarketHours()) return;
 
-    // 에이전트 미연결 시 사이클 자체를 skip — DB/리소스/로그 낭비 방지
-    if (!isAgentConnected(60)) {
-      const ago = getAgentLastSeenSecondsAgo();
-      const agoLabel = ago === null ? '한 번도 폴링 없음' : `마지막 폴링 ${ago}초 전`;
-      console.log(`[BalanceRefresh] ⏭️  에이전트 미연결 — 사이클 스킵 (${agoLabel})`);
-      return;
-    }
-
     let accounts: Awaited<ReturnType<typeof storage.getAllRealKiwoomAccounts>>;
     try {
       accounts = await storage.getAllRealKiwoomAccounts();
@@ -105,7 +96,7 @@ export class BalanceRefreshService {
       }
     }
 
-    console.log('[BalanceRefresh] 자동 잔고 갱신 완료');
+    console.log('[BalanceRefresh] 자동 잔고 갱신 완료 (실전+모의)');
     this.onRun?.();
   }
 
@@ -115,50 +106,19 @@ export class BalanceRefreshService {
     accountNumber: string,
     accountType: string,
   ): Promise<void> {
-    const hasPending = await storage.hasPendingJobForAccount(userId, 'balance.get', accountNumber);
-    if (hasPending) {
-      console.log(`[BalanceRefresh] account ${accountId}(${accountNumber}): pending balance.get exists - skip`);
-      return;
-    }
+    const userKiwoom = getUserKiwoomService();
+    const result = await userKiwoom.getBalance(userId, accountNumber, accountType as "mock" | "real", accountId);
 
-    const payload = { accountNumber, accountType };
-    const dedupeKey = `balance.get:auto:${accountId}`;
-
-    let result: any;
-    try {
-      result = await callViaAgent(userId, 'balance.get', payload, 15000, dedupeKey);
-    } catch (firstErr: any) {
-      const msg = String(firstErr?.message ?? '');
-      if (msg.includes('Expecting value') || msg.includes('token') || msg.includes('401')) {
-        console.warn(`[BalanceRefresh] account ${accountId}: first try failed, retry after token refresh`);
-        try { await callViaAgent(userId, 'token.refresh', { accountType }, 8000); } catch (_) {}
-        result = await callViaAgent(userId, 'balance.get', payload, 15000, dedupeKey);
-      } else {
-        throw firstErr;
-      }
-    }
-
-    const raw: any = result?.raw || {};
-    const output2: any[] = (result?.output2 && result.output2.length > 0)
-      ? result.output2
-      : (result?.holdings || raw.acnt_evlt_remn_indv_tot || []);
+    const output1: any = result.output1 || {};
+    const output2: any[] = result.output2 || [];
 
     const parseNum = (...fields: (string | undefined | null)[]): number => {
       for (const v of fields) { if (v && v !== '0') return parseFloat(v); }
       return 0;
     };
 
-    const output1: any = Object.keys(result?.output1 || {}).length > 0 ? result.output1 : raw;
-    const stockEvalAmount = parseNum(
-      raw.tot_evlt_amt, raw.tot_evlu_amt, raw.acnt_tot_evlu_amt,
-      output1.tot_evlt_amt, output1.tot_evlu_amt,
-      result?.totalEvaluationAmount,
-    );
-    const depositRaw = parseNum(
-      raw.prsm_dpst_aset_amt, raw.dnca_tot_amt,
-      output1.prsm_dpst_aset_amt, output1.dnca_tot_amt,
-      result?.depositAmount,
-    );
+    const stockEvalAmount = parseNum(output1.tot_evlu_amt, output1.evlu_amt_smtl_amt);
+    const depositRaw = parseNum(output1.prsm_dpst_aset_amt, output1.dnca_tot_amt);
 
     // Full replace sync: remove stale holdings first, then insert current snapshot.
     const parsedHoldings: Array<{ stockCode: string; updates: ReturnType<typeof parseHoldingItem> }> = [];
@@ -180,11 +140,7 @@ export class BalanceRefreshService {
       totalAssetsWithDeposit = depositRaw;
       depositAmount = Math.max(0, depositRaw - stockEvalAmount);
     }
-    const todayProfit = parseNum(
-      raw.tot_evlt_pl, raw.tot_evlu_pfls,
-      output1.tot_evlt_pl, output1.evlu_pfls_smtl_amt, output1.tot_evlu_pfls,
-      result?.todayProfit,
-    );
+    const todayProfit = parseNum(output1.evlu_pfls_smtl_amt, output1.tot_evlu_pfls);
     const todayProfitRate = totalAssetsWithDeposit > 0 ? (todayProfit / totalAssetsWithDeposit) * 100 : 0;
 
     await storage.updateKiwoomAccount(accountId, {
