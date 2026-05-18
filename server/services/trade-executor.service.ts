@@ -1,13 +1,13 @@
 // trade-executor.service.ts — 레인보우 차트 + GPT 분석 기반 개별 종목 평가 및 매수/매도 주문 실행 서비스
 import { storage } from '../storage';
 import { KiwoomService } from './kiwoom';
-import { AIService } from './ai.service';
+import { AIService, AiBudgetExceededError } from './ai.service';
 import { AiModel, AutoTradingSettings, CandidateStock } from '@shared/schema';
 import { RainbowChartAnalyzer } from '../formula/rainbow-chart';
 import { normalizeChartDataAsc } from '../utils/chart-normalization';
 import { getNewsService } from './news.service';
 import { getDartService } from './dart.service';
-import { callViaAgent } from './agent-proxy.service';
+import { getUserKiwoomService } from './user-kiwoom.service';
 
 // 위험 공시 키워드 → 매수 자동 차단
 const DART_DANGER_KEYWORDS = [
@@ -242,51 +242,48 @@ export class TradeExecutorService {
     console.log(`    📈 Evaluating: ${stock.name} (${stock.code})`);
     try {
       // ── [Phase 2] 종목 상태 필터링 (ka10075) ──
-      try {
-        const rawStatus = await kiwoomService.getStockStatus(stock.code);
-        if (rawStatus) {
-          // 키움 응답 필드: ord_wrrn_tp (0:정상, 3:단기과열, 4:투자경고, 5:투자위험)
-          // state: |구분자| 문자열
-          // adt_inf_nm: 감사정보
-          const orderWarning = parseInt(rawStatus.ord_wrrn_tp || "0");
-          const state = String(rawStatus.stk_stat_nm || "");
-          const auditInfo = String(rawStatus.adt_inf_nm || "");
-          
-          const isWarning = orderWarning >= 4; // 투자경고 이상 (단기과열은 일단 허용하거나 조건부 허용 가능)
-          const isDanger = orderWarning === 5;  // 투자위험
-          const isAuditAlert = auditInfo.includes("환기") || state.includes("환기");
-          const creditAvailable = state.includes("신용");
+      if (stock.code) {
+        try {
+          const rawStatus = await kiwoomService.getStockStatus(stock.code);
+          if (rawStatus) {
+            const orderWarning = parseInt(rawStatus.ord_wrrn_tp || "0");
+            const state = String(rawStatus.stk_stat_nm || "");
+            const auditInfo = String(rawStatus.adt_inf_nm || "");
+            
+            const isWarning = orderWarning >= 4; 
+            const isDanger = orderWarning === 5;  
+            const isAuditAlert = auditInfo.includes("환기") || state.includes("환기");
+            const creditAvailable = state.includes("신용");
 
-          await storage.upsertStockStatus({
-            stockCode: stock.code,
-            orderWarning,
-            state,
-            auditInfo,
-            isWarning,
-            isDanger,
-            isAuditAlert,
-            creditAvailable,
-          });
-          
-          // 필터링 적용 (설정이 켜져 있을 때만)
-          if (settings.filterInvestmentWarnings && (isWarning || isDanger || isAuditAlert)) {
-            const reason = isDanger ? "투자위험" : isWarning ? "투자경고" : "투자환기/관리";
-            console.log(`    ⚠️  [Phase 2 필터] ${stock.name} (${stock.code}) — ${reason} 종목으로 판단되어 스킵`);
-            storage.createEngineNotification({ 
-              userId: model.userId, 
-              severity: 'warn', 
-              type: 'SKIP', 
-              message: `[스킵] ${stock.name} — ${reason} 종목 (위험 관리)`,
-              payload: { stockCode: stock.code, stockName: stock.name, skipReason: reason, orderWarning, auditInfo } 
-            }).catch(e => console.error('[Notification]', e));
-            return;
-          } else if (!settings.filterInvestmentWarnings && (isWarning || isDanger || isAuditAlert)) {
-            console.log(`    ℹ️  [Phase 2 필터 비활성] ${stock.name} (${stock.code}) — 위험 종목이지만 설정에 따라 통과`);
+            await storage.upsertStockStatus({
+              stockCode: stock.code,
+              orderWarning,
+              state,
+              auditInfo,
+              isWarning,
+              isDanger,
+              isAuditAlert,
+              creditAvailable,
+            });
+            
+            if (settings.filterInvestmentWarnings && (isWarning || isDanger || isAuditAlert)) {
+              const reason = isDanger ? "투자위험" : isWarning ? "투자경고" : "투자환기/관리";
+              console.log(`    ⚠️  [Phase 2 필터] ${stock.name} (${stock.code}) — ${reason} 종목으로 판단되어 스킵`);
+              storage.createEngineNotification({ 
+                userId: model.userId, 
+                severity: 'warn', 
+                type: 'SKIP', 
+                message: `[스킵] ${stock.name} — ${reason} 종목 (위험 관리)`,
+                payload: { stockCode: stock.code, stockName: stock.name, skipReason: reason, orderWarning, auditInfo } 
+              }).catch(e => console.error('[Notification]', e));
+              return;
+            } else if (!settings.filterInvestmentWarnings && (isWarning || isDanger || isAuditAlert)) {
+              console.log(`    ℹ️  [Phase 2 필터 비활성] ${stock.name} (${stock.code}) — 위험 종목이지만 설정에 따라 통과`);
+            }
           }
+        } catch (statusErr: any) {
+          console.warn(`    ⚠️  종목 상태 조회 실패 (${stock.code}):`, statusErr?.message);
         }
-      } catch (statusErr: any) {
-        console.warn(`    ⚠️  종목 상태 조회 실패 (${stock.code}):`, statusErr?.message);
-        // 상태 조회 실패 시에도 진행은 하되 로그 남김
       }
 
       // ── 시장 이슈 관련 종목 필터 ──
@@ -535,7 +532,7 @@ export class TradeExecutorService {
           source: 'auto-trading:scale-in-check',
         }),
         new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('AI 판단 타임아웃 (10초)')), 10000)
+          setTimeout(() => reject(new Error('AI 판단 타임아웃 (60초)')), 60000)
         ),
       ]);
 
@@ -543,13 +540,16 @@ export class TradeExecutorService {
       aiReasoning = aiDecision.reasoning || '';
       console.log(`    [ScaleIn] 🤖 AI 결정: ${aiAction} — ${aiReasoning}`);
     } catch (aiErr: any) {
-      // AI 판단 실패 시 보수적으로 hold
-      console.warn(`    [ScaleIn] ⚠️  AI 판단 실패(hold로 처리): ${aiErr?.message}`);
-      aiAction = 'hold';
-      aiReasoning = `AI 판단 실패: ${aiErr?.message}`;
+      if (aiErr instanceof AiBudgetExceededError) {
+        console.warn(`    [ScaleIn] [예산차단] ${stockCode}: ${aiErr.message}`);
+      } else {
+        // 타임아웃/일시적 오류 — 쿨다운 없이 스킵, 다음 사이클 재시도
+        console.warn(`    [ScaleIn] ⚠️  AI 판단 실패 — 쿨다운 미적용, 다음 사이클 재시도: ${aiErr?.message}`);
+      }
+      return;
     }
 
-    // ── 쿨다운 키 기록 (판단 결과와 무관하게 24h 재평가 방지) ─────────────
+    // ── 쿨다운 키 기록 (AI가 실제로 판단한 경우에만 24h 재평가 방지) ─────────
     await storage.createCandidateDecisionLog({
       modelId: model.id,
       stockCode,
@@ -847,7 +847,7 @@ export class TradeExecutorService {
                 source: 'auto-trading:position-management',
               }),
               new Promise<never>((_, reject) =>
-                setTimeout(() => reject(new Error('AI 판단 타임아웃 (5초)')), 5000)
+                setTimeout(() => reject(new Error('AI 판단 타임아웃 (60초)')), 60000)
               ),
             ]);
 
@@ -913,7 +913,8 @@ export class TradeExecutorService {
     const holdingUpdatedAt = holding.updatedAt ? new Date(holding.updatedAt) : new Date(0);
 
     // 당일의 매도 관련 주문들 (대기 중 + 잔고 반영 전 체결된 건)
-    const unsyncedSells = existingOrders.filter(o =>
+    const existingOrders = await storage.getOrders(activeAccount.id, 200);
+    const unsyncedSells = existingOrders.filter((o: any) =>
       o.stockCode === holding.stockCode &&
       o.orderType === 'sell' &&
       (
@@ -1037,6 +1038,8 @@ export class TradeExecutorService {
       eps: ratiosRaw.eps || '0',
       bps: ratiosRaw.bps || '0',
       roe: ratiosRaw.roe || '0',
+      debt_ratio: ratiosRaw.debt_ratio || '0',
+      reserve_ratio: ratiosRaw.reserve_ratio || '0',
     } : undefined;
 
     // ── 5단계: 뉴스 감성 데이터 ──────────────────────────────────────────
@@ -1128,9 +1131,8 @@ export class TradeExecutorService {
     kiwoomService: KiwoomService,
     userId?: string
   ): Promise<RainbowEval> {
-    // 차트 데이터는 에이전트 경유 (실전 서버 데이터, 모의계좌와 무관)
     const chartRaw = userId
-      ? await callViaAgent(userId, 'chart.get', { stockCode: stock.code, period: 'D', count: 250 }, 20000)
+      ? await getUserKiwoomService().getChart(userId, stock.code, 'D', 250)
       : await kiwoomService.getStockChart(stock.code, 'D', 250);
     const ohlcv = normalizeChartDataAsc(Array.isArray(chartRaw) ? chartRaw : (chartRaw?.output || chartRaw));
     const result = RainbowChartAnalyzer.analyze(stock.code, ohlcv, 240);
@@ -1292,12 +1294,38 @@ export class TradeExecutorService {
         financialsScore: aiAnalysis ? aiAnalysis.financialsScore.toFixed(2) : '0',
         liquidityScore: aiAnalysis ? aiAnalysis.liquidityScore.toFixed(2) : '0',
         institutionalScore: aiAnalysis ? aiAnalysis.institutionalScore.toFixed(2) : '0',
+        filledUnits: 1,
+        avgEntryLine: rainbow.currentLine,
       });
 
       console.log(`    ✅ BUY order placed: ${quantity} shares @ ${stock.price}`);
       const kstDate2 = new Date(Date.now() + 9 * 3600000);
       await storage.createTradeJournal({ userId: model.userId, accountId: activeAccount.id, modelId: model.id, stockCode: stock.code, stockName: stock.name, tradeDate: kstDate2.toISOString().slice(0, 10).replace(/-/g, ''), tradeTime: kstDate2.toISOString().slice(11, 19), tradeType: 'buy', price: stock.price.toFixed(2), quantity, totalAmount: (stock.price * quantity).toFixed(2), avgPrice: '0', rainbowLine: rainbow.currentLine, profitRate: '0', profitLoss: '0', aiConfidence: aiAnalysis ? aiAnalysis.confidence.toFixed(2) : '0', isAutoTrading: true, memo: `AI 매수 (${rainbow.currentLine}% 선)` });
       await storage.updateOrder(order.id, { orderStatus: 'completed', executedQuantity: quantity, executedPrice: stock.price.toFixed(2), executedAt: new Date() });
+
+      // holdings 즉시 반영 — 다음 사이클에서 alreadyHolding 체크가 올바르게 작동하도록
+      const existingHolding = (await storage.getHoldings(activeAccount.id))
+        .find(h => this.normalizeStockCode(h.stockCode) === this.normalizeStockCode(stock.code));
+      if (existingHolding) {
+        await storage.updateHolding(existingHolding.id, {
+          quantity: existingHolding.quantity + quantity,
+          averagePrice: (
+            (Number(existingHolding.averagePrice) * existingHolding.quantity + stock.price * quantity) /
+            (existingHolding.quantity + quantity)
+          ).toFixed(2),
+          currentPrice: stock.price.toFixed(2),
+        });
+      } else {
+        await storage.createHolding({
+          accountId: activeAccount.id,
+          stockCode: stock.code,
+          stockName: stock.name,
+          quantity,
+          averagePrice: stock.price.toFixed(2),
+          currentPrice: stock.price.toFixed(2),
+        });
+      }
+
       storage.createEngineNotification({ userId: model.userId, severity: 'info', type: 'BUY', message: `[매수] ${stock.name} ${quantity}주 @ ${stock.price.toLocaleString()}원`, payload: { stockCode: stock.code, stockName: stock.name, price: stock.price, quantity, rainbowLine: rainbow.currentLine, confidence: aiAnalysis?.confidence ?? 0, themeScore: aiAnalysis?.themeScore ?? 0, newsScore: aiAnalysis?.newsScore ?? 0, financialsScore: aiAnalysis?.financialsScore ?? 0, liquidityScore: aiAnalysis?.liquidityScore ?? 0, institutionalScore: aiAnalysis?.institutionalScore ?? 0 } }).catch(e => console.error('[Notification]', e));
     } catch (error) {
       console.error(`    ❌ Error executing buy:`, error);
@@ -1841,6 +1869,16 @@ export class TradeExecutorService {
       }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
+      if (err instanceof AiBudgetExceededError) {
+        console.warn(`    [예산차단] ${candidate.stockCode}: ${errMsg}`);
+        await logDecision({
+          accepted: false,
+          rejectReason: 'ai_budget_exceeded',
+          decisionType: 'ai_budget_exceeded',
+          qualitativeReason: errMsg,
+        });
+        return;
+      }
       // 일시적 오류(차트 데이터 없음, 네트워크 429 등)는 쿨다운 없이 스킵 — 다음 사이클에 재시도
       const isTransient =
         errMsg.includes('Insufficient data') ||
