@@ -1294,12 +1294,31 @@ export class TradeExecutorService {
         financialsScore: aiAnalysis ? aiAnalysis.financialsScore.toFixed(2) : '0',
         liquidityScore: aiAnalysis ? aiAnalysis.liquidityScore.toFixed(2) : '0',
         institutionalScore: aiAnalysis ? aiAnalysis.institutionalScore.toFixed(2) : '0',
+        filledUnits: 1,
+        avgEntryLine: rainbow.currentLine,
       });
 
       console.log(`    ✅ BUY order placed: ${quantity} shares @ ${stock.price}`);
       const kstDate2 = new Date(Date.now() + 9 * 3600000);
       await storage.createTradeJournal({ userId: model.userId, accountId: activeAccount.id, modelId: model.id, stockCode: stock.code, stockName: stock.name, tradeDate: kstDate2.toISOString().slice(0, 10).replace(/-/g, ''), tradeTime: kstDate2.toISOString().slice(11, 19), tradeType: 'buy', price: stock.price.toFixed(2), quantity, totalAmount: (stock.price * quantity).toFixed(2), avgPrice: '0', rainbowLine: rainbow.currentLine, profitRate: '0', profitLoss: '0', aiConfidence: aiAnalysis ? aiAnalysis.confidence.toFixed(2) : '0', isAutoTrading: true, memo: `AI 매수 (${rainbow.currentLine}% 선)` });
       await storage.updateOrder(order.id, { orderStatus: 'completed', executedQuantity: quantity, executedPrice: stock.price.toFixed(2), executedAt: new Date() });
+
+      // holdings 즉시 upsert — BalanceRefresh 전에도 maxPositions 체크가 정확하게 동작하도록
+      const existingHolding = (await storage.getHoldings(activeAccount.id))
+        .find(h => this.normalizeStockCode(h.stockCode) === this.normalizeStockCode(stock.code));
+      if (existingHolding) {
+        await storage.updateHolding(existingHolding.id, {
+          quantity: existingHolding.quantity + quantity,
+          averagePrice: ((Number(existingHolding.averagePrice) * existingHolding.quantity + stock.price * quantity) / (existingHolding.quantity + quantity)).toFixed(2),
+          currentPrice: stock.price.toFixed(2),
+        });
+      } else {
+        await storage.createHolding({
+          accountId: activeAccount.id, stockCode: stock.code, stockName: stock.name,
+          quantity, averagePrice: stock.price.toFixed(2), currentPrice: stock.price.toFixed(2),
+        });
+      }
+
       storage.createEngineNotification({ userId: model.userId, severity: 'info', type: 'BUY', message: `[매수] ${stock.name} ${quantity}주 @ ${stock.price.toLocaleString()}원`, payload: { stockCode: stock.code, stockName: stock.name, price: stock.price, quantity, rainbowLine: rainbow.currentLine, confidence: aiAnalysis?.confidence ?? 0, themeScore: aiAnalysis?.themeScore ?? 0, newsScore: aiAnalysis?.newsScore ?? 0, financialsScore: aiAnalysis?.financialsScore ?? 0, liquidityScore: aiAnalysis?.liquidityScore ?? 0, institutionalScore: aiAnalysis?.institutionalScore ?? 0 } }).catch(e => console.error('[Notification]', e));
     } catch (error) {
       console.error(`    ❌ Error executing buy:`, error);
