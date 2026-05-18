@@ -2009,14 +2009,6 @@ export class TradeExecutorService {
       const activeAccount = accounts.find((a: any) => a.id === config.accountId);
       if (!activeAccount) return;
 
-      const maxDailyTrades = parseInt(settings.maxDailyTrades?.toString() || '0');
-      if (maxDailyTrades > 0) {
-        const todayCount = await this.countTodayAutoTrades(activeAccount.id);
-        if (todayCount >= maxDailyTrades) {
-          console.log(`    ⚠️  일일 최대 거래 횟수 초과 — 추가매수 건너뜀`);
-          return;
-        }
-      }
       const addBuyExistingOrders = await storage.getOrders(activeAccount.id, 200);
       const todayStart = new Date();
       todayStart.setHours(0, 0, 0, 0);
