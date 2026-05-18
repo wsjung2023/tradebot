@@ -55,17 +55,16 @@ export class TradeExecutorService {
     return String(code ?? "").trim().replace(/^A/i, "");
   }
 
-  // ── 오늘 KST 기준 신규 진입 종목 수 조회 (추가매수 제외, 고유 종목 기준) ──
+  // ── 오늘 KST 기준 신규 진입 종목 수 조회 (completed만, 고유 종목 기준) ──
   private async countTodayAutoTrades(accountId: number): Promise<number> {
     const orders = await storage.getOrders(accountId, 200);
     const nowUtc = Date.now();
     const kstMidnightUtc = Math.floor((nowUtc + 9 * 3600000) / 86400000) * 86400000 - 9 * 3600000;
     const todayBuys = orders.filter(o => {
-      if (!o.isAutoTrading || o.orderType !== 'buy') return false;
+      if (!o.isAutoTrading || o.orderType !== 'buy' || o.orderStatus !== 'completed') return false;
       const ts = o.createdAt ? new Date(o.createdAt).getTime() : 0;
       return ts >= kstMidnightUtc;
     });
-    // 종목별 첫 매수만 카운트 (추가매수는 같은 종목이므로 중복 제거)
     return new Set(todayBuys.map(o => o.stockCode)).size;
   }
 
@@ -954,14 +953,23 @@ export class TradeExecutorService {
         aiModelId: model.id,
       });
 
-      await kiwoomService.placeOrder({
-        accountNumber: activeAccount.accountNumber,
-        stockCode: holding.stockCode,
-        orderType: 'sell',
-        orderQuantity: quantity,
-        orderPrice: currentPrice,
-        orderMethod: 'market',
-      });
+      let exitSellResp: any;
+      try {
+        exitSellResp = await kiwoomService.placeOrder({
+          accountNumber: activeAccount.accountNumber,
+          stockCode: holding.stockCode,
+          orderType: 'sell',
+          orderQuantity: quantity,
+          orderPrice: currentPrice,
+          orderMethod: 'market',
+        });
+      } catch (apiErr: any) {
+        await storage.updateOrder(exitSellOrder.id, { orderStatus: 'failed' });
+        console.error(`    ❌ 키움 매도 API 실패 (${holding.stockName}): ${apiErr.message}`);
+        return;
+      }
+      const exitOrdNo = exitSellResp?.output?.ord_no || exitSellResp?.ord_no || null;
+      if (exitOrdNo) await storage.updateOrder(exitSellOrder.id, { orderNumber: exitOrdNo });
 
       const avgPrice = parseFloat(holding.averagePrice?.toString() || '0');
       const profitLoss = (currentPrice - avgPrice) * quantity;
@@ -1271,14 +1279,23 @@ export class TradeExecutorService {
         aiModelId: model.id,
       });
 
-      await kiwoomService.placeOrder({
-        accountNumber: activeAccount.accountNumber,
-        stockCode: stock.code,
-        orderType: 'buy',
-        orderQuantity: quantity,
-        orderPrice: stock.price,
-        orderMethod: 'market',
-      });
+      let orderResp: any;
+      try {
+        orderResp = await kiwoomService.placeOrder({
+          accountNumber: activeAccount.accountNumber,
+          stockCode: stock.code,
+          orderType: 'buy',
+          orderQuantity: quantity,
+          orderPrice: stock.price,
+          orderMethod: 'market',
+        });
+      } catch (apiErr: any) {
+        await storage.updateOrder(order.id, { orderStatus: 'failed' });
+        console.error(`    ❌ 키움 매수 API 실패 (${stock.name}): ${apiErr.message}`);
+        return;
+      }
+      const ordNo = orderResp?.output?.ord_no || orderResp?.ord_no || null;
+      if (ordNo) await storage.updateOrder(order.id, { orderNumber: ordNo });
 
       await storage.createTradingPerformance({
         modelId: model.id,
@@ -1304,26 +1321,19 @@ export class TradeExecutorService {
       await storage.createTradeJournal({ userId: model.userId, accountId: activeAccount.id, modelId: model.id, stockCode: stock.code, stockName: stock.name, tradeDate: kstDate2.toISOString().slice(0, 10).replace(/-/g, ''), tradeTime: kstDate2.toISOString().slice(11, 19), tradeType: 'buy', price: stock.price.toFixed(2), quantity, totalAmount: (stock.price * quantity).toFixed(2), avgPrice: '0', rainbowLine: rainbow.currentLine, profitRate: '0', profitLoss: '0', aiConfidence: aiAnalysis ? aiAnalysis.confidence.toFixed(2) : '0', isAutoTrading: true, memo: `AI 매수 (${rainbow.currentLine}% 선)` });
       await storage.updateOrder(order.id, { orderStatus: 'completed', executedQuantity: quantity, executedPrice: stock.price.toFixed(2), executedAt: new Date() });
 
-      // holdings 즉시 반영 — 다음 사이클에서 alreadyHolding 체크가 올바르게 작동하도록
+      // holdings 즉시 upsert — BalanceRefresh 전에도 maxPositions 체크가 정확하게 동작하도록
       const existingHolding = (await storage.getHoldings(activeAccount.id))
         .find(h => this.normalizeStockCode(h.stockCode) === this.normalizeStockCode(stock.code));
       if (existingHolding) {
         await storage.updateHolding(existingHolding.id, {
           quantity: existingHolding.quantity + quantity,
-          averagePrice: (
-            (Number(existingHolding.averagePrice) * existingHolding.quantity + stock.price * quantity) /
-            (existingHolding.quantity + quantity)
-          ).toFixed(2),
+          averagePrice: ((Number(existingHolding.averagePrice) * existingHolding.quantity + stock.price * quantity) / (existingHolding.quantity + quantity)).toFixed(2),
           currentPrice: stock.price.toFixed(2),
         });
       } else {
         await storage.createHolding({
-          accountId: activeAccount.id,
-          stockCode: stock.code,
-          stockName: stock.name,
-          quantity,
-          averagePrice: stock.price.toFixed(2),
-          currentPrice: stock.price.toFixed(2),
+          accountId: activeAccount.id, stockCode: stock.code, stockName: stock.name,
+          quantity, averagePrice: stock.price.toFixed(2), currentPrice: stock.price.toFixed(2),
         });
       }
 
@@ -1377,14 +1387,23 @@ export class TradeExecutorService {
         aiModelId: model.id,
       });
 
-      await kiwoomService.placeOrder({
-        accountNumber: activeAccount.accountNumber,
-        stockCode: stock.code,
-        orderType: 'sell',
-        orderQuantity: sellQuantity,
-        orderPrice: stock.price,
-        orderMethod: 'market',
-      });
+      let sellResp: any;
+      try {
+        sellResp = await kiwoomService.placeOrder({
+          accountNumber: activeAccount.accountNumber,
+          stockCode: stock.code,
+          orderType: 'sell',
+          orderQuantity: sellQuantity,
+          orderPrice: stock.price,
+          orderMethod: 'market',
+        });
+      } catch (apiErr: any) {
+        await storage.updateOrder(sellOrder.id, { orderStatus: 'failed' });
+        console.error(`    ❌ 키움 매도 API 실패 (${stock.name}): ${apiErr.message}`);
+        return;
+      }
+      const sellOrdNo = sellResp?.output?.ord_no || sellResp?.ord_no || null;
+      if (sellOrdNo) await storage.updateOrder(sellOrder.id, { orderNumber: sellOrdNo });
 
       const holdingAvgPrice = parseFloat(holding.averagePrice?.toString() || '0');
       let profitLoss = holdingAvgPrice > 0 ? (stock.price - holdingAvgPrice) * sellQuantity : 0;
@@ -2069,14 +2088,23 @@ export class TradeExecutorService {
         details: { rainbowLine: rainbow.currentLine, tradeType: 'additional_buy' } // 라인 정보 기록
       });
 
-      await kiwoomService.placeOrder({
-        accountNumber: activeAccount.accountNumber,
-        stockCode: stock.code,
-        orderType: 'buy',
-        orderQuantity: quantity,
-        orderPrice: stock.price,
-        orderMethod: 'market',
-      });
+      let addBuyResp: any;
+      try {
+        addBuyResp = await kiwoomService.placeOrder({
+          accountNumber: activeAccount.accountNumber,
+          stockCode: stock.code,
+          orderType: 'buy',
+          orderQuantity: quantity,
+          orderPrice: stock.price,
+          orderMethod: 'market',
+        });
+      } catch (apiErr: any) {
+        await storage.updateOrder(addBuyOrder.id, { orderStatus: 'failed' });
+        console.error(`    ❌ 키움 추가매수 API 실패 (${stock.name}): ${apiErr.message}`);
+        return;
+      }
+      const addOrdNo = addBuyResp?.output?.ord_no || addBuyResp?.ord_no || null;
+      if (addOrdNo) await storage.updateOrder(addBuyOrder.id, { orderNumber: addOrdNo });
 
       const perfEntry = await storage.getTradingPerformanceByStock(model.id, stock.code);
       if (perfEntry) {
