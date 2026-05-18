@@ -107,7 +107,7 @@ export class BalanceRefreshService {
     accountType: string,
   ): Promise<void> {
     const userKiwoom = getUserKiwoomService();
-    const result = await userKiwoom.getBalance(userId, accountNumber, accountType as "mock" | "real");
+    const result = await userKiwoom.getBalance(userId, accountNumber, accountType as "mock" | "real", accountId);
 
     const output1: any = result.output1 || {};
     const output2: any[] = result.output2 || [];
