@@ -67,7 +67,7 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
   const { toast } = useToast();
 
   // ── 기본 전략 설정 (모델 config 편집) ──
-  const [cfgMaxPositions, setCfgMaxPositions] = useState("5");
+  const [cfgMaxPositions, setCfgMaxPositions] = useState("25");
   const [cfgStopLossColor, setCfgStopLossColor] = useState<'green' | 'blue'>("green");
   const [cfgStopLossPercent, setCfgStopLossPercent] = useState("5");
   const [cfgTakeProfitPercent, setCfgTakeProfitPercent] = useState("10");
@@ -78,7 +78,7 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
 
   useEffect(() => {
     if (modelConfig) {
-      setCfgMaxPositions(String(modelConfig.maxPositions ?? 5));
+      setCfgMaxPositions(String(modelConfig.maxPositions ?? 25));
       const slc = modelConfig.stopLossConfig;
       if (slc) {
         setCfgStopLossColor(slc.color ?? 'green');

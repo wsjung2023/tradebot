@@ -76,17 +76,17 @@ export class BalanceRefreshService {
   async refreshAllRealAccounts(): Promise<void> {
     if (!isKstMarketHours()) return;
 
-    let accounts: Awaited<ReturnType<typeof storage.getAllRealKiwoomAccounts>>;
+    let accounts: Awaited<ReturnType<typeof storage.getAllActiveKiwoomAccounts>>;
     try {
-      accounts = await storage.getAllRealKiwoomAccounts();
+      accounts = await storage.getAllActiveKiwoomAccounts();
     } catch (err: any) {
-      console.error('[BalanceRefresh] 실계좌 목록 조회 실패:', err.message);
+      console.error('[BalanceRefresh] 계좌 목록 조회 실패:', err.message);
       return;
     }
 
     if (accounts.length === 0) return;
 
-    console.log(`[BalanceRefresh] 자동 잔고 갱신 시작 — ${accounts.length}개 실계좌`);
+    console.log(`[BalanceRefresh] 자동 잔고 갱신 시작 — ${accounts.length}개 계좌 (실전+모의)`);
 
     for (const acc of accounts) {
       try {
@@ -96,7 +96,7 @@ export class BalanceRefreshService {
       }
     }
 
-    console.log('[BalanceRefresh] 자동 잔고 갱신 완료');
+    console.log('[BalanceRefresh] 자동 잔고 갱신 완료 (실전+모의)');
     this.onRun?.();
   }
 
