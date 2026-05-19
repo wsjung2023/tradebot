@@ -545,7 +545,14 @@ export default function TradeHistory() {
                           <TableCell className="text-right font-mono">
                             {order.executedQuantity?.toLocaleString() || '-'}
                           </TableCell>
-                          <TableCell>{getOrderStatusBadge(order.orderStatus)}</TableCell>
+                          <TableCell>
+                            {getOrderStatusBadge(order.orderStatus)}
+                            {order.orderStatus === 'failed' && order.errorMessage && (
+                              <div className="text-xs text-red-400 mt-0.5 max-w-[200px] truncate" title={order.errorMessage}>
+                                {order.errorMessage}
+                              </div>
+                            )}
+                          </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>

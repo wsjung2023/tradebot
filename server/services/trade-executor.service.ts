@@ -964,8 +964,9 @@ export class TradeExecutorService {
           orderMethod: 'market',
         });
       } catch (apiErr: any) {
-        await storage.updateOrder(exitSellOrder.id, { orderStatus: 'failed' });
-        console.error(`    ❌ 키움 매도 API 실패 (${holding.stockName}): ${apiErr.message}`);
+        const errMsg = apiErr.message || String(apiErr);
+        await storage.updateOrder(exitSellOrder.id, { orderStatus: 'failed', errorMessage: errMsg });
+        console.error(`    ❌ 키움 매도 API 실패 (${holding.stockName}): ${errMsg}`);
         return;
       }
       const exitOrdNo = exitSellResp?.output?.ord_no || exitSellResp?.ord_no || null;
@@ -1290,8 +1291,17 @@ export class TradeExecutorService {
           orderMethod: 'market',
         });
       } catch (apiErr: any) {
-        await storage.updateOrder(order.id, { orderStatus: 'failed' });
-        console.error(`    ❌ 키움 매수 API 실패 (${stock.name}): ${apiErr.message}`);
+        const errMsg = apiErr.message || String(apiErr);
+        await storage.updateOrder(order.id, { orderStatus: 'failed', errorMessage: errMsg });
+        console.error(`    ❌ 키움 매수 API 실패 (${stock.name}): ${errMsg}`);
+        await storage.createTradingLog({
+          accountId: activeAccount.id,
+          action: 'place_buy_order',
+          success: false,
+          errorMessage: `[${stock.name}] 매수 실패: ${errMsg}`,
+          details: { stockCode: stock.code, quantity, price: stock.price }
+        });
+        storage.createEngineNotification({ userId: model.userId, severity: 'warn', type: 'ERROR', message: `[주문실패] ${stock.name} 매수 실패: ${errMsg}`, payload: { stockCode: stock.code } }).catch(e => console.error('[Notification]', e));
         return;
       }
       const ordNo = orderResp?.output?.ord_no || orderResp?.ord_no || null;
@@ -1398,8 +1408,17 @@ export class TradeExecutorService {
           orderMethod: 'market',
         });
       } catch (apiErr: any) {
-        await storage.updateOrder(sellOrder.id, { orderStatus: 'failed' });
-        console.error(`    ❌ 키움 매도 API 실패 (${stock.name}): ${apiErr.message}`);
+        const errMsg = apiErr.message || String(apiErr);
+        await storage.updateOrder(sellOrder.id, { orderStatus: 'failed', errorMessage: errMsg });
+        console.error(`    ❌ 키움 매도 API 실패 (${stock.name}): ${errMsg}`);
+        await storage.createTradingLog({
+          accountId: activeAccount.id,
+          action: 'place_sell_order',
+          success: false,
+          errorMessage: `[${stock.name}] 매도 실패: ${errMsg}`,
+          details: { stockCode: stock.code, quantity: sellQuantity, price: currentPrice }
+        });
+        storage.createEngineNotification({ userId: model.userId, severity: 'warn', type: 'ERROR', message: `[주문실패] ${stock.name} 매도 실패: ${errMsg}`, payload: { stockCode: stock.code } }).catch(e => console.error('[Notification]', e));
         return;
       }
       const sellOrdNo = sellResp?.output?.ord_no || sellResp?.ord_no || null;
@@ -2099,8 +2118,17 @@ export class TradeExecutorService {
           orderMethod: 'market',
         });
       } catch (apiErr: any) {
-        await storage.updateOrder(addBuyOrder.id, { orderStatus: 'failed' });
-        console.error(`    ❌ 키움 추가매수 API 실패 (${stock.name}): ${apiErr.message}`);
+        const errMsg = apiErr.message || String(apiErr);
+        await storage.updateOrder(addBuyOrder.id, { orderStatus: 'failed', errorMessage: errMsg });
+        console.error(`    ❌ 키움 추가매수 API 실패 (${stock.name}): ${errMsg}`);
+        await storage.createTradingLog({
+          accountId: activeAccount.id,
+          action: 'place_add_buy_order',
+          success: false,
+          errorMessage: `[${stock.name}] 추가매수 실패: ${errMsg}`,
+          details: { stockCode: stock.code, quantity, price: stock.price }
+        });
+        storage.createEngineNotification({ userId: model.userId, severity: 'warn', type: 'ERROR', message: `[주문실패] ${stock.name} 추가매수 실패: ${errMsg}`, payload: { stockCode: stock.code } }).catch(e => console.error('[Notification]', e));
         return;
       }
       const addOrdNo = addBuyResp?.output?.ord_no || addBuyResp?.ord_no || null;
