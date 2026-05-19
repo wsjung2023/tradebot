@@ -15,9 +15,8 @@ interface JobInfo {
   status: "running" | "stopped";
   lastRun: string | null;
   nextRun: string | null;
-  intervalType: "minutes" | "time-of-day" | "seconds";
+  intervalType: "minutes" | "time-of-day";
   intervalMinutes: number;
-  intervalSeconds: number;
   scheduleTime: string;
   scheduleLabel: string;
   runCount: number;
@@ -36,7 +35,7 @@ interface JobInfo {
   };
 }
 
-const NO_RUN_NOW = new Set(["agent-watcher"]);
+const NO_RUN_NOW = new Set<string>();
 
 /** 분을 4자리 0패딩 문자열로 표시: 5 → "0005", 90 → "0090" */
 function padMinutes(n: number): string {
@@ -70,7 +69,6 @@ function IntervalEditor({ job, onSaved }: { job: JobInfo; onSaved: () => void })
   const { toast } = useToast();
 
   const [minutesVal, setMinutesVal] = useState(() => padMinutes(job.intervalMinutes));
-  const [secondsVal, setSecondsVal] = useState(() => String(job.intervalSeconds));
   const [timeVal, setTimeVal] = useState(() => job.scheduleTime || "16:00");
 
   const patchMutation = useMutation({
@@ -91,13 +89,6 @@ function IntervalEditor({ job, onSaved }: { job: JobInfo; onSaved: () => void })
         return;
       }
       patchMutation.mutate({ scheduleTime: timeVal });
-    } else if (job.intervalType === "seconds") {
-      const s = parseInt(secondsVal, 10);
-      if (isNaN(s) || s < 10 || s > 3600) {
-        toast({ variant: "destructive", title: "10~3600초 사이로 입력하세요" });
-        return;
-      }
-      patchMutation.mutate({ intervalSeconds: s });
     } else {
       const m = parseMinutes(minutesVal);
       if (m === null) {
@@ -120,32 +111,6 @@ function IntervalEditor({ job, onSaved }: { job: JobInfo; onSaved: () => void })
           maxLength={5}
           data-testid={`input-interval-${job.id}`}
         />
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={handleApply}
-          disabled={patchMutation.isPending}
-          data-testid={`button-apply-interval-${job.id}`}
-        >
-          <Check className="w-3 h-3" />
-        </Button>
-      </div>
-    );
-  }
-
-  if (job.intervalType === "seconds") {
-    return (
-      <div className="flex items-center gap-2" data-testid={`interval-editor-${job.id}`}>
-        <span className="text-xs text-muted-foreground shrink-0">감시 주기</span>
-        <Input
-          className="w-20 h-11 text-sm font-mono text-center md:h-8"
-          value={secondsVal}
-          onChange={(e) => setSecondsVal(e.target.value.replace(/\D/g, ""))}
-          placeholder="60"
-          maxLength={4}
-          data-testid={`input-interval-${job.id}`}
-        />
-        <span className="text-xs text-muted-foreground shrink-0">초</span>
         <Button
           size="sm"
           variant="outline"

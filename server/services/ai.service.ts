@@ -5,6 +5,13 @@ import type { NewsResult } from './news.service';
 import { RainbowChartAnalyzer, type OHLCVData, type RainbowChartResult } from '../formula/rainbow-chart';
 import { storage } from '../storage';
 
+export class AiBudgetExceededError extends Error {
+  constructor(monthlyTotal: number, budget: number) {
+    super(`AI 예산 초과: 이번 달 $${monthlyTotal.toFixed(2)} / 한도 $${budget.toFixed(2)}`);
+    this.name = 'AiBudgetExceededError';
+  }
+}
+
 type AiUsageContext = {
   userId: string;
   accountId?: number | null;
@@ -160,8 +167,8 @@ export class AIService {
           // 예산 초과 알림 (중복 방지: 마지막 알림 시간 체크 등은 storage가 담당하거나 여기서 간단히 처리)
           await storage.createEngineNotification({
             userId: usageContext.userId,
-            type: 'warning',
-            title: 'AI 예산 초과 경고',
+            severity: 'warn',
+            type: 'AI_BUDGET_EXCEEDED',
             message: `이번 달 AI 사용 비용($${monthlyTotal.toFixed(2)})이 설정된 예산($${budget.toFixed(2)})을 초과했습니다.`,
             payload: { monthlyTotal, budget },
           });
@@ -169,6 +176,30 @@ export class AIService {
       }
     } catch (budgetErr: any) {
       console.warn('[AIService] Budget check failed:', budgetErr?.message);
+    }
+  }
+
+  private async checkBudgetBeforeCall(usageContext?: AiUsageContext): Promise<void> {
+    if (!usageContext?.userId) return;
+    try {
+      const [budgetStr, blockStr] = await Promise.all([
+        storage.getSystemConfig('ai_budget_usd'),
+        storage.getSystemConfig('ai_budget_block'),
+      ]);
+      const budget = budgetStr ? parseFloat(budgetStr) : 0;
+      const blockOnExceed = blockStr === 'true';
+      if (budget <= 0 || !blockOnExceed) return;
+
+      const now = new Date();
+      const fromDate = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+      const usageRows = await storage.getAiUsageDaily(usageContext.userId, { fromDate, toDate: this.getUsageDateKst(), scopeType: 'login' });
+      const monthlyTotal = usageRows.reduce((s, r) => s + parseFloat(r.costUsd || '0'), 0);
+      if (monthlyTotal >= budget) {
+        throw new AiBudgetExceededError(monthlyTotal, budget);
+      }
+    } catch (err) {
+      if (err instanceof AiBudgetExceededError) throw err;
+      console.warn('[AIService] Budget pre-check failed:', (err as any)?.message);
     }
   }
 
@@ -181,6 +212,7 @@ export class AIService {
     } = {}
   ): Promise<any> {
     const { model = 'gpt-5-mini', temperature = 0.3, usageContext } = options;
+    await this.checkBudgetBeforeCall(usageContext);
 
     // Reasoning models (o1, o3, o4-*, gpt-5-*) only support default temperature (1)
     const isReasoningModel = /^(o\d|gpt-5)/.test(model);
@@ -534,7 +566,7 @@ Format as JSON.`;
     stockCode: string;
     stockName: string;
     currentPrice: number;
-    financialRatios?: { per: string; pbr: string; eps: string; bps: string; roe: string };
+    financialRatios?: { per: string; pbr: string; eps: string; bps: string; roe: string; debt_ratio?: string; reserve_ratio?: string };
     priceHistory?: Array<{ date: string; price: number; volume: number }>;
     news?: NewsResult;
     dartFilings?: Array<{ reportNm: string; rceptDt: string }>;
@@ -565,7 +597,7 @@ Format as JSON.`;
       : '관련 뉴스 없음';
 
     const financialSummary = financialRatios
-      ? `PER: ${financialRatios.per}, PBR: ${financialRatios.pbr}, EPS: ${financialRatios.eps}원, BPS: ${financialRatios.bps}원, ROE: ${financialRatios.roe}%`
+      ? `PER: ${financialRatios.per}, PBR: ${financialRatios.pbr}, EPS: ${financialRatios.eps}원, BPS: ${financialRatios.bps}원, ROE: ${financialRatios.roe}%, 부채비율: ${financialRatios.debt_ratio ?? '0'}%, 유보율: ${financialRatios.reserve_ratio ?? '0'}%`
       : '재무 데이터 없음';
 
     const priceSummary = priceHistory?.length
@@ -611,7 +643,7 @@ ${priceSummary}
 
 【채점 기준 — 반드시 준수】
 - newsScore(0-100): 최근 뉴스 감성. 긍정 뉴스 비율·강도 반영. 뉴스 없으면 50점 기본. 악재(횡령/소송/적자) -30 이상 감점.
-- financialScore(0-100): PER/PBR/ROE/EPS 종합. ROE>15%+PER<20 → 70+점. 재무데이터 없으면 40점(불확실성 반영).
+- financialScore(0-100): PER/PBR/ROE/EPS/부채비율/유보율 종합. ROE>15%+PER<20 → 70+점. 부채비율>200% → -10점. 유보율>500% → +5점(내부유보 풍부). 재무데이터 없으면 40점(불확실성 반영).
 - technicalScore(0-100): 가격 추세·모멘텀. 최근 5일 상승+거래량증가 → 65+. CL 근처 횡보 → 55. 지속 하락 → 30-.
 - themeScore(0-100): 섹터/테마 모멘텀. 종목명/업종에서 유추(AI·반도체·바이오·방산·2차전지 등 핫 섹터면 +). 뉴스와 독립 평가.
 - confidence(0-100): 위 4개 점수 + 레인보우 차트 추천을 종합한 전반적 확신도. 데이터가 충분하고 긍정 신호 다수면 높게.
@@ -787,18 +819,32 @@ ${params.recentNews ? `최근 뉴스 요약:\n${params.recentNews}\n` : ''}
 
     const prompt = `당신은 보유 포지션을 관리하는 한국 주식 자동매매 AI입니다.
 
-【레인보우 CL 시스템 — 반드시 숙지】
-숫자는 240일 저점~고점 구간에서의 현재 위치(%). 숫자가 클수록 고점 근처(비쌈), 작을수록 저점 근처(저렴).
-- 10~30%: 🔵 파랑/남색 = 240일 저점 근처 = 추가 매수(scale_in) 가능 구간
-- 40~55%: 🟢 초록 CL 구간 = 최초 진입 타점 (50%가 CL)
-- 60~80%: 🟡 노랑/주황 = CL 위 = 주가가 올라 수익 구간, 익절(partial/full_exit) 고려
-- 85%+: 🔴 빨강 = 240일 고점 근처 = 목표 초과, 익절 강력 고려
+【레인보우 CL 시스템 — 핵심 구조, 반드시 숙지】
+CL(%) = 240일 저점~고점 구간에서 현재가의 위치. 낮을수록 저렴(저점 근처), 높을수록 비쌈(고점 근처).
+
+★ 초(CL/50%) 기준으로 아래/위가 완전히 다른 구간:
+
+【매수 구간 — 초(50%) 미만, 각 라인 도달마다 추가매수 타점】
+- 40% = 파(파랑): 추가매수 타점 → scale_in 적극 고려
+- 30% = 남(남색): 추가매수 타점 → scale_in 적극 고려
+- 20% = 보(보라): 추가매수 타점 → scale_in 적극 고려
+- 10% = 연보라: 추가매수 타점 → scale_in 고려
+
+【최초 진입 구간】
+- 50% = 초(초록/CL): 최초 매수 타점, 보유 중이면 hold 유지
+
+【매도 구간 — 초(50%) 초과】 ⚠️ 이 구간에서는 절대 매수(scale_in) 금지
+- 60% = 노랑: 익절 고려 시작
+- 70% = 주황: 익절 적극 고려
+- 80% = 빨강: 익절 강력 고려
+- 90% = 핑크: 목표 초과, full_exit 강력 권장
+- 100% = MAX/흑색: full_exit 필수
 
 보유 종목:
 - 코드: ${stock.code}, 이름: ${stock.name}
 - 현재가: ${stock.price.toLocaleString()}원, 진입가: ${performance.entryPrice.toLocaleString()}원
 - 현재 수익률: ${pnlPct}%
-- 현재 CL 위치: ${currentLine}% → ${currentLine <= 40 ? '🟡 회복구간(익절 고려)' : currentLine <= 55 ? '🟢 초록CL' : currentLine <= 80 ? '🔵 파랑(추가매수 구간)' : '⚫ 극단(손절 고려)'}
+- 현재 CL 위치: ${currentLine}% → ${currentLine <= 10 ? '🟣 연보라(추가매수 타점 — scale_in 고려)' : currentLine <= 20 ? '🟣 보(보라, 추가매수 타점 — scale_in 강력 고려)' : currentLine <= 30 ? '🔵 남(남색, 추가매수 타점 — scale_in 강력 고려)' : currentLine <= 40 ? '🔵 파(파랑, 추가매수 타점 — scale_in 적극 고려)' : currentLine <= 55 ? '🟢 초(초록CL, 최초 진입/보유 구간 — scale_in 불가)' : currentLine <= 70 ? '🟡 노랑/주황(매도 구간 — 절대 매수 금지, 익절 고려)' : currentLine <= 90 ? '🔴 빨강/핑크(매도 구간 — 절대 매수 금지, 익절 강력 고려)' : '⚫ MAX(매도 구간 — full_exit 필수)'}
 - 보유 기간: ${holdingDays}일
 - 현재 보유 유닛: ${performance.filledUnits ?? 1} / 최대 ${settings.maxUnitsPerStock ?? 5}
 - 라더 계획: ${JSON.stringify(performance.entryLadderPlan ?? [])}
@@ -811,11 +857,12 @@ ${params.recentNews ? `최근 뉴스 요약:\n${params.recentNews}\n` : ''}
 - AI 목표초과 보유 허용: ${settings.allowAiHoldBeyondTarget ?? false}
 
 판단 원칙:
-- scale_in: CL이 10~40%(파랑/저점 구간) 도달 + 라더 미체결 스텝 존재 + 총유닛 < maxUnits일 때만 가능
-- partial_exit: CL이 60% 이상(수익 구간)이고 allowAiPartialTakeProfit=true일 때 가능
-- full_exit: CL이 75% 이상(충분한 수익)이거나 모멘텀 소진 판단 시
+- scale_in: CL이 10~40%(파/남/보/연보라 구간) 도달 + 해당 라인 미체결 스텝 존재 + 총유닛 < maxUnits → scale_in 실행
+- hold: CL이 45~55%(초/CL 부근) — 추가매수도 매도도 하지 않음
+- partial_exit: CL이 60% 이상(매도 구간)이고 allowAiPartialTakeProfit=true일 때
+- full_exit: CL이 75% 이상이거나 모멘텀 소진 판단 시
 - stop_loss: stopLossMode=disabled이면 절대 불가, hard이면 손실 >= 7% 시 강제
-- CL이 45~55%(초록 CL 부근)이면 기본적으로 hold
+- ⚠️ CL 50% 초과 구간(노랑~MAX)에서는 scale_in 절대 불가
 
 아래 JSON 형식으로만 응답하세요:
 {

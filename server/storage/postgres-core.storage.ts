@@ -751,6 +751,9 @@ export class PostgreSQLCoreStorage {
   }
 
   async upsertCandidateStock(data: InsertCandidateStock): Promise<CandidateStock> {
+    if (!data.stockCode || data.stockCode.trim() === "") {
+      throw new Error("Candidate stock must have a valid stockCode");
+    }
     try {
       const result = await db.insert(schema.candidateStocks).values(data)
         .onConflictDoUpdate({

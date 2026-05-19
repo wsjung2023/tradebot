@@ -31,7 +31,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Plus, Wallet, Trash2, TrendingUp, Pencil } from "lucide-react";
+import { Plus, Wallet, Trash2, TrendingUp, Pencil, Key, CheckCircle, AlertCircle, Eye, EyeOff } from "lucide-react";
 
 interface KiwoomAccount {
   id: number;
@@ -40,6 +40,8 @@ interface KiwoomAccount {
   accountName: string;
   accountType: 'real' | 'mock';
   createdAt: string;
+  hasApiKey?: boolean;
+  maskedApiKey?: string;
 }
 
 export default function Accounts() {
@@ -54,6 +56,13 @@ export default function Accounts() {
   const [editingAccount, setEditingAccount] = useState<KiwoomAccount | null>(null);
   const [editAccountName, setEditAccountName] = useState("");
   const [editAccountType, setEditAccountType] = useState<'real' | 'mock'>('mock');
+
+  // API 키 다이얼로그 상태
+  const [keyDialogOpen, setKeyDialogOpen] = useState(false);
+  const [keyAccount, setKeyAccount] = useState<KiwoomAccount | null>(null);
+  const [keyAppKey, setKeyAppKey] = useState("");
+  const [keyAppSecret, setKeyAppSecret] = useState("");
+  const [showKeySecret, setShowKeySecret] = useState(false);
 
   const { data: accounts = [], isLoading } = useQuery<KiwoomAccount[]>({
     queryKey: ['/api/accounts'],
@@ -104,6 +113,22 @@ export default function Accounts() {
         title: "계좌 수정 실패",
         description: error.message,
       });
+    },
+  });
+
+  const saveApiKeyMutation = useMutation({
+    mutationFn: async ({ id, appKey, appSecret }: { id: number; appKey: string; appSecret: string }) => {
+      const res = await apiRequest('PUT', `/api/accounts/${id}/api-key`, { appKey, appSecret });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/accounts'] });
+      toast({ title: "API 키 저장 완료", description: "계좌 API 키가 업데이트되었습니다" });
+      setKeyDialogOpen(false);
+      setKeyAppKey(""); setKeyAppSecret(""); setShowKeySecret(false);
+    },
+    onError: (error: any) => {
+      toast({ variant: "destructive", title: "저장 실패", description: error.message });
     },
   });
 
@@ -282,6 +307,7 @@ export default function Accounts() {
                   <TableHead>계좌 이름</TableHead>
                   <TableHead>계좌번호</TableHead>
                   <TableHead>유형</TableHead>
+                  <TableHead>API 키</TableHead>
                   <TableHead>등록일</TableHead>
                   <TableHead className="text-right">작업</TableHead>
                 </TableRow>
@@ -289,47 +315,40 @@ export default function Accounts() {
               <TableBody>
                 {accounts.map((account) => (
                   <TableRow key={account.id} data-testid={`row-account-${account.id}`}>
-                    <TableCell className="font-medium">
-                      {account.accountName}
-                    </TableCell>
+                    <TableCell className="font-medium">{account.accountName}</TableCell>
+                    <TableCell>{account.accountNumber}</TableCell>
                     <TableCell>
-                      {account.accountNumber}
-                    </TableCell>
-                    <TableCell>
-                      <Badge
-                        variant={account.accountType === 'real' ? 'default' : 'secondary'}
-                        data-testid={`badge-type-${account.id}`}
-                      >
+                      <Badge variant={account.accountType === 'real' ? 'default' : 'secondary'} data-testid={`badge-type-${account.id}`}>
                         {account.accountType === 'real' ? '실전투자' : '모의투자'}
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      {new Date(account.createdAt).toLocaleDateString('ko-KR')}
+                      <button
+                        onClick={() => { setKeyAccount(account); setKeyDialogOpen(true); }}
+                        className="flex items-center gap-1.5 text-sm hover:opacity-80 transition-opacity"
+                        title="API 키 등록/교체"
+                      >
+                        {account.hasApiKey
+                          ? <><CheckCircle className="h-4 w-4 text-green-500" /><span className="font-mono text-xs text-muted-foreground">{account.maskedApiKey}</span></>
+                          : account.accountType === 'mock'
+                            ? <><CheckCircle className="h-4 w-4 text-blue-400" /><span className="text-xs text-blue-500">공유키 사용중</span></>
+                            : <><AlertCircle className="h-4 w-4 text-amber-500" /><span className="text-xs text-amber-600">미등록</span></>}
+                      </button>
                     </TableCell>
+                    <TableCell>{new Date(account.createdAt).toLocaleDateString('ko-KR')}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          data-testid={`button-edit-${account.id}`}
-                          onClick={() => openEditDialog(account)}
-                          title="계좌 수정"
-                          className="hover-elevate"
-                        >
+                        <Button variant="ghost" size="icon" title="API 키 등록/교체" className="hover-elevate"
+                          onClick={() => { setKeyAccount(account); setKeyDialogOpen(true); }}>
+                          <Key className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" data-testid={`button-edit-${account.id}`}
+                          onClick={() => openEditDialog(account)} title="계좌 수정" className="hover-elevate">
                           <Pencil className="h-4 w-4" />
                         </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          data-testid={`button-delete-${account.id}`}
-                          onClick={() => {
-                            if (confirm('정말 이 계좌를 삭제하시겠습니까?')) {
-                              deleteAccountMutation.mutate(account.id);
-                            }
-                          }}
-                          disabled={deleteAccountMutation.isPending}
-                          className="hover-elevate"
-                        >
+                        <Button variant="ghost" size="icon" data-testid={`button-delete-${account.id}`}
+                          onClick={() => { if (confirm('정말 이 계좌를 삭제하시겠습니까?')) deleteAccountMutation.mutate(account.id); }}
+                          disabled={deleteAccountMutation.isPending} className="hover-elevate">
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
@@ -399,6 +418,54 @@ export default function Accounts() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* API 키 등록/교체 다이얼로그 */}
+      <Dialog open={keyDialogOpen} onOpenChange={(open) => { setKeyDialogOpen(open); if (!open) { setKeyAppKey(""); setKeyAppSecret(""); setShowKeySecret(false); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Key className="h-5 w-5" />
+              API 키 {keyAccount?.hasApiKey ? "교체" : "등록"} — {keyAccount?.accountName}
+            </DialogTitle>
+            <DialogDescription>
+              {keyAccount?.hasApiKey
+                ? `현재 키: ${keyAccount.maskedApiKey} · 새 키를 입력하면 즉시 교체됩니다`
+                : "키움증권 OpenAPI APP KEY와 APP SECRET을 입력하세요"}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="keyAppKey">APP KEY</Label>
+              <Input id="keyAppKey" value={keyAppKey} onChange={e => setKeyAppKey(e.target.value)}
+                placeholder="키움증권 APP KEY" className="font-mono text-sm" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="keyAppSecret">APP SECRET</Label>
+              <div className="relative">
+                <Input id="keyAppSecret" type={showKeySecret ? "text" : "password"}
+                  value={keyAppSecret} onChange={e => setKeyAppSecret(e.target.value)}
+                  placeholder="키움증권 APP SECRET" className="font-mono text-sm pr-10" />
+                <button type="button" onClick={() => setShowKeySecret(v => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                  {showKeySecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              ⚠️ 모의계좌 키는 3개월, 실계좌 키는 최대 1년마다 교체가 필요합니다
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setKeyDialogOpen(false)}>취소</Button>
+            <Button
+              disabled={!keyAppKey.trim() || !keyAppSecret.trim() || saveApiKeyMutation.isPending}
+              onClick={() => keyAccount && saveApiKeyMutation.mutate({ id: keyAccount.id, appKey: keyAppKey, appSecret: keyAppSecret })}
+            >
+              {saveApiKeyMutation.isPending ? "저장 중..." : "저장"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

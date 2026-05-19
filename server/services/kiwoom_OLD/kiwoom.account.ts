@@ -46,7 +46,25 @@ export class KiwoomAccount extends KiwoomBase {
 
       const rc = balData?.return_code;
       if (rc !== undefined && rc !== 0 && rc !== "0" && String(rc) !== "0") {
-        throw new Error(`잔고조회 실패: ${balData?.return_msg} (code: ${rc})`);
+        // return_code 3 = 토큰 무효 (HTTP 200이지만 Kiwoom 인증 실패) → 토큰 초기화 후 1회 재시도
+        if (String(rc) === "3") {
+          console.warn("[KiwoomAccount] return_code 3 — 토큰 강제 초기화 후 재시도");
+          this.accessToken = null;
+          this.tokenExpiry = 0;
+          await this.ensureValidToken();
+          const retryResp = await this.api.post<any>(
+            "/api/dostk/acnt",
+            { qry_tp: "2", dmst_stex_tp },
+            { headers: { "api-id": "kt00018" } }
+          );
+          const retryRc = retryResp.data?.return_code;
+          if (retryRc !== undefined && retryRc !== 0 && retryRc !== "0" && String(retryRc) !== "0") {
+            throw new Error(`잔고조회 실패: ${retryResp.data?.return_msg} (code: ${retryRc})`);
+          }
+          Object.assign(balData, retryResp.data);
+        } else {
+          throw new Error(`잔고조회 실패: ${balData?.return_msg} (code: ${rc})`);
+        }
       }
 
       // ② 예수금상세현황요청: api-id kt00001

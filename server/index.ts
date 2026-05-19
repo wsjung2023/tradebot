@@ -12,6 +12,7 @@ import { registerRoutes } from "./routes";
 import { setupVite, log } from "./vite";
 import { setupAuth } from "./auth";
 import { jobManager } from "./job-manager";
+import { masterSettings } from "./services/master-settings.service";
 
 // 전역 에러 핸들러
 process.on('uncaughtException', (err) => {
@@ -104,10 +105,10 @@ const cookieSecure = isReplit || isProduction;
 
 const sessionStore = isProduction
   ? new PgSession({
-      pool,
-      createTableIfMissing: false,
-      tableName: 'session',
-    })
+    pool,
+    createTableIfMissing: false,
+    tableName: 'session',
+  })
   : undefined;
 
 const sessionMiddleware = session({
@@ -213,8 +214,11 @@ httpServer.listen({ port, host: "0.0.0.0" }, () => {
       setupStaticServing();
     }
 
+    await masterSettings.init();
     await jobManager.initialize();
-    console.log('[STARTUP] Ready ✓');
+    const env = port === 5000 ? 'PROD' : 'DEV';
+    process.title = `TradeBot-${env} (port ${port})`;
+    console.log(`[STARTUP] Ready ✓  [${env}] port=${port}`);
   } catch (err: any) {
     console.error('[STARTUP] FATAL:', err.message, err.stack);
     process.exit(1);

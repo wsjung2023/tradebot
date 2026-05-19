@@ -1,11 +1,9 @@
 import { storage } from "../storage";
-import { decrypt } from "../utils/crypto";
+import { decrypt, isEncrypted } from "../utils/crypto";
 import { normalizePriceHistoryAsc } from "../utils/chart-normalization";
-import { callViaAgent, AgentTimeoutError } from "./agent-proxy.service";
-import { callAgentDirect, AgentDirectError } from "./agent-direct.service";
-import { createKiwoomService, getKiwoomService, type KiwoomService } from "./kiwoom";
+import { createKiwoomService, type KiwoomService, type OrderRequest } from "./kiwoom";
 
-type CachedLegacyService = {
+type CachedService = {
   fingerprint: string;
   service: KiwoomService;
   lastUsed: number;
@@ -16,294 +14,183 @@ function toNumberString(value: unknown): string {
   return String(value).replace(/,/g, "").trim();
 }
 
-function parseJobTypeCandidates(envValue: string | undefined, defaults: string[]): string[] {
-  const parsed = (envValue || "")
-    .split(",")
-    .map((v) => v.trim())
-    .filter(Boolean);
-  if (parsed.length === 0) return defaults;
-  return Array.from(new Set(parsed));
+function safeDecrypt(val: string): string {
+  return isEncrypted(val) ? decrypt(val) : val;
 }
 
 export class UserKiwoomService {
-  private readonly MAX_LEGACY_CACHE = 50;
-  private globalLegacyKiwoom = getKiwoomService();
-  private legacyByUser = new Map<string, CachedLegacyService>();
-  private readonly conditionListJobTypes = parseJobTypeCandidates(
-    process.env.KIWOOM_CONDITION_LIST_JOBTYPES,
-    ["condition.list", "condition_list", "conditions.list", "condition.get_list"],
-  );
-  private readonly conditionRunJobTypes = parseJobTypeCandidates(
-    process.env.KIWOOM_CONDITION_RUN_JOBTYPES,
-    ["condition.run", "condition_run", "conditions.run", "condition.search"],
-  );
+  private readonly MAX_CACHE = 50;
+  private byUser = new Map<string, CachedService>();
+  private byAccount = new Map<number, CachedService>();
 
-  private evictOldLegacyCache() {
-    if (this.legacyByUser.size <= this.MAX_LEGACY_CACHE) return;
-
-    const entries = Array.from(this.legacyByUser.entries())
-      .sort((a, b) => a[1].lastUsed - b[1].lastUsed);
-
-    const toRemove = entries.slice(0, entries.length - this.MAX_LEGACY_CACHE);
-    for (const [userId] of toRemove) {
-      this.legacyByUser.delete(userId);
-    }
+  private evictOldCache(cache: Map<any, CachedService>) {
+    if (cache.size <= this.MAX_CACHE) return;
+    const entries = Array.from(cache.entries()).sort((a, b) => a[1].lastUsed - b[1].lastUsed);
+    entries.slice(0, entries.length - this.MAX_CACHE).forEach(([k]) => cache.delete(k));
   }
 
-  private async getLegacyServiceForUser(userId: string): Promise<KiwoomService> {
+  // user_settings 기반 서비스 (없으면 null)
+  private async getServiceFromUserSettings(userId: string): Promise<KiwoomService | null> {
     const settings = await storage.getUserSettings(userId);
-    const hasUserKeys = !!settings?.kiwoomAppKey && !!settings?.kiwoomAppSecret;
+    if (!settings?.kiwoomAppKey || !settings?.kiwoomAppSecret) return null;
 
-    if (!hasUserKeys) {
-      this.legacyByUser.delete(userId);
-      return this.globalLegacyKiwoom;
-    }
-
-    const fingerprint = [
-      settings!.kiwoomAppKey,
-      settings!.kiwoomAppSecret,
-      settings!.tradingMode || "mock",
-    ].join(":");
-
-    const cached = this.legacyByUser.get(userId);
+    const fingerprint = [settings.kiwoomAppKey, settings.kiwoomAppSecret, settings.tradingMode || "mock"].join(":");
+    const cached = this.byUser.get(userId);
     if (cached?.fingerprint === fingerprint) {
       cached.lastUsed = Date.now();
       return cached.service;
     }
 
     const service = createKiwoomService({
-      appKey: decrypt(settings!.kiwoomAppKey!),
-      appSecret: decrypt(settings!.kiwoomAppSecret!),
-      accountType: settings!.tradingMode === "real" ? "real" : "mock",
+      appKey: safeDecrypt(settings.kiwoomAppKey),
+      appSecret: safeDecrypt(settings.kiwoomAppSecret),
+      accountType: settings.tradingMode === "real" ? "real" : "mock",
     });
-    this.legacyByUser.set(userId, { fingerprint, service, lastUsed: Date.now() });
-    this.evictOldLegacyCache();
+    this.byUser.set(userId, { fingerprint, service, lastUsed: Date.now() });
+    this.evictOldCache(this.byUser);
     return service;
   }
 
-  private readonly RETRIABLE_WS_ERRORS = [
-    "로그인 인증이 들어오기 전에 다른 전문이 들어왔습니다",
-    "키움 WS 오류",
-    "키움 WS 로그인 실패",
-    "Token이 유효하지 않습니다",
-    "WebSocket",
-  ];
+  // 계좌 ID 기반 서비스 — DB 등록 키 사용, 없으면 null
+  private async getServiceForAccount(accountId: number): Promise<KiwoomService | null> {
+    const account = await storage.getKiwoomAccount(accountId);
+    if (!account?.kiwoomAppKey || !account?.kiwoomAppSecret) return null;
 
-  private isRetriableWsError(message: string): boolean {
-    return this.RETRIABLE_WS_ERRORS.some((kw) => message.includes(kw));
-  }
-
-  private async callViaAgentWithRetry(
-    userId: string,
-    jobType: string,
-    payload: Record<string, unknown>,
-    maxRetries: number = 3,
-    retryDelayMs: number = 4000,
-  ): Promise<any> {
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        // condition.run은 CNSRLST→CNSRREQ 2단계로 더 오래 걸림 → 40초
-        const timeoutMs = jobType.includes("condition") ? 40000 : 22000;
-        return await callViaAgent(userId, jobType, payload, timeoutMs);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error ?? "");
-        const shouldRetry = this.isRetriableWsError(message) && attempt < maxRetries;
-        if (shouldRetry) {
-          console.warn(`[KiwoomAgent] ${jobType} 시도 ${attempt}/${maxRetries} 실패 (${retryDelayMs}ms 후 재시도): ${message}`);
-          await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
-        } else {
-          throw error;
-        }
-      }
+    const fingerprint = account.kiwoomAppKey + ":" + account.kiwoomAppSecret;
+    const cached = this.byAccount.get(accountId);
+    if (cached?.fingerprint === fingerprint) {
+      cached.lastUsed = Date.now();
+      return cached.service;
     }
-    throw new Error("에이전트 호출 실패");
+
+    const service = createKiwoomService({
+      appKey: safeDecrypt(account.kiwoomAppKey),
+      appSecret: safeDecrypt(account.kiwoomAppSecret),
+      accountType: (account.accountType as "real" | "mock") || "real",
+    });
+    this.byAccount.set(accountId, { fingerprint, service, lastUsed: Date.now() });
+    return service;
   }
 
-  private async callViaAgentWithJobTypeFallback(
-    userId: string,
-    jobTypes: string[],
-    payload: Record<string, unknown>,
-  ): Promise<any> {
-    let lastError: unknown;
-    const attemptLogs: Array<{ jobType: string; message: string }> = [];
+  // 유저의 어떤 유효한 키든 반환 (시세/차트 등 계좌 무관 조회용). 없으면 throw.
+  private async getAnyServiceForUser(userId: string): Promise<KiwoomService> {
+    const fromSettings = await this.getServiceFromUserSettings(userId);
+    if (fromSettings) return fromSettings;
 
-    for (const jobType of jobTypes) {
-      try {
-        return await this.callViaAgentWithRetry(userId, jobType, payload, 3, 4000);
-      } catch (error) {
-        lastError = error;
-        const message = error instanceof Error ? error.message : String(error ?? "");
-        attemptLogs.push({ jobType, message });
-        const isUnsupportedType = message.includes("지원하지 않는 작업 타입");
-
-        if (!isUnsupportedType) {
-          throw error;
-        }
+    const accounts = await storage.getKiwoomAccounts(userId);
+    for (const account of accounts) {
+      if (account.kiwoomAppKey && account.kiwoomAppSecret) {
+        const service = await this.getServiceForAccount(account.id);
+        if (service) return service;
       }
     }
 
-    if (lastError) {
-      const detail = attemptLogs
-        .map((log, idx) => `${idx + 1}) ${log.jobType} -> ${log.message}`)
-        .join(" | ");
-      throw new Error(`조건검색 에이전트 호출 실패 (모든 jobType 시도 실패): ${detail}`);
-    }
-    throw new Error("에이전트 호출 실패");
+    throw new Error("API 키 미등록: 설정 > API 키에서 키움 API 키를 먼저 등록하세요.");
   }
 
-  private async callDirect(
-    jobType: string,
-    payload: Record<string, unknown>,
-    timeoutMs = 10000,
-  ): Promise<any> {
-    return callAgentDirect(jobType, payload, timeoutMs);
+  // 유저의 실계좌 키 반환 (조건검색 등 HTS 전용). 실계좌 없으면 아무 계좌 키로 시도.
+  private async getRealServiceForUser(userId: string): Promise<KiwoomService> {
+    const accounts = await storage.getKiwoomAccounts(userId);
+    const realAccounts = (accounts as any[]).filter((a) => a.accountType === "real");
+    for (const account of realAccounts) {
+      if (account.kiwoomAppKey && account.kiwoomAppSecret) {
+        const service = await this.getServiceForAccount(account.id);
+        if (service) return service;
+      }
+    }
+    return this.getAnyServiceForUser(userId);
+  }
+
+  invalidateAccountCache(accountId: number): void {
+    this.byAccount.delete(accountId);
   }
 
   async getPrice(userId: string, stockCode: string) {
-    try {
-      return await this.callDirect("price.get", { stockCode }, 10000);
-    } catch (directErr) {
-      if (directErr instanceof AgentDirectError) {
-        try {
-          return await callViaAgent(userId, "price.get", { stockCode }, 60000);
-        } catch (error) {
-          if (error instanceof AgentTimeoutError) throw error;
-        }
-      }
-      const legacyKiwoom = await this.getLegacyServiceForUser(userId);
-      const price = await legacyKiwoom.getStockPrice(stockCode);
-      const output = price?.output || {};
-      return {
-        stockCode,
-        stockName: output.stck_nm || stockCode,
-        currentPrice: output.stck_prpr || "0",
-        changeRate: output.prdy_ctrt || "0",
-        change: output.prdy_vrss || "0",
-        volume: output.acml_vol || "0",
-        high: output.stck_hgpr || "0",
-        low: output.stck_lwpr || "0",
-        open: output.stck_oprc || "0",
-        output,
-        raw: price,
-      };
-    }
+    const kiwoom = await this.getAnyServiceForUser(userId);
+    const price = await kiwoom.getStockPrice(stockCode);
+    const output = price?.output || {};
+    return {
+      stockCode,
+      stockName: output.stck_nm || stockCode,
+      currentPrice: output.stck_prpr || "0",
+      changeRate: output.prdy_ctrt || "0",
+      change: output.prdy_vrss || "0",
+      volume: output.acml_vol || "0",
+      high: output.stck_hgpr || "0",
+      low: output.stck_lwpr || "0",
+      open: output.stck_oprc || "0",
+      output,
+      raw: price,
+    };
   }
 
   async getOrderbook(userId: string, stockCode: string) {
-    try {
-      return await this.callDirect("orderbook.get", { stockCode }, 10000);
-    } catch (directErr) {
-      if (directErr instanceof AgentDirectError) {
-        try {
-          return await callViaAgent(userId, "orderbook.get", { stockCode });
-        } catch (error) {
-          if (error instanceof AgentTimeoutError) throw error;
-        }
-      }
-      const legacyKiwoom = await this.getLegacyServiceForUser(userId);
-      return legacyKiwoom.getStockOrderbook(stockCode);
-    }
+    const kiwoom = await this.getAnyServiceForUser(userId);
+    return kiwoom.getStockOrderbook(stockCode);
   }
 
   async getChart(userId: string, stockCode: string, period: string = "D", count = 100) {
-    try {
-      return await this.callDirect("chart.get", { stockCode, period, count }, 10000);
-    } catch (directErr) {
-      if (directErr instanceof AgentDirectError) {
-        try {
-          return await callViaAgent(userId, "chart.get", { stockCode, period, count }, 60000);
-        } catch (error) {
-          if (error instanceof AgentTimeoutError) throw error;
-        }
-      }
-      const legacyKiwoom = await this.getLegacyServiceForUser(userId);
-      return legacyKiwoom.getStockChart(stockCode, period, count);
-    }
+    const kiwoom = await this.getAnyServiceForUser(userId);
+    return kiwoom.getStockChart(stockCode, period, count);
   }
 
   async searchStock(userId: string, keyword: string) {
-    try {
-      return await this.callDirect("stock.search", { keyword }, 12000);
-    } catch (directErr) {
-      if (directErr instanceof AgentDirectError) {
-        try {
-          return await callViaAgent(userId, "stock.search", { keyword }, 35000);
-        } catch (error) {
-          if (error instanceof AgentTimeoutError) throw error;
-        }
-      }
-      const legacyKiwoom = await this.getLegacyServiceForUser(userId);
-      return legacyKiwoom.searchStock(keyword);
-    }
+    const kiwoom = await this.getAnyServiceForUser(userId);
+    return kiwoom.searchStock(keyword);
   }
 
   async getStockInfo(userId: string, stockCode: string) {
-    try {
-      return await this.callDirect("stock.info", { stockCode }, 10000);
-    } catch (directErr) {
-      if (directErr instanceof AgentDirectError) {
-        try {
-          return await callViaAgent(userId, "stock.info", { stockCode }, 60000);
-        } catch (error) {
-          if (error instanceof AgentTimeoutError) throw error;
-        }
-      }
-      const legacyKiwoom = await this.getLegacyServiceForUser(userId);
-      const [info, price] = await Promise.allSettled([
-        legacyKiwoom.getStockInfo(stockCode),
-        legacyKiwoom.getStockPrice(stockCode),
-      ]);
-
-      const infoValue = info.status === "fulfilled" ? info.value : null;
-      const priceOutput = price.status === "fulfilled" ? price.value?.output || {} : {};
-
-      return {
-        stockCode,
-        name: infoValue?.name || stockCode,
-        marketName: infoValue?.marketName || "",
-        state: infoValue?.state || "",
-        currentPrice: priceOutput.stck_prpr || undefined,
-      };
-    }
+    const kiwoom = await this.getAnyServiceForUser(userId);
+    const [info, price] = await Promise.allSettled([
+      kiwoom.getStockInfo(stockCode),
+      kiwoom.getStockPrice(stockCode),
+    ]);
+    const infoValue = info.status === "fulfilled" ? info.value : null;
+    const priceOutput = price.status === "fulfilled" ? price.value?.output || {} : {};
+    return {
+      stockCode,
+      name: infoValue?.name || stockCode,
+      marketName: infoValue?.marketName || "",
+      state: infoValue?.state || "",
+      currentPrice: priceOutput.stck_prpr || undefined,
+      raw: infoValue?.raw || {},
+    };
   }
 
   async getWatchlist(userId: string, stockCodes: string[]) {
-    try {
-      const response = await callViaAgent(userId, "watchlist.get", { stockCodes });
-      return response?.items || [];
-    } catch (error) {
-      if (error instanceof AgentTimeoutError) throw error;
-      const legacyKiwoom = await this.getLegacyServiceForUser(userId);
-      return legacyKiwoom.getWatchlistInfo(stockCodes);
-    }
+    const kiwoom = await this.getAnyServiceForUser(userId);
+    return kiwoom.getWatchlistInfo(stockCodes);
   }
 
   async getConditionList(userId: string) {
-    const response = await this.callViaAgentWithJobTypeFallback(
-      userId,
-      this.conditionListJobTypes,
-      {},
-    );
-    return response?.output ?? response ?? [];
+    const service = await this.getRealServiceForUser(userId);
+    const response = await service.getConditionList();
+    return response?.output ?? [];
   }
 
   async runCondition(userId: string, seq: string) {
-    const response = await this.callViaAgentWithJobTypeFallback(
-      userId,
-      this.conditionRunJobTypes,
-      { seq },
-    );
-    return response?.output1 ?? response?.output ?? response ?? [];
+    const service = await this.getRealServiceForUser(userId);
+    const response = await service.getConditionSearchResults(seq, 0);
+    return response?.output ?? [];
+  }
+
+  async getBalance(userId: string, accountNumber: string, accountType: "mock" | "real" = "real", accountId?: number) {
+    if (!accountId) throw new Error("계좌 ID가 필요합니다.");
+    const service = await this.getServiceForAccount(accountId);
+    if (!service) throw new Error(`계좌 ${accountNumber}에 API 키가 등록되지 않았습니다. 계좌 설정에서 API 키를 등록하세요.`);
+    return service.getAccountBalance(accountNumber, accountType);
+  }
+
+  async placeOrder(userId: string, orderRequest: OrderRequest, accountId?: number) {
+    if (!accountId) throw new Error("계좌 ID가 필요합니다.");
+    const service = await this.getServiceForAccount(accountId);
+    if (!service) throw new Error("계좌에 API 키가 등록되지 않았습니다. 계좌 설정에서 API 키를 등록하세요.");
+    return service.placeOrder(orderRequest);
   }
 
   async getFinancials(userId: string, stockCode: string) {
-    try {
-      return await callViaAgent(userId, "financials.get", { stockCode });
-    } catch (error) {
-      if (error instanceof AgentTimeoutError) throw error;
-      const legacyKiwoom = await this.getLegacyServiceForUser(userId);
-      return legacyKiwoom.getFinancialStatements(stockCode);
-    }
+    const kiwoom = await this.getAnyServiceForUser(userId);
+    return kiwoom.getFinancialStatements(stockCode);
   }
 
   normalizeChartForPriceHistory(chartData: any[]) {

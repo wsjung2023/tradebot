@@ -22,12 +22,11 @@ export function registerAdminRoutes(app: Express) {
     res.json(result);
   });
 
-  // 인터벌 변경 — 분/초/시각 모두 지원, DB에 영속화
+  // 인터벌 변경 — 분/시각 지원, DB에 영속화
   app.patch('/api/admin/jobs/:id', isAuth, async (req, res) => {
-    const { intervalMinutes, intervalSeconds, scheduleTime } = req.body;
+    const { intervalMinutes, scheduleTime } = req.body;
     const result = await jobManager.updateInterval(req.params.id, {
       intervalMinutes: typeof intervalMinutes === 'number' ? intervalMinutes : undefined,
-      intervalSeconds: typeof intervalSeconds === 'number' ? intervalSeconds : undefined,
       scheduleTime: typeof scheduleTime === 'string' ? scheduleTime : undefined,
     });
     res.json(result);

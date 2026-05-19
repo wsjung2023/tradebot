@@ -11,7 +11,6 @@ import {
   ScrollText,
   BookOpen,
   Search,
-  ScanSearch,
   LineChart,
   Code2,
   Rainbow,
@@ -19,6 +18,7 @@ import {
   ServerCog,
   ClipboardList,
   Coins,
+  Wallet,
 } from "lucide-react";
 import {
   Sidebar,
@@ -44,18 +44,15 @@ const menuItems = [
   { title: "거래", url: "/trading", icon: TrendingUp },
   { title: "AI 분석", url: "/ai-analysis", icon: Brain },
   { title: "자동매매", url: "/auto-trading", icon: Bot },
+  { title: "AI 사용량", url: "/ai-usage", icon: Coins },
   { title: "포트폴리오", url: "/portfolio", icon: Briefcase },
   { title: "거래 내역", url: "/trade-history", icon: ScrollText },
   { title: "매매 저널", url: "/trade-journal", icon: ClipboardList },
-  { title: "관심종목", url: "/watchlist", icon: Activity },
+  { title: "계좌 관리", url: "/accounts", icon: Wallet },
   { title: "조건검색", url: "/condition-formulas", icon: Search },
-  { title: "실시간 스크리닝", url: "/condition-screening", icon: ScanSearch },
-  { title: "시그널 분석", url: "/watchlist-signals", icon: LineChart },
-  { title: "차트 수식", url: "/chart-formula-editor", icon: Code2 },
   { title: "뒷차기2 스캔", url: "/backattack-scan", icon: Rainbow },
   { title: "실시간 모니터", url: "/monitoring", icon: Activity },
   { title: "선정/탈락 이력", url: "/candidate-decisions", icon: ClipboardList },
-  { title: "AI 사용량", url: "/ai-usage", icon: Coins },
   { title: "설정", url: "/settings", icon: Settings },
   { title: "배치잡 관리", url: "/admin-jobs", icon: ServerCog },
 ];
@@ -85,7 +82,12 @@ export function AppSidebar() {
     <Sidebar data-testid="sidebar-main">
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel className="text-lg font-bold">키움 AI 트레이딩</SidebarGroupLabel>
+          <SidebarGroupLabel className="text-lg font-bold flex items-center gap-2">
+            키움 AI 트레이딩
+            {import.meta.env.VITE_APP_ENV === 'dev' && (
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-400 text-black leading-none">DEV</span>
+            )}
+          </SidebarGroupLabel>
           <div className="hidden md:block mx-2 mb-3 rounded-xl overflow-hidden border border-white/60 shadow-sm">
             <div className="relative h-24">
               <img src={sidebarVisual} alt="market-visual" className="h-full w-full object-cover" loading="lazy" />

@@ -36,6 +36,9 @@ export class KiwoomCondition extends KiwoomBase {
   private async wsRequest(apiId: string, payload: Record<string, string>): Promise<any> {
     await this.ensureValidToken();
 
+    // CNSRREQ는 같은 WS 연결에서 CNSRLST를 먼저 보내야 응답에 종목 데이터가 포함됨
+    const needsCnsrlstFirst = payload.trnm === "CNSRREQ";
+
     return new Promise((resolve, reject) => {
       if (!this.accessToken) {
         reject(new Error("Kiwoom 토큰이 없습니다."));
@@ -49,37 +52,107 @@ export class KiwoomCondition extends KiwoomBase {
         },
       });
 
+      let settled = false;
+      const reqId = Math.random().toString(36).slice(2, 6);
+      console.log(`[KiwoomWS:${reqId}] created apiId=${apiId} needsCnsrlstFirst=${needsCnsrlstFirst}`);
+
       const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        console.log(`[KiwoomWS:${reqId}] 타임아웃 fired`);
         ws.terminate();
-        reject(new Error("조건검색 WebSocket 타임아웃 (15초)"));
-      }, 15_000);
+        reject(new Error("조건검색 WebSocket 타임아웃 (60초)"));
+      }, 60_000);
+
+      let loginDone = false;
+      let cnsrlstDone = false; // CNSRREQ 전 CNSRLST 완료 여부
+
+      const finish = (result: any) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        ws.close();
+        resolve(result);
+      };
+
+      const fail = (err: Error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        ws.close();
+        reject(err);
+      };
 
       ws.on("open", () => {
-        ws.send(JSON.stringify(payload));
+        console.log(`[KiwoomWS:${reqId}] open → LOGIN`);
+        ws.send(JSON.stringify({ trnm: "LOGIN", token: this.accessToken }));
       });
 
       ws.on("message", (raw: Buffer) => {
         try {
           const msg = JSON.parse(raw.toString());
-          if (msg.trnm !== "REAL") {
-            clearTimeout(timer);
-            ws.close();
-            if (msg.return_code !== 0 && String(msg.return_code) !== "0") {
-              reject(new Error(`조건검색 오류 ${msg.return_code}: ${msg.return_msg ?? "unknown"}`));
-            } else {
-              resolve(msg);
+          console.log(`[KiwoomWS:${reqId}] msg trnm=${msg.trnm} rc=${msg.return_code} loginDone=${loginDone} cnsrlstDone=${cnsrlstDone}`);
+
+          // LOGIN ack
+          if (!loginDone) {
+            const rc = msg.return_code;
+            if (rc !== undefined && rc !== null && rc !== 0 && String(rc) !== "0") {
+              fail(new Error(`WS 로그인 실패 ${rc}: ${msg.return_msg ?? "unknown"}`));
+              return;
             }
+            loginDone = true;
+            if (needsCnsrlstFirst) {
+              console.log(`[KiwoomWS:${reqId}] 로그인 완료 → CNSRLST 먼저 전송`);
+              ws.send(JSON.stringify({ trnm: "CNSRLST" }));
+            } else {
+              console.log(`[KiwoomWS:${reqId}] 로그인 완료 → payload 전송`);
+              ws.send(JSON.stringify(payload));
+            }
+            return;
+          }
+
+          // CNSRLST 응답 → 실제 payload(CNSRREQ) 전송
+          if (needsCnsrlstFirst && !cnsrlstDone && msg.trnm === "CNSRLST") {
+            cnsrlstDone = true;
+            console.log(`[KiwoomWS:${reqId}] CNSRLST 완료 → CNSRREQ 전송 seq=${payload.seq}`);
+            ws.send(JSON.stringify(payload));
+            return;
+          }
+
+          // PING = 구독 ack (CNSRREQ 후) — 이미 CNSRREQ 응답에서 종목을 받았으므로 종료
+          if (msg.trnm === "PING") {
+            console.log(`[KiwoomWS:${reqId}] PING 수신 (구독 완료) → 종료`);
+            return; // already settled by CNSRREQ response; if not yet, ignore
+          }
+
+          // REAL = 실시간 업데이트 (이미 종료된 경우 무시)
+          if (msg.trnm === "REAL") return;
+
+          // 일반 응답 (CNSRLST 단독, CNSRREQ 결과 등)
+          console.log(`[KiwoomWS:${reqId}] 일반 응답 trnm=${msg.trnm} rc=${msg.return_code}`);
+          const rc = msg.return_code;
+          if (rc !== undefined && rc !== null && rc !== 0 && String(rc) !== "0") {
+            fail(new Error(`조건검색 오류 ${rc}: ${msg.return_msg ?? "unknown"}`));
+          } else {
+            finish(msg);
           }
         } catch (error) {
+          fail(error as Error);
+        }
+      });
+
+      ws.on("close", (code) => {
+        console.log(`[KiwoomWS:${reqId}] close code=${code} settled=${settled}`);
+        if (!settled) {
+          settled = true;
           clearTimeout(timer);
-          ws.close();
-          reject(error);
+          reject(new Error(`WebSocket 연결 종료 (code=${code})`));
         }
       });
 
       ws.on("error", (error) => {
-        clearTimeout(timer);
-        reject(error);
+        console.log(`[KiwoomWS:${reqId}] error:`, error.message);
+        fail(error);
       });
     });
   }
@@ -127,6 +200,7 @@ export class KiwoomCondition extends KiwoomBase {
       next_key: "",
     });
 
+    // res.data = CNSRREQ 응답의 종목 배열 (각 항목 = 종목 1개)
     const rows: any[] = res.data || res.output1 || res.output || [];
     return {
       output: rows.map((item: any) => ({

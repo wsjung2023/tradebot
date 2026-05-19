@@ -42,7 +42,7 @@ export default function AutoTrading() {
   const [modelName, setModelName] = useState("");
   const [modelType, setModelType] = useState<ModelType>("momentum");
   const [description, setDescription] = useState("");
-  const [maxPositions, setMaxPositions] = useState("5");
+  const [maxPositions, setMaxPositions] = useState("25");
   const [stopLossColor, setStopLossColor] = useState<"green" | "blue">("green");
   const [stopLossPercent, setStopLossPercent] = useState("5");
   const [takeProfitPercent, setTakeProfitPercent] = useState("10");
@@ -191,7 +191,7 @@ export default function AutoTrading() {
     setEditModelName(model.modelName);
     setEditModelType(toModelType(model.modelType));
     setEditDescription(model.description ?? "");
-    setEditMaxPositions(String(cfg.maxPositions ?? "5"));
+    setEditMaxPositions(String(cfg.maxPositions ?? "25"));
     setEditStopLossColor(cfg.stopLossConfig?.color ?? "green");
     setEditStopLossPercent(String(cfg.stopLossConfig?.percent ?? "5"));
     setEditTakeProfitPercent(String(cfg.takeProfitPercent ?? "10"));

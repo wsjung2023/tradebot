@@ -259,7 +259,12 @@ export default function Dashboard() {
   const isLoading = kiwoom.status === "loading" && kiwoomIsForCurrentAccount;
   const isSuccess = kiwoom.status === "success" && kiwoomIsForCurrentAccount;
   const hasError = (kiwoom.status === "error" || kiwoom.status === "agent_timeout") && kiwoomIsForCurrentAccount;
-  const balance = isSuccess ? kiwoom.data : null;
+  const balance = isSuccess ? kiwoom.data : (selectedAccount ? {
+    totalAssets: parseFloat((selectedAccount as any).lastTotalAssets || "0"),
+    todayProfit: parseFloat((selectedAccount as any).lastTodayProfit || "0"),
+    todayProfitRate: parseFloat((selectedAccount as any).lastTodayProfitRate || "0"),
+    depositAmount: parseFloat((selectedAccount as any).lastDepositAmount || "0"),
+  } : null);
 
   const assetHistory = assetSnapshots?.map((s: any) => ({
     date: s.snapshotAt ? new Date(s.snapshotAt).toLocaleDateString("ko-KR", { month: "short", day: "numeric" }) : s.date,
@@ -436,8 +441,8 @@ export default function Dashboard() {
             </CardHeader>
             <CardContent className="pt-0">
               <div className="text-lg md:text-2xl font-bold font-mono text-glow-cyan truncate" data-testid="text-total-assets">
-                {isLoading ? <span className="text-muted-foreground text-base">조회 중...</span>
-                  : isSuccess ? fmt(balance?.totalAssets)
+                {balance && balance.totalAssets > 0 ? fmt(balance.totalAssets)
+                  : isLoading ? <span className="text-muted-foreground text-base">조회 중...</span>
                   : hasError ? <span className="text-muted-foreground text-sm">조회 실패</span>
                   : <span className="text-muted-foreground text-sm">-</span>}
               </div>
@@ -459,9 +464,8 @@ export default function Dashboard() {
                 }`}
                 data-testid="text-today-profit"
               >
-                {isLoading ? <span className="text-muted-foreground text-base">조회 중...</span>
-                  : isSuccess ? fmt(balance?.todayProfit)
-                  : hasError ? <span className="text-muted-foreground text-sm">조회 실패</span>
+                {balance ? fmt(balance.todayProfit)
+                  : isLoading ? <span className="text-muted-foreground text-base">조회 중...</span>
                   : <span className="text-muted-foreground text-sm">-</span>}
               </div>
               <p className={`text-xs ${
@@ -481,9 +485,8 @@ export default function Dashboard() {
             </CardHeader>
             <CardContent className="pt-0">
               <div className="text-lg md:text-2xl font-bold font-mono" data-testid="text-total-return">
-                {isLoading ? <span className="text-muted-foreground text-base">조회 중...</span>
-                  : isSuccess ? fmt(balance?.depositAmount)
-                  : hasError ? <span className="text-muted-foreground text-sm">조회 실패</span>
+                {balance ? fmt(balance.depositAmount)
+                  : isLoading ? <span className="text-muted-foreground text-base">조회 중...</span>
                   : <span className="text-muted-foreground text-sm">-</span>}
               </div>
               <p className="text-xs text-muted-foreground">출금가능금액</p>

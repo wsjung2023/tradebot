@@ -50,6 +50,8 @@ export const kiwoomAccounts = pgTable("kiwoom_accounts", {
   lastTodayProfit: decimal("last_today_profit", { precision: 16, scale: 2 }),
   lastTodayProfitRate: decimal("last_today_profit_rate", { precision: 10, scale: 4 }),
   lastBalanceFetchedAt: timestamp("last_balance_fetched_at"),
+  kiwoomAppKey: text("kiwoom_app_key"),    // Encrypted — 계좌별 API 키
+  kiwoomAppSecret: text("kiwoom_app_secret"), // Encrypted
 });
 
 // Portfolio holdings
@@ -80,6 +82,7 @@ export const orders = pgTable("orders", {
   executedPrice: decimal("executed_price", { precision: 12, scale: 2 }),
   orderStatus: text("order_status").notNull(), // 'pending', 'partial', 'completed', 'cancelled'
   orderNumber: text("order_number"), // from Kiwoom API
+  errorMessage: text("error_message"), // Kiwoom error on failure
   isAutoTrading: boolean("is_auto_trading").notNull().default(false),
   aiModelId: integer("ai_model_id").references(() => aiModels.id),
   createdAt: timestamp("created_at").notNull().defaultNow(),

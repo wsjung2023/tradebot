@@ -39,6 +39,7 @@ export interface StockInfoResult {
   name: string;
   marketName: string;
   state: string;
+  raw?: Record<string, any>;
 }
 
 export interface StockSearchResult {
@@ -65,12 +66,23 @@ export class KiwoomMarket extends KiwoomBase {
       throw new Error(`시세조회 실패: ${d.return_msg} (code: ${d.return_code})`);
     }
 
+    // smbol: 1/2=상승(양수), 3/4=보합, 5/6=하락(음수)
+    const smbol = String(d.smbol || "3");
+    const isDown = smbol === "5" || smbol === "6";
+    const fluRt = parseFloat(String(d.flu_rt || "0").replace(/^-/, "")) || 0;
+    const signedRate = isDown ? -fluRt : fluRt;
+    // pred_rt 필드는 등락금액이 아님 → 현재가와 등락률로 전일대비 금액 계산
+    const curPrc = parseFloat(absStr(d.cur_prc) || "0");
+    const changeAmt = fluRt > 0
+      ? Math.round(curPrc - curPrc / (1 + signedRate / 100))
+      : 0;
+
     return {
       output: {
         stck_prpr: absStr(d.cur_prc),
-        prdy_vrss: absStr(d.pred_rt || "0"),
-        prdy_vrss_sign: d.smbol || "3",
-        prdy_ctrt: String(d.flu_rt || "0").replace(/^-/, ""),
+        prdy_vrss: String(changeAmt),      // 전일대비 금액 (부호 포함)
+        prdy_vrss_sign: smbol,
+        prdy_ctrt: String(signedRate),     // 등락률 (부호 포함)
         acml_vol: d.acc_trde_qty || d.trde_qty || "0",
         stck_oprc: absStr(d.open_pric),
         stck_hgpr: absStr(d.high_pric),
@@ -197,7 +209,8 @@ export class KiwoomMarket extends KiwoomBase {
     }
 
     await this.ensureValidToken();
-    const resp = await this.api.post<any>(STKINFO, { stk_cd: stockCode }, { headers: { "api-id": "ka10100" } });
+    // ka10001: 기본정보(per/pbr/roe/eps 포함) — 에이전트와 동일하게 ka10001 사용
+    const resp = await this.api.post<any>(STKINFO, { stk_cd: stockCode, dt: "", qry_tp: "1" }, { headers: { "api-id": "ka10001" } });
     const d = resp.data ?? {};
 
     const name = String(d.stk_nm ?? d.name ?? "").trim();
@@ -207,8 +220,9 @@ export class KiwoomMarket extends KiwoomBase {
 
     return {
       name,
-      marketName: String(d.mrkt_nm ?? d.market_name ?? ""),
-      state: String(d.stk_stat_nm ?? d.state ?? ""),
+      marketName: String(d.mrkt_cls_nm ?? d.mrkt_nm ?? d.market_name ?? ""),
+      state: String(d.mang_stk_cls_nm ?? d.stk_stat_nm ?? d.state ?? ""),
+      raw: d,
     };
   }
 

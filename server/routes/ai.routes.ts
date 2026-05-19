@@ -226,6 +226,8 @@ export function registerAiRoutes(app: Router) {
           eps: ratiosData.eps || '0',
           bps: ratiosData.bps || '0',
           roe: ratiosData.roe || '0',
+          debt_ratio: ratiosData.debt_ratio || '0',
+          reserve_ratio: ratiosData.reserve_ratio || '0',
         } : undefined,
         priceHistory: chartData,
         news: newsData,
@@ -294,12 +296,19 @@ export function registerAiRoutes(app: Router) {
   app.post("/api/ai/analyze-stock", isAuthenticated, async (req, res) => {
     try {
       const user = getCurrentUser(req);
-      const { stockCode, stockName, currentPrice } = req.body;
+      let { stockCode, stockName, currentPrice } = req.body;
+      if (!stockCode) return res.status(400).json({ error: "stockCode 필수" });
+      // currentPrice 미전달 시 서버에서 직접 조회
+      if (!currentPrice || !stockName) {
+        const priceData = await userKiwoomService.getPrice(user!.id, stockCode);
+        currentPrice = currentPrice ?? Number(priceData.currentPrice);
+        stockName = stockName ?? priceData.stockName;
+      }
       const settings = await storage.getUserSettings(user!.id);
       const model = settings?.aiModel || "gpt-5-mini";
       const scopedAccountId = req.body?.accountId ? Number(req.body.accountId) : (settings?.defaultAccountId ?? null);
       const analysis = await aiService.analyzeStock(
-        { stockCode, stockName, currentPrice },
+        { stockCode, stockName, currentPrice: Number(currentPrice) },
         model,
         {
           userId: user!.id,
@@ -450,8 +459,11 @@ export function registerAiRoutes(app: Router) {
   // AI 월 예산 설정 조회
   app.get("/api/ai/budget", isAuthenticated, async (req, res) => {
     try {
-      const budget = await storage.getSystemConfig("ai_budget_usd");
-      res.json({ budgetUsd: budget ? parseFloat(budget) : 0 });
+      const [budget, block] = await Promise.all([
+        storage.getSystemConfig("ai_budget_usd"),
+        storage.getSystemConfig("ai_budget_block"),
+      ]);
+      res.json({ budgetUsd: budget ? parseFloat(budget) : 0, blockOnExceed: block === 'true' });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -460,12 +472,17 @@ export function registerAiRoutes(app: Router) {
   // AI 월 예산 설정 저장
   app.post("/api/ai/budget", isAuthenticated, async (req, res) => {
     try {
-      const { budgetUsd } = req.body;
+      const { budgetUsd, blockOnExceed } = req.body;
       if (typeof budgetUsd !== "number" || budgetUsd < 0) {
         return res.status(400).json({ error: "Invalid budget value" });
       }
-      await storage.setSystemConfig("ai_budget_usd", String(budgetUsd));
-      res.json({ success: true, budgetUsd });
+      await Promise.all([
+        storage.setSystemConfig("ai_budget_usd", String(budgetUsd)),
+        typeof blockOnExceed === 'boolean'
+          ? storage.setSystemConfig("ai_budget_block", blockOnExceed ? 'true' : 'false')
+          : Promise.resolve(),
+      ]);
+      res.json({ success: true, budgetUsd, blockOnExceed: blockOnExceed ?? false });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }

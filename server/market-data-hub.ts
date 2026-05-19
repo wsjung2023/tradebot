@@ -2,7 +2,6 @@ import { WebSocket } from "ws";
 import { AgentTimeoutError } from "./services/agent-proxy.service";
 import { getUserKiwoomService } from "./services/user-kiwoom.service";
 import { isKoreanMarketOpen } from "./utils/market-hours";
-import { isAgentConnected } from "./routes/kiwoom-agent.routes";
 
 export interface MarketDataMessage {
   type: "subscribe" | "unsubscribe" | "price" | "orderbook" | "trade" | "ping" | "pong";
@@ -163,9 +162,6 @@ export class MarketDataHub {
     if (this.isUpdating) return;
     if (this.clients.size === 0) return;
     if (!isKoreanMarketOpen()) return;
-    // 에이전트 미연결 시 2초 시세 폴링 자체를 skip — getPrice/getOrderbook 모두 에이전트 경유
-    if (!isAgentConnected(30)) return;
-
     this.isUpdating = true;
     try {
       const demandByUser = new Map<string, Map<string, SymbolDemand>>();
@@ -261,8 +257,8 @@ export class MarketDataHub {
     const output = data?.output || data?.raw || data || {};
     return {
       currentPrice: parseFloat(absNumberString(data?.currentPrice ?? output.stck_prpr ?? output.cur_prc)),
-      change: parseFloat(absNumberString(data?.change ?? output.prdy_vrss ?? output.prc_diff)),
-      changeRate: parseFloat(absNumberString(data?.changeRate ?? output.prdy_ctrt ?? output.flu_rt)),
+      change: parseFloat(String(data?.change ?? output.prdy_vrss ?? output.prc_diff ?? "0").replace(/,/g, "") || "0"),
+      changeRate: parseFloat(String(data?.changeRate ?? output.prdy_ctrt ?? output.flu_rt ?? "0").replace(/,/g, "") || "0"),
       openPrice: parseFloat(absNumberString(data?.open ?? output.stck_oprc ?? output.open_pric ?? output.oppr)),
       highPrice: parseFloat(absNumberString(data?.high ?? output.stck_hgpr ?? output.high_pric ?? output.hgpr)),
       lowPrice: parseFloat(absNumberString(data?.low ?? output.stck_lwpr ?? output.low_pric ?? output.lwpr)),

@@ -13,7 +13,7 @@ import { getDartService } from './services/dart.service';
 import { AiModel, AutoTradingSettings } from '@shared/schema';
 import { getFeatureFlags } from './config/feature-flags';
 import { isKoreanMarketOpen } from './utils/market-hours';
-import { isAgentConnected, getAgentLastSeenSecondsAgo } from './routes/kiwoom-agent.routes';
+import { decrypt, isEncrypted } from './utils/crypto';
 
 const DART_DANGER_KEYWORDS = [
   '유상증자', '전환사채', '신주인수권부사채', '횡령', '배임', '관리종목', '상장폐지',
@@ -157,13 +157,6 @@ class AutoTradingWorker {
     if (!isKoreanMarketOpen()) return;
     if (this.isScanRunning) {
       console.log('[ScanJob] ⏭️  이전 스캔 사이클 실행 중 — 건너뜀');
-      return;
-    }
-    // 에이전트 미연결 시 스캔 자체를 skip — runCondition은 에이전트 경유 호출
-    if (!isAgentConnected(60)) {
-      const ago = getAgentLastSeenSecondsAgo();
-      const agoLabel = ago === null ? '한 번도 폴링 없음' : `마지막 폴링 ${ago}초 전`;
-      console.log(`[ScanJob] ⏭️  에이전트 미연결 — 사이클 스킵 (${agoLabel})`);
       return;
     }
     this.isScanRunning = true;
@@ -336,13 +329,6 @@ class AutoTradingWorker {
         console.log(`[AutoTrading][${cycleId}] 🕒 Outside market hours - skipping`);
         return;
       }
-      // 에이전트 미연결 시 매매 사이클 자체를 skip — 모든 시세/주문 호출이 에이전트 경유
-      if (!isAgentConnected(60)) {
-        const ago = getAgentLastSeenSecondsAgo();
-        const agoLabel = ago === null ? '한 번도 폴링 없음' : `마지막 폴링 ${ago}초 전`;
-        console.log(`[AutoTrading][${cycleId}] ⏭️  에이전트 미연결 — 사이클 스킵 (${agoLabel})`);
-        return;
-      }
       console.log(`[AutoTrading][${cycleId}] 🔄 Starting auto trading cycle...`);
       const activeModels = await storage.getActiveAiModels();
       if (activeModels.length === 0) {
@@ -451,23 +437,18 @@ class AutoTradingWorker {
         return;
       }
 
-      const acctNum = targetAccount.accountNumber.replace(/\D/g, '').slice(0, 8);
-      let appKey = process.env[`KIWOOM_KEY_${acctNum}`];
-      let appSecret = process.env[`KIWOOM_SECRET_${acctNum}`];
+      const safeDecrypt = (val: string | null | undefined) =>
+        val ? (isEncrypted(val) ? decrypt(val) : val) : null;
+      const appKey = safeDecrypt(targetAccount.kiwoomAppKey);
+      const appSecret = safeDecrypt(targetAccount.kiwoomAppSecret);
 
       if (!appKey || !appSecret) {
-        if (targetAccount.accountType !== 'real') {
-          appKey = process.env.KIWOOM_APP_KEY;
-          appSecret = process.env.KIWOOM_APP_SECRET;
-        }
-        if (!appKey || !appSecret) {
-          await this.setRunState(model.userId, 'paused', model.id, 'missing_kiwoom_credentials', undefined, {
-            cycleId,
-            durationMs: Date.now() - startedAt,
-          });
-          console.log(`⚠️  No env keys KIWOOM_KEY_${acctNum} / KIWOOM_SECRET_${acctNum} - skipping`);
-          return;
-        }
+        await this.setRunState(model.userId, 'paused', model.id, 'missing_kiwoom_credentials', undefined, {
+          cycleId,
+          durationMs: Date.now() - startedAt,
+        });
+        console.log(`⚠️  계좌 ${targetAccount.accountNumber} API 키 미등록 — 계좌 설정에서 API 키를 등록하세요`);
+        return;
       }
 
       const kiwoomService = new KiwoomService({

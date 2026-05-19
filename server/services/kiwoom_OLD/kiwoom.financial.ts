@@ -3,6 +3,7 @@
 // 주의: 키움 REST API는 KIS 방식의 별도 재무제표 엔드포인트를 제공하지 않음
 // 상세 재무제표(손익계산서, 대차대조표)는 REST API 미지원
 import { KiwoomBase, type FinancialStatementsResponse, type FinancialRatiosResponse } from "./kiwoom.base";
+import { getDartService } from "../dart.service";
 
 const STKINFO = "/api/dostk/stkinfo";
 
@@ -64,6 +65,14 @@ export class KiwoomFinancial extends KiwoomBase {
             total_aset: info.tot_aset || "0",
             total_lblt: info.tot_lblt || "0",
             cpfn: info.cap || "0",
+            // 재무비율 (ka10001에 포함됨)
+            per: info.per || info.PER || "0",
+            pbr: info.pbr || info.PBR || "0",
+            roe: info.roe || info.ROE || "0",
+            eps: info.eps || info.EPS || "0",
+            bps: info.bps || info.BPS || "0",
+            debt_ratio: info.debt_ratio || info.bor_rt || "0",
+            reserve_ratio: info.reserve_ratio || info.rsrv_rt || "0",
           },
         ],
       };
@@ -83,13 +92,31 @@ export class KiwoomFinancial extends KiwoomBase {
     await this.ensureValidToken();
 
     try {
-      const info = await this.getStockBasicInfo(stockCode);
+      const [info, dart] = await Promise.all([
+        this.getStockBasicInfo(stockCode),
+        getDartService().getFinancialStatements(stockCode).catch(() => ({} as Record<string, string>)),
+      ]);
+
+      let debt_ratio = "0";
+      let reserve_ratio = "0";
+      if (dart.totalAssets && dart.totalDebt) {
+        const assets = Number(dart.totalAssets);
+        const debt = Number(dart.totalDebt);
+        const equity = assets - debt;
+        if (equity > 0) debt_ratio = ((debt / equity) * 100).toFixed(2);
+      }
+      if (dart.retainedEarnings && dart.capital) {
+        const retained = Number(dart.retainedEarnings);
+        const capital = Number(dart.capital);
+        if (capital > 0) reserve_ratio = ((retained / capital) * 100).toFixed(2);
+      }
+
       return {
         output: {
           roe: info.roe || "0",
           roa: "0",
-          debt_ratio: info.debt_ratio || "0",
-          reserve_ratio: info.reserve_ratio || "0",
+          debt_ratio,
+          reserve_ratio,
           eps: info.eps || "0",
           per: info.per || "0",
           bps: info.bps || "0",

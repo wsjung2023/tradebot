@@ -1,4 +1,4 @@
-﻿@echo off
+@echo off
 chcp 65001 >nul
 echo TradeBot 전체 재시작 중...
 
@@ -10,7 +10,6 @@ for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":5000 " ^| findstr "LISTENIN
 
 echo [2] 스케줄러 태스크 종료...
 schtasks /End /TN "TradeBot-Server" >nul 2>&1
-schtasks /End /TN "TradeBot-Agent" >nul 2>&1
 schtasks /End /TN "TradeBot-Caddy" >nul 2>&1
 timeout /t 3 /nobreak >nul
 
@@ -24,14 +23,7 @@ if errorlevel 1 (
 
 timeout /t 30 /nobreak >nul
 
-echo [4] 에이전트 + Caddy 시작...
-schtasks /Run /TN "TradeBot-Agent"
-if errorlevel 1 (
-  echo [오류] TradeBot-Agent 시작 실패.
-) else (
-  echo [OK] TradeBot-Agent 시작
-)
-
+echo [4] Caddy 시작...
 schtasks /Run /TN "TradeBot-Caddy"
 if errorlevel 1 (
   echo [오류] TradeBot-Caddy 시작 실패.

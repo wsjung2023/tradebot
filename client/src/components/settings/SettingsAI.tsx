@@ -1,9 +1,16 @@
-﻿// SettingsAI.tsx — AI 분석 모델 선택 설정 카드 (GPT 모델 선택)
+// SettingsAI.tsx — AI 분석 모델 선택 + 월 예산 설정 카드
+import { useState } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Brain } from "lucide-react";
+import { Brain, DollarSign } from "lucide-react";
 
 interface Props {
   aiModel?: string;
@@ -12,13 +19,50 @@ interface Props {
 }
 
 export function SettingsAI({ aiModel, isPending, onModelChange }: Props) {
+  const { toast } = useToast();
+
+  const { data: budgetData } = useQuery<{ budgetUsd: number; blockOnExceed: boolean }>({
+    queryKey: ["/api/ai/budget"],
+    queryFn: () => apiRequest("GET", "/api/ai/budget").then(r => r.json()),
+  });
+
+  const [budgetInput, setBudgetInput] = useState("");
+  const [blockOnExceed, setBlockOnExceed] = useState(false);
+
+  // budgetData 로드 후 로컬 상태 동기화
+  const budgetUsd = budgetData?.budgetUsd ?? 0;
+  const budgetBlock = budgetData?.blockOnExceed ?? false;
+
+  const saveBudgetMutation = useMutation({
+    mutationFn: async (data: { budgetUsd: number; blockOnExceed: boolean }) =>
+      (await apiRequest("POST", "/api/ai/budget", data)).json(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/ai/budget"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/ai/usage-daily"] });
+      toast({ title: "예산 설정 저장됨" });
+    },
+    onError: (e: any) => toast({ variant: "destructive", title: "저장 실패", description: e.message }),
+  });
+
+  const handleSaveBudget = () => {
+    const val = parseFloat(budgetInput || String(budgetUsd));
+    if (isNaN(val) || val < 0) {
+      toast({ variant: "destructive", title: "유효하지 않은 금액" });
+      return;
+    }
+    saveBudgetMutation.mutate({ budgetUsd: val, blockOnExceed });
+  };
+
+  const effectiveBlock = budgetData ? budgetBlock : blockOnExceed;
+
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2"><Brain className="h-5 w-5" />AI 모델 설정</CardTitle>
         <CardDescription>AI 분석에 사용할 OpenAI 모델을 선택하세요</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-6">
+        {/* 모델 선택 */}
         <div className="space-y-2">
           <Label htmlFor="ai-model">AI 모델</Label>
           <Select value={aiModel || "gpt-5-mini"} onValueChange={onModelChange} disabled={isPending}>
@@ -61,6 +105,56 @@ export function SettingsAI({ aiModel, isPending, onModelChange }: Props) {
           <p>✦ <strong>GPT-5.1 Chat (Latest)</strong>: 대화형 응답 최적화, 빠른 인터랙션/요약 분석 (입력 $1.25 / 출력 $10.00)</p>
           <p>✦ <strong>GPT-4.1</strong>: 멀티모달 지원, 텍스트/PDF/이미지 분석 필요시 사용 (입력 $2.00 / 출력 $8.00)</p>
           <p>✦ <strong>GPT-4o</strong>: 범용형 모델, 레거시 채널 호환 (입력 $2.50 / 출력 $10.00)</p>
+        </div>
+
+        {/* 월 예산 설정 */}
+        <div className="border-t pt-4 space-y-4">
+          <div className="flex items-center gap-2">
+            <DollarSign className="h-4 w-4 text-muted-foreground" />
+            <span className="font-medium text-sm">월 AI 사용 예산</span>
+            {budgetUsd > 0 && (
+              <Badge variant="outline" className="text-xs">현재 ${budgetUsd.toFixed(2)}</Badge>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <Input
+              type="number"
+              min="0"
+              step="0.5"
+              placeholder={budgetUsd > 0 ? String(budgetUsd) : "예: 5.00"}
+              value={budgetInput}
+              onChange={e => setBudgetInput(e.target.value)}
+              className="w-36"
+            />
+            <span className="flex items-center text-sm text-muted-foreground">USD / 월</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <Switch
+              id="block-on-exceed"
+              checked={budgetData ? budgetBlock : blockOnExceed}
+              onCheckedChange={v => {
+                setBlockOnExceed(v);
+                if (budgetData) {
+                  saveBudgetMutation.mutate({ budgetUsd: budgetUsd, blockOnExceed: v });
+                }
+              }}
+            />
+            <Label htmlFor="block-on-exceed" className="text-sm">
+              예산 초과 시 AI 호출 차단
+            </Label>
+          </div>
+          {effectiveBlock && (
+            <p className="text-xs text-amber-600">
+              ⚠ 예산 초과 시 자동매매 AI 판단이 중단됩니다. 당일 매수/추가매수가 실행되지 않을 수 있습니다.
+            </p>
+          )}
+          <Button
+            size="sm"
+            onClick={handleSaveBudget}
+            disabled={saveBudgetMutation.isPending || !budgetInput}
+          >
+            예산 저장
+          </Button>
         </div>
       </CardContent>
     </Card>

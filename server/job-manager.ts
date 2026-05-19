@@ -3,8 +3,6 @@
 import { autoTradingWorker } from './auto-trading-worker';
 import { storage } from './storage';
 import { balanceRefreshService } from './services/balance-refresh.service';
-import { startAgentDisconnectWatcher, stopAgentDisconnectWatcher, setAgentWatcherIntervalSeconds, getAgentWatcherIntervalSeconds, runAgentWatcherCheck } from './jobs/agent-disconnect-watcher';
-import { agentQueueCleanupService } from './services/agent-queue-cleanup.service';
 
 export interface JobInfo {
   id: string;
@@ -12,9 +10,8 @@ export interface JobInfo {
   description: string;
   status: 'running' | 'stopped';
   scheduleLabel: string;
-  intervalType: 'minutes' | 'time-of-day' | 'seconds';
+  intervalType: 'minutes' | 'time-of-day';
   intervalMinutes: number;
-  intervalSeconds: number;      // agent-watcher 전용
   scheduleTime: string;         // learning 전용 "HH:MM"
   lastRun: Date | null;
   nextRun: Date | null;
@@ -40,7 +37,6 @@ const DB_INTERVAL_KEY = (id: string) => `job_interval_${id}`;
 // 런타임 통계 (재시작 시 초기화 — 상태/인터벌 저장은 DB로만)
 interface JobStats {
   intervalMinutes: number;
-  intervalSeconds: number;  // agent-watcher 전용
   scheduleTime: string;     // learning "HH:MM"
   lastRun: Date | null;
   runCount: number;
@@ -64,18 +60,13 @@ function isValidTime(time: string): boolean {
 
 class JobManager {
   private stats: Map<string, JobStats> = new Map([
-    ['scan',                 { intervalMinutes: 30,   intervalSeconds: 60,  scheduleTime: '', lastRun: null, runCount: 0, errorCount: 0, lastError: null }],
-    ['auto-trading',         { intervalMinutes: 1,    intervalSeconds: 60,  scheduleTime: '', lastRun: null, runCount: 0, errorCount: 0, lastError: null }],
-    ['learning',             { intervalMinutes: 1440, intervalSeconds: 60,  scheduleTime: '16:00', lastRun: null, runCount: 0, errorCount: 0, lastError: null }],
-    ['balance-refresh',      { intervalMinutes: 5,    intervalSeconds: 60,  scheduleTime: '', lastRun: null, runCount: 0, errorCount: 0, lastError: null }],
-    ['agent-queue-cleanup',  { intervalMinutes: 5,    intervalSeconds: 60,  scheduleTime: '', lastRun: null, runCount: 0, errorCount: 0, lastError: null }],
-    ['agent-watcher',        { intervalMinutes: 1,    intervalSeconds: 60,  scheduleTime: '', lastRun: null, runCount: 0, errorCount: 0, lastError: null }],
+    ['scan',            { intervalMinutes: 30,   scheduleTime: '', lastRun: null, runCount: 0, errorCount: 0, lastError: null }],
+    ['auto-trading',    { intervalMinutes: 1,    scheduleTime: '', lastRun: null, runCount: 0, errorCount: 0, lastError: null }],
+    ['learning',        { intervalMinutes: 1440, scheduleTime: '16:00', lastRun: null, runCount: 0, errorCount: 0, lastError: null }],
+    ['balance-refresh', { intervalMinutes: 5,    scheduleTime: '', lastRun: null, runCount: 0, errorCount: 0, lastError: null }],
   ]);
 
-  // setInterval 기반 서비스는 별도 플래그로 실행 여부 추적
-  private agentWatcherRunning = false;
   private balanceRefreshRunning = false;
-  private agentQueueCleanupRunning = false;
 
   private minutesToCron(minutes: number): string {
     if (minutes < 60) return `*/${minutes} * * * *`;
@@ -85,10 +76,6 @@ class JobManager {
   }
 
   private intervalLabel(id: string, state: JobStats): string {
-    if (id === 'agent-watcher') {
-      const s = state.intervalSeconds;
-      return s < 60 ? `${s}초마다` : s === 60 ? '1분마다' : `${s}초마다`;
-    }
     if (id === 'learning') return `매일 ${state.scheduleTime || '16:00'}`;
     const m = state.intervalMinutes;
     if (m < 60) return `${m}분마다`;
@@ -100,16 +87,14 @@ class JobManager {
   async initialize(): Promise<void> {
     console.log('[JobManager] 초기화 — DB에서 잡 상태/인터벌 로드 중...');
 
-    const ids = ['scan', 'auto-trading', 'learning', 'balance-refresh', 'agent-queue-cleanup', 'agent-watcher'];
+    const ids = ['scan', 'auto-trading', 'learning', 'balance-refresh'];
     for (const id of ids) {
       const state = this.stats.get(id)!;
 
       // 인터벌 로드
       const savedInterval = await storage.getSystemConfig(DB_INTERVAL_KEY(id));
       if (savedInterval) {
-        if (id === 'agent-watcher') {
-          state.intervalSeconds = parseInt(savedInterval) || 60;
-        } else if (id === 'learning') {
+        if (id === 'learning') {
           state.scheduleTime = savedInterval || '16:00';
         } else {
           state.intervalMinutes = parseInt(savedInterval) || state.intervalMinutes;
@@ -145,13 +130,19 @@ class JobManager {
         if (!settings) await autoTradingWorker.createDefaultSettingsForModel(model.id);
         const userSettings = await storage.getUserSettings(model.userId);
         if (userSettings) await storage.updateUserSettings(model.userId, { autoTradingEnabled: true });
-        else await storage.createUserSettings({
-          userId: model.userId,
-          tradingMode: 'mock',
-          riskLevel: 'medium',
-          aiModel: 'gpt-5-mini',
-          autoTradingEnabled: true,
-        });
+        else {
+          try {
+            await storage.createUserSettings({
+              userId: model.userId,
+              tradingMode: 'mock',
+              riskLevel: 'medium',
+              aiModel: 'gpt-5-mini',
+              autoTradingEnabled: true,
+            });
+          } catch (e: any) {
+            console.warn(`[JobManager] user_settings 생성 스킵 (${model.userId}):`, e.message?.slice(0, 60));
+          }
+        }
       }
       const schedule = this.minutesToCron(state.intervalMinutes);
       autoTradingWorker.startTradingJob(schedule);
@@ -166,19 +157,6 @@ class JobManager {
       this.balanceRefreshRunning = true;
       // 시작 시 즉시 한 번 실행 (비동기)
       balanceRefreshService.refreshAllRealAccounts().catch(e => console.error('[JobManager] Initial balance refresh failed:', e));
-
-    } else if (id === 'agent-queue-cleanup') {
-      agentQueueCleanupService.onRun = () => this.recordRun('agent-queue-cleanup');
-      agentQueueCleanupService.start(state.intervalMinutes);
-      this.agentQueueCleanupRunning = true;
-      // 시작 시 즉시 한 번 실행 (비동기)
-      agentQueueCleanupService.runNow().catch(e => console.error('[JobManager] Initial queue cleanup failed:', e));
-
-    } else if (id === 'agent-watcher') {
-      startAgentDisconnectWatcher(state.intervalSeconds, () => this.recordRun('agent-watcher'));
-      this.agentWatcherRunning = true;
-      // 시작 시 즉시 한 번 실행 (비동기)
-      runAgentWatcherCheck().catch(e => console.error('[JobManager] Initial agent watcher check failed:', e));
     }
 
     if (persistState) {
@@ -205,14 +183,6 @@ class JobManager {
     } else if (id === 'balance-refresh') {
       balanceRefreshService.stop();
       this.balanceRefreshRunning = false;
-
-    } else if (id === 'agent-queue-cleanup') {
-      agentQueueCleanupService.stop();
-      this.agentQueueCleanupRunning = false;
-
-    } else if (id === 'agent-watcher') {
-      stopAgentDisconnectWatcher();
-      this.agentWatcherRunning = false;
     }
 
     if (persistState) {
@@ -225,25 +195,20 @@ class JobManager {
     if (id === 'auto-trading') return autoTradingWorker.isTradingJobRunning();
     if (id === 'learning') return autoTradingWorker.isLearningJobRunning();
     if (id === 'balance-refresh') return this.balanceRefreshRunning;
-    if (id === 'agent-queue-cleanup') return this.agentQueueCleanupRunning;
-    if (id === 'agent-watcher') return this.agentWatcherRunning;
     return false;
   }
 
-  private intervalTypeOf(id: string): 'minutes' | 'time-of-day' | 'seconds' {
+  private intervalTypeOf(id: string): 'minutes' | 'time-of-day' {
     if (id === 'learning') return 'time-of-day';
-    if (id === 'agent-watcher') return 'seconds';
     return 'minutes';
   }
 
   getJobs(): JobInfo[] {
     const defs = [
-      { id: 'scan',            name: '스캔 잡',      description: '뒷차기2 조건검색으로 후보 종목 스캔 → candidate_stocks 갱신. 장중에만 실행.' },
-      { id: 'auto-trading',    name: '매매 잡',      description: '장중 AI 모델 기반 자동 주문 실행. 활성 모델 없으면 아무것도 안 함.' },
-      { id: 'learning',        name: '학습 잡',      description: '거래 성과 분석으로 AI 파라미터 자동 최적화 (자동 적용은 50건 이상 필요).' },
-      { id: 'balance-refresh',     name: '잔고 자동갱신',    description: '장중(KST 08:30~18:00, 월~금) 실계좌 잔고 갱신.' },
-      { id: 'agent-queue-cleanup', name: '에이전트 잡 정리', description: 'kiwoom_agent_jobs 테이블에서 만료된 잡을 주기적으로 삭제.' },
-      { id: 'agent-watcher',       name: '에이전트 감시',    description: '집 PC 에이전트 연결 상태 감시. 끊기면 알림 발송.' },
+      { id: 'scan',           name: '스캔 잡',    description: '뒷차기2 조건검색으로 후보 종목 스캔 → candidate_stocks 갱신. 장중에만 실행.' },
+      { id: 'auto-trading',   name: '매매 잡',    description: '장중 AI 모델 기반 자동 주문 실행. 활성 모델 없으면 아무것도 안 함.' },
+      { id: 'learning',       name: '학습 잡',    description: '거래 성과 분석으로 AI 파라미터 자동 최적화 (자동 적용은 50건 이상 필요).' },
+      { id: 'balance-refresh', name: '잔고 자동갱신', description: '장중(KST 08:30~18:00, 월~금) 실계좌 잔고 갱신.' },
     ];
 
     return defs.map(({ id, name, description }) => {
@@ -257,7 +222,6 @@ class JobManager {
         scheduleLabel: this.intervalLabel(id, state),
         intervalType: this.intervalTypeOf(id),
         intervalMinutes: state.intervalMinutes,
-        intervalSeconds: id === 'agent-watcher' ? getAgentWatcherIntervalSeconds() : state.intervalSeconds,
         scheduleTime: state.scheduleTime || '16:00',
         lastRun: state.lastRun,
         nextRun: running && state.lastRun
@@ -307,7 +271,6 @@ class JobManager {
   /** 인터벌 변경. DB에 영속화, 실행 중이면 즉시 재적용. */
   async updateInterval(id: string, opts: {
     intervalMinutes?: number;
-    intervalSeconds?: number;
     scheduleTime?: string;
   }): Promise<{ success: boolean; message: string }> {
     const state = this.stats.get(id);
@@ -324,15 +287,6 @@ class JobManager {
       return { success: true, message: `학습 잡 실행 시각 → 매일 ${t}` };
     }
 
-    if (id === 'agent-watcher') {
-      const s = opts.intervalSeconds;
-      if (!s || s < 10 || s > 3600) return { success: false, message: '초 단위는 10~3600 사이여야 합니다.' };
-      state.intervalSeconds = s;
-      await storage.setSystemConfig(DB_INTERVAL_KEY(id), String(s));
-      setAgentWatcherIntervalSeconds(s);
-      return { success: true, message: `에이전트 감시 주기 → ${s}초마다` };
-    }
-
     // 분 단위 잡
     const m = opts.intervalMinutes;
     if (!m || m < 1 || m > 10080) return { success: false, message: '주기는 1분 ~ 7일(10080분) 사이여야 합니다.' };
@@ -343,7 +297,6 @@ class JobManager {
     if (id === 'scan' && autoTradingWorker.isScanJobRunning()) autoTradingWorker.startScanJob(schedule);
     else if (id === 'auto-trading' && autoTradingWorker.isTradingJobRunning()) autoTradingWorker.startTradingJob(schedule);
     else if (id === 'balance-refresh' && this.balanceRefreshRunning) balanceRefreshService.setIntervalMinutes(m);
-    else if (id === 'agent-queue-cleanup' && this.agentQueueCleanupRunning) agentQueueCleanupService.setIntervalMinutes(m);
 
     return { success: true, message: `[${id}] 주기 → ${this.intervalLabel(id, state)}` };
   }
@@ -371,7 +324,6 @@ class JobManager {
       if (id === 'auto-trading') { await autoTradingWorker.runTradingNow(); return { success: true, message: '매매 사이클 즉시 실행.' }; }
       if (id === 'learning') { await autoTradingWorker.runLearningNow(); return { success: true, message: '학습 사이클 즉시 실행.' }; }
       if (id === 'balance-refresh') { await balanceRefreshService.refreshAllRealAccounts(); return { success: true, message: '잔고 갱신 즉시 실행.' }; }
-      if (id === 'agent-queue-cleanup') { await agentQueueCleanupService.runNow(); return { success: true, message: '에이전트 잡 정리 즉시 실행.' }; }
       return { success: false, message: `[${id}]는 즉시 실행을 지원하지 않습니다.` };
     } catch (err: any) {
       state.errorCount++;

@@ -1,5 +1,5 @@
 // kiwoom.base.ts — 키움증권 API 공통 기반 클래스 (인증, axios 인스턴스, 공유 타입)
-// 토큰을 파일에 캐싱하여 서버 재시작 시에도 재사용 (rate limit 방지)
+// Agent-less: 서버가 직접 토큰 발급/갱신 (kiwoom-agent.py 의존 없음)
 import axios, { AxiosInstance } from "axios";
 import fs from "fs";
 import path from "path";
@@ -163,24 +163,18 @@ export class KiwoomBase {
         console.log("♻️  Kiwoom 토큰 캐시에서 복원 (유효기간:", new Date(cached.expiry).toLocaleTimeString(), ")");
       }
 
-      // 5분마다 에이전트 캐시 polling → 토큰 자동 동기화
-      setInterval(() => {
+      // 10분마다 만료 체크 → 만료 1시간 전 자동 갱신 (agent 없이 서버 자체 관리)
+      setInterval(async () => {
         try {
-          const agentCachePath = path.resolve(process.cwd(), "agent/token_cache.json");
-          if (!fs.existsSync(agentCachePath)) return;
-          const agentCache = JSON.parse(fs.readFileSync(agentCachePath, "utf-8"));
-          const accountType = this.baseURL === KIWOOM_REAL_BASE ? "real" : "mock";
-          const agentToken = agentCache?.tokens?.[accountType];
-          const agentExpiry = agentCache?.token_expires?.[accountType];
-          if (agentToken && agentExpiry && agentExpiry * 1000 > Date.now() + 60000) {
-            if (agentToken !== this.accessToken) {
-              this.accessToken = agentToken;
-              this.tokenExpiry = agentExpiry * 1000;
-              console.log(`🔄 토큰 자동 동기화 (유효기간: ${new Date(this.tokenExpiry).toLocaleTimeString()})`);
-            }
+          const oneHour = 60 * 60 * 1000;
+          if (this.accessToken && this.tokenExpiry - Date.now() < oneHour) {
+            console.log(`[KiwoomBase] 토큰 만료 1시간 이내 — 자동 갱신 시작`);
+            await this.authenticate();
           }
-        } catch {}
-      }, 5 * 60 * 1000);
+        } catch (e) {
+          console.warn("[KiwoomBase] 토큰 자동 갱신 실패:", (e as any)?.message);
+        }
+      }, 10 * 60 * 1000);
     }
 
     this.api = axios.create({
@@ -200,21 +194,58 @@ export class KiwoomBase {
 
     // 401 응답 시 토큰 강제 리셋 후 1회 재시도
     this.api.interceptors.response.use(
-      (res) => res,
+      async (res) => {
+        const d = res.data;
+        const msg = String(d?.return_msg || d?.msg1 || d?.error || "");
+        const code = String(d?.return_code || d?.msg_cd || "");
+        const isAuthError = msg.includes("8005") || msg.includes("Token이 유효하지 않습니다") || msg.includes("인증에 실패했습니다") || code === "8005";
+
+        if (isAuthError && !res.config?._retried) {
+          console.warn("⚠️  Kiwoom 인증 오류(본문 에러) 감지 — 토큰 강제 갱신 후 재시도");
+          this.accessToken = "";
+          this.tokenExpiry = 0;
+          try {
+            await this.ensureValidToken();
+            res.config._retried = true;
+            if (this.accessToken) {
+              res.config.headers.Authorization = `Bearer ${this.accessToken}`;
+            }
+            return this.api.request(res.config);
+          } catch (e) {
+            console.error("❌ 토큰 갱신 후 재시도 실패:", e);
+          }
+        }
+        return res;
+      },
       async (error) => {
         const status = error?.response?.status;
-        if (status === 401 && !error.config?._retried) {
-          console.warn("⚠️  Kiwoom 401 — 토큰 강제 갱신 후 재시도");
+        const responseData = error?.response?.data;
+        const errMsg = typeof responseData?.error === "string" ? responseData.error : error?.message || "";
+        const isAuthError = status === 401 || errMsg.includes("8005") || errMsg.includes("Token이 유효하지 않습니다") || errMsg.includes("인증에 실패했습니다");
+
+        if (isAuthError && !error.config?._retried) {
+          console.warn("⚠️  Kiwoom 401/인증 오류 감지 — 토큰 강제 갱신 후 재시도");
           this.accessToken = "";
           this.tokenExpiry = 0;
           try {
             await this.ensureValidToken();
             error.config._retried = true;
-            error.config.headers.Authorization = `Bearer ${this.accessToken}`;
+            if (this.accessToken) {
+              error.config.headers.Authorization = `Bearer ${this.accessToken}`;
+            }
             return this.api.request(error.config);
           } catch (e) {
             console.error("❌ 토큰 갱신 후 재시도 실패:", e);
           }
+        }
+        // 429 rate limit 시 최대 3회 재시도 (1초, 2초, 4초 대기)
+        if (status === 429 && (error.config?._retryCount ?? 0) < 3) {
+          const retryCount = (error.config._retryCount ?? 0) + 1;
+          const waitMs = retryCount * 1000;
+          console.warn(`⚠️  Kiwoom 429 — ${waitMs}ms 후 재시도 (${retryCount}/3)`);
+          await new Promise(r => setTimeout(r, waitMs));
+          error.config._retryCount = retryCount;
+          return this.api.request(error.config);
         }
         return Promise.reject(error);
       }
@@ -223,26 +254,6 @@ export class KiwoomBase {
 
   protected async ensureValidToken(): Promise<void> {
     if (this.accessToken && Date.now() < this.tokenExpiry) return;
-
-    // 에이전트 캐시에서 먼저 시도 (agent/token_cache.json)
-    try {
-      const agentCachePath = path.resolve(process.cwd(), "agent/token_cache.json");
-      if (fs.existsSync(agentCachePath)) {
-        const agentCache = JSON.parse(fs.readFileSync(agentCachePath, "utf-8"));
-        const accountType = this.baseURL === KIWOOM_REAL_BASE ? "real" : "mock";
-        const agentToken = agentCache?.tokens?.[accountType];
-        const agentExpiry = agentCache?.token_expires?.[accountType];
-        if (agentToken && agentExpiry && agentExpiry * 1000 > Date.now() + 60000) {
-          this.accessToken = agentToken;
-          this.tokenExpiry = agentExpiry * 1000;
-          console.log(`♻️  에이전트 캐시에서 토큰 갱신 (유효기간: ${new Date(this.tokenExpiry).toLocaleTimeString()})`);
-          return;
-        }
-      }
-    } catch (e) {
-      console.warn("⚠️  에이전트 캐시 읽기 실패:", e);
-    }
-
     await this.authenticate();
   }
 
