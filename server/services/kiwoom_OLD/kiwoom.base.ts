@@ -194,17 +194,45 @@ export class KiwoomBase {
 
     // 401 응답 시 토큰 강제 리셋 후 1회 재시도
     this.api.interceptors.response.use(
-      (res) => res,
+      async (res) => {
+        const d = res.data;
+        const msg = String(d?.return_msg || d?.msg1 || d?.error || "");
+        const code = String(d?.return_code || d?.msg_cd || "");
+        const isAuthError = msg.includes("8005") || msg.includes("Token이 유효하지 않습니다") || msg.includes("인증에 실패했습니다") || code === "8005";
+
+        if (isAuthError && !res.config?._retried) {
+          console.warn("⚠️  Kiwoom 인증 오류(본문 에러) 감지 — 토큰 강제 갱신 후 재시도");
+          this.accessToken = "";
+          this.tokenExpiry = 0;
+          try {
+            await this.ensureValidToken();
+            res.config._retried = true;
+            if (this.accessToken) {
+              res.config.headers.Authorization = `Bearer ${this.accessToken}`;
+            }
+            return this.api.request(res.config);
+          } catch (e) {
+            console.error("❌ 토큰 갱신 후 재시도 실패:", e);
+          }
+        }
+        return res;
+      },
       async (error) => {
         const status = error?.response?.status;
-        if (status === 401 && !error.config?._retried) {
-          console.warn("⚠️  Kiwoom 401 — 토큰 강제 갱신 후 재시도");
+        const responseData = error?.response?.data;
+        const errMsg = typeof responseData?.error === "string" ? responseData.error : error?.message || "";
+        const isAuthError = status === 401 || errMsg.includes("8005") || errMsg.includes("Token이 유효하지 않습니다") || errMsg.includes("인증에 실패했습니다");
+
+        if (isAuthError && !error.config?._retried) {
+          console.warn("⚠️  Kiwoom 401/인증 오류 감지 — 토큰 강제 갱신 후 재시도");
           this.accessToken = "";
           this.tokenExpiry = 0;
           try {
             await this.ensureValidToken();
             error.config._retried = true;
-            error.config.headers.Authorization = `Bearer ${this.accessToken}`;
+            if (this.accessToken) {
+              error.config.headers.Authorization = `Bearer ${this.accessToken}`;
+            }
             return this.api.request(error.config);
           } catch (e) {
             console.error("❌ 토큰 갱신 후 재시도 실패:", e);
