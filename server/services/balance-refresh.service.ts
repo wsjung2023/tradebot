@@ -3,6 +3,7 @@
 import * as cron from 'node-cron';
 import { storage } from '../storage';
 import { parseHoldingItem } from '../utils/balance-parser';
+import { evaluateHoldingSyncGuard } from '../utils/holding-sync-guard';
 import { getUserKiwoomService } from './user-kiwoom.service';
 
 /**
@@ -123,7 +124,8 @@ export class BalanceRefreshService {
     };
 
     const stockEvalAmount = parseNum(output1.tot_evlu_amt, output1.evlu_amt_smtl_amt);
-    const depositRaw = parseNum(output1.prsm_dpst_aset_amt, output1.dnca_tot_amt);
+    const estimatedTotalAssets = parseNum(output1.prsm_dpst_aset_amt);
+    const depositAmount = parseNum(output1.dnca_tot_amt);
 
     // Full replace sync: remove stale holdings first, then insert current snapshot.
     const parsedHoldings: Array<{ stockCode: string; updates: ReturnType<typeof parseHoldingItem> }> = [];
@@ -134,15 +136,31 @@ export class BalanceRefreshService {
     }
 
     const existingHoldings = await storage.getHoldings(accountId);
-    const preserveExisting = parsedHoldings.length === 0 && existingHoldings.length > 0;
-    if (preserveExisting) {
-      console.error(`[BalanceRefresh] suspicious empty holdings snapshot for account ${accountId} (${accountNumber}) - preserving existing ${existingHoldings.length} holdings`);
+    const guard = evaluateHoldingSyncGuard({
+      parsedHoldings: parsedHoldings.map((h) => h.updates),
+      existingHoldingsCount: existingHoldings.length,
+      expectedStockEvalAmount: stockEvalAmount,
+    });
+    if (guard.preserveExisting) {
+      console.error(
+        `[BalanceRefresh] suspicious holdings snapshot for account ${accountId} (${accountNumber}) ` +
+        `reason=${guard.reason} parsed=${guard.parsedCount} existing=${guard.existingCount} coverage=${guard.evalCoverage.toFixed(3)}`
+      );
       storage.createEngineNotification({
         userId,
         severity: 'warn',
         type: 'SYNC',
-        message: `[BalanceRefreshGuard] account ${accountNumber} returned 0 holdings - preserving existing ${existingHoldings.length}`,
-        payload: { accountId, accountNumber, accountType, existingHoldingsCount: existingHoldings.length },
+        message: `[BalanceRefreshGuard] account ${accountNumber} holdings snapshot flagged (${guard.reason}) - preserving existing ${existingHoldings.length}`,
+        payload: {
+          accountId,
+          accountNumber,
+          accountType,
+          existingHoldingsCount: existingHoldings.length,
+          parsedHoldingsCount: guard.parsedCount,
+          evalCoverage: guard.evalCoverage,
+          parsedEvalAmount: guard.parsedEvalAmount,
+          expectedStockEvalAmount: guard.expectedStockEvalAmount,
+        },
       }).catch(() => {});
     } else {
       await storage.deleteHoldingsByAccount(accountId);
@@ -152,12 +170,7 @@ export class BalanceRefreshService {
       }
     }
 
-    let totalAssetsWithDeposit = stockEvalAmount + depositRaw;
-    let depositAmount = depositRaw;
-    if (stockEvalAmount > 0 && depositRaw > 0 && depositRaw >= stockEvalAmount) {
-      totalAssetsWithDeposit = depositRaw;
-      depositAmount = Math.max(0, depositRaw - stockEvalAmount);
-    }
+    const totalAssetsWithDeposit = estimatedTotalAssets || (stockEvalAmount + depositAmount);
     const todayProfit = parseNum(output1.evlu_pfls_smtl_amt, output1.tot_evlu_pfls);
     const todayProfitRate = totalAssetsWithDeposit > 0 ? (todayProfit / totalAssetsWithDeposit) * 100 : 0;
 

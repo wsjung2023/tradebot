@@ -10,6 +10,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Briefcase, TrendingUp, TrendingDown, Wallet, BarChart3, Hash, Loader2, AlertCircle } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
@@ -26,6 +27,14 @@ interface PortfolioHolding {
   updatedAt: string;
   accountName: string | null;
   accountNumber: string;
+}
+
+interface PortfolioAccount {
+  id: number;
+  accountNumber: string;
+  accountType: "mock" | "real";
+  accountName?: string;
+  lastTotalAssets?: string | null;
 }
 
 function num(val: string | null | undefined): number {
@@ -51,6 +60,7 @@ function maskAccount(accountNumber: string): string {
 
 export default function Portfolio() {
   const [selectedAccount, setSelectedAccount] = useState<string>("all");
+  const { data: accountsData = [] } = useQuery<PortfolioAccount[]>({ queryKey: ["/api/accounts"] });
 
   const { data, isLoading, isError } = useQuery<{ holdings: PortfolioHolding[] }>({
     queryKey: ["/api/portfolio/holdings"],
@@ -78,6 +88,12 @@ export default function Portfolio() {
     return holdings.filter((h) => String(h.accountId) === selectedAccount);
   }, [holdings, selectedAccount]);
 
+  const selectedAccountLabel = useMemo(() => {
+    if (selectedAccount === "all") return "전체";
+    const selected = accounts.find((acc) => String(acc.id) === selectedAccount);
+    return selected?.name || "선택 계좌";
+  }, [accounts, selectedAccount]);
+
   const summary = useMemo(() => {
     let totalInvested = 0;
     let totalEval = 0;
@@ -93,6 +109,20 @@ export default function Portfolio() {
     const pnlRate = totalInvested > 0 ? (totalPnL / totalInvested) * 100 : 0;
     return { totalInvested, totalEval, totalPnL, pnlRate, count: filtered.length };
   }, [filtered]);
+
+  const estimatedTotals = useMemo(() => {
+    const targetAccountIds =
+      selectedAccount === "all"
+        ? Array.from(new Set(filtered.map((h) => h.accountId)))
+        : [Number(selectedAccount)];
+
+    const totalAssets = targetAccountIds.reduce((sum, accountId) => {
+      const account = accountsData.find((a) => a.id === accountId);
+      return sum + num(account?.lastTotalAssets || "0");
+    }, 0);
+    const cash = Math.max(0, totalAssets - summary.totalEval);
+    return { totalAssets, cash };
+  }, [accountsData, filtered, selectedAccount, summary.totalEval]);
 
   return (
     <div className="p-3 md:p-6 space-y-4 md:space-y-6">
@@ -165,6 +195,38 @@ export default function Portfolio() {
             {acc.name}
           </Button>
         ))}
+      </div>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <Card data-testid="card-estimated-cash">
+          <CardContent className="pt-4 pb-3 px-4">
+            <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
+              <Wallet className="h-3 w-3" />
+              <span>추정 예수금</span>
+            </div>
+            <p className="text-lg font-bold" data-testid="text-estimated-cash">
+              {isLoading ? "-" : formatCurrency(estimatedTotals.cash)}
+            </p>
+          </CardContent>
+        </Card>
+        <Card data-testid="card-estimated-total-assets">
+          <CardContent className="pt-4 pb-3 px-4">
+            <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
+              <BarChart3 className="h-3 w-3" />
+              <span>추정 총자산</span>
+            </div>
+            <p className="text-lg font-bold" data-testid="text-estimated-total-assets">
+              {isLoading ? "-" : formatCurrency(estimatedTotals.totalAssets)}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+      <div className="flex items-center gap-2 flex-wrap" data-testid="portfolio-filter-badge-row">
+        <Badge variant="secondary" data-testid="portfolio-filter-badge">
+          현재 필터: {selectedAccountLabel}
+        </Badge>
+        <Badge variant="outline" data-testid="portfolio-filter-count-badge">
+          표시 종목: {filtered.length}개
+        </Badge>
       </div>
 
       <Card>

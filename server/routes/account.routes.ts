@@ -5,6 +5,7 @@ import { isAuthenticated, getCurrentUser } from "../auth";
 import { insertKiwoomAccountSchema } from "@shared/schema";
 import { z } from "zod";
 import { parseHoldingItem } from "../utils/balance-parser";
+import { evaluateHoldingSyncGuard } from "../utils/holding-sync-guard";
 import { getUserKiwoomService } from "../services/user-kiwoom.service";
 import { encrypt, decrypt, isEncrypted } from "../utils/crypto";
 
@@ -186,14 +187,26 @@ export function registerAccountRoutes(app: Router) {
         parsedHoldings.push({ stockCode: parsed.stockCode, updates: parsed });
       }
       const existingHoldings = await storage.getHoldings(account.id);
-      const preserveExisting = parsedHoldings.length === 0 && existingHoldings.length > 0;
-      if (preserveExisting) {
+      const guard = evaluateHoldingSyncGuard({
+        parsedHoldings: parsedHoldings.map((h) => h.updates),
+        existingHoldingsCount: existingHoldings.length,
+        expectedStockEvalAmount: stockEvalAmount,
+      });
+      if (guard.preserveExisting) {
         storage.createEngineNotification({
           userId: user!.id,
           severity: "warn",
           type: "SYNC",
-          message: `[BalanceSyncGuard] account ${account.accountNumber} returned 0 holdings - preserving existing ${existingHoldings.length}`,
-          payload: { accountId: account.id, accountNumber: account.accountNumber, existingHoldingsCount: existingHoldings.length },
+          message: `[BalanceSyncGuard] account ${account.accountNumber} holdings snapshot flagged (${guard.reason}) - preserving existing ${existingHoldings.length}`,
+          payload: {
+            accountId: account.id,
+            accountNumber: account.accountNumber,
+            existingHoldingsCount: existingHoldings.length,
+            parsedHoldingsCount: guard.parsedCount,
+            evalCoverage: guard.evalCoverage,
+            parsedEvalAmount: guard.parsedEvalAmount,
+            expectedStockEvalAmount: guard.expectedStockEvalAmount,
+          },
         }).catch(() => {});
       } else {
         await storage.deleteHoldingsByAccount(account.id);
@@ -283,6 +296,11 @@ export function registerAccountRoutes(app: Router) {
 
       const { output1, output2 } = req.body;
       if (Array.isArray(output2)) {
+        const parseNum = (...fields: (string | undefined | null)[]): number => {
+          for (const v of fields) { if (v && v !== "0") return parseFloat(v); }
+          return 0;
+        };
+        const expectedStockEvalAmount = parseNum(output1?.evlu_amt_smtl_amt, output1?.tot_evlu_amt);
         const parsedHoldings: Array<{ stockCode: string; updates: ReturnType<typeof parseHoldingItem>; raw: any }> = [];
         for (const item of output2) {
           const parsed = parseHoldingItem(item);
@@ -291,14 +309,26 @@ export function registerAccountRoutes(app: Router) {
         }
 
         const existingHoldings = await storage.getHoldings(account.id);
-        const preserveExisting = parsedHoldings.length === 0 && existingHoldings.length > 0;
-        if (preserveExisting) {
+        const guard = evaluateHoldingSyncGuard({
+          parsedHoldings: parsedHoldings.map((h) => h.updates),
+          existingHoldingsCount: existingHoldings.length,
+          expectedStockEvalAmount,
+        });
+        if (guard.preserveExisting) {
           storage.createEngineNotification({
             userId: user!.id,
             severity: "warn",
             type: "SYNC",
-            message: `[BalanceSyncGuard] sync-balance account ${account.accountNumber} returned 0 holdings - preserving existing ${existingHoldings.length}`,
-            payload: { accountId: account.id, accountNumber: account.accountNumber, existingHoldingsCount: existingHoldings.length },
+            message: `[BalanceSyncGuard] sync-balance account ${account.accountNumber} snapshot flagged (${guard.reason}) - preserving existing ${existingHoldings.length}`,
+            payload: {
+              accountId: account.id,
+              accountNumber: account.accountNumber,
+              existingHoldingsCount: existingHoldings.length,
+              parsedHoldingsCount: guard.parsedCount,
+              evalCoverage: guard.evalCoverage,
+              parsedEvalAmount: guard.parsedEvalAmount,
+              expectedStockEvalAmount: guard.expectedStockEvalAmount,
+            },
           }).catch(() => {});
         } else {
           await storage.deleteHoldingsByAccount(account.id);
