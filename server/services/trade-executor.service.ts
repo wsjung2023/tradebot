@@ -5,6 +5,7 @@ import { AIService, AiBudgetExceededError } from './ai.service';
 import { AiModel, AutoTradingSettings, CandidateStock } from '@shared/schema';
 import { RainbowChartAnalyzer } from '../formula/rainbow-chart';
 import { normalizeChartDataAsc } from '../utils/chart-normalization';
+import { parseHoldingItem } from '../utils/balance-parser';
 import { getNewsService } from './news.service';
 import { getDartService } from './dart.service';
 import { getUserKiwoomService } from './user-kiwoom.service';
@@ -49,10 +50,75 @@ function getRainbowColor(line: number): 'blue' | 'green' | 'yellow' | 'red' {
   if (line <= 70) return 'yellow';
   return 'red';
 }
-
 export class TradeExecutorService {
   private normalizeStockCode(code: string | null | undefined): string {
     return String(code ?? "").trim().replace(/^A/i, "");
+  }
+
+  private parsePositiveInt(value: unknown, fallback: number): number {
+    const n = Number(String(value ?? '').trim());
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+  }
+
+  private parseNonNegativeInt(value: unknown, fallback: number): number {
+    const n = Number(String(value ?? '').trim());
+    return Number.isFinite(n) && n >= 0 ? Math.floor(n) : fallback;
+  }
+
+  private getSellRetryCooldownMs(settings: AutoTradingSettings): number {
+    const policy = (settings.aiEntryPolicy as any) ?? {};
+    const secFromPolicy = this.parseNonNegativeInt(policy.sellRetryCooldownSec, -1);
+    if (secFromPolicy >= 0) return secFromPolicy * 1000;
+    const secFromEnv = this.parseNonNegativeInt(process.env.AUTO_TRADING_SELL_RETRY_COOLDOWN_SEC, -1);
+    return secFromEnv >= 0 ? secFromEnv * 1000 : 0;
+  }
+
+  private parseQty(value: unknown): number {
+    const s = String(value ?? '').replace(/,/g, '').trim();
+    const n = parseInt(s, 10);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  private pickSellableQty(raw: Record<string, unknown>): number | null {
+    const candidates = [
+      raw.ord_psbl_qty,
+      raw.sell_psbl_qty,
+      raw.mdpos_qty,
+      raw.poss_qty,
+      raw.sellable_qty,
+      raw.ordable_qty,
+      raw.orderable_qty,
+    ];
+    for (const v of candidates) {
+      if (v === undefined || v === null || String(v).trim() === '') continue;
+      return Math.max(0, this.parseQty(v));
+    }
+    return null;
+  }
+
+  private async getBrokerPositionSnapshot(
+    kiwoomService: KiwoomService,
+    accountNumber: string,
+    accountType: 'real' | 'mock',
+    stockCode: string,
+  ): Promise<{ holdingQty: number; sellableQty: number | null } | null> {
+    try {
+      const bal = await kiwoomService.getAccountBalance(accountNumber, accountType);
+      const rows = Array.isArray((bal as any)?.output2) ? (bal as any).output2 as Array<Record<string, unknown>> : [];
+      const target = this.normalizeStockCode(stockCode);
+      for (const row of rows) {
+        const parsed = parseHoldingItem(row);
+        if (this.normalizeStockCode(parsed.stockCode) !== target) continue;
+        return {
+          holdingQty: Math.max(0, this.parseQty(parsed.quantity)),
+          sellableQty: this.pickSellableQty(row),
+        };
+      }
+      return { holdingQty: 0, sellableQty: 0 };
+    } catch (e: any) {
+      console.warn(`[SellGuard] broker snapshot failed ${stockCode}: ${e?.message || e}`);
+      return null;
+    }
   }
 
   // ── 오늘 KST 기준 신규 진입 종목 수 조회 (completed만, 고유 종목 기준) ──
@@ -870,7 +936,7 @@ export class TradeExecutorService {
 
         if (shouldSell) {
           console.log(`    🚨 Exit triggered for ${holding.stockCode}: ${exitReason}`);
-          await this.executeExitSell(model, activeAccount, holding, currentPrice, exitReason, kiwoomService, sellRatio);
+          await this.executeExitSell(model, settings, activeAccount, holding, currentPrice, exitReason, kiwoomService, sellRatio);
         }
       } catch (err) {
         console.error(`    ❌ Error checking exit for ${holding.stockCode}:`, err);
@@ -897,6 +963,7 @@ export class TradeExecutorService {
 
   private async executeExitSell(
     model: AiModel,
+    settings: AutoTradingSettings,
     activeAccount: any,
     holding: any,
     currentPrice: number,
@@ -904,18 +971,27 @@ export class TradeExecutorService {
     kiwoomService: KiwoomService,
     sellRatio: number = 1
   ): Promise<void> {
-    const quantity = Math.floor(holding.quantity * Math.max(0, Math.min(1, sellRatio)));
+    let quantity = Math.floor(holding.quantity * Math.max(0, Math.min(1, sellRatio)));
     if (!quantity || quantity <= 0) return;
 
     // ── 스마트 중복 매도 방지 (분할 매도 지원) ──
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
     const holdingUpdatedAt = holding.updatedAt ? new Date(holding.updatedAt) : new Date(0);
 
     // 당일의 매도 관련 주문들 (대기 중 + 잔고 반영 전 체결된 건)
     const existingOrders = await storage.getOrders(activeAccount.id, 200);
+    const sellRetryCooldownMs = this.getSellRetryCooldownMs(settings);
+    const targetHoldingCode = this.normalizeStockCode(holding.stockCode);
+    const recentFailedSell = existingOrders.find((o: any) => {
+      if (this.normalizeStockCode(o.stockCode) !== targetHoldingCode || o.orderType !== 'sell' || o.orderStatus !== 'failed') return false;
+      const ts = o.createdAt ? new Date(o.createdAt).getTime() : 0;
+      return ts >= Date.now() - sellRetryCooldownMs;
+    });
+    if (recentFailedSell) {
+      console.log(`    [SellCooldown] recent failed sell exists for ${holding.stockCode} - skip retry`);
+      return;
+    }
     const unsyncedSells = existingOrders.filter((o: any) =>
-      o.stockCode === holding.stockCode &&
+      this.normalizeStockCode(o.stockCode) === targetHoldingCode &&
       o.orderType === 'sell' &&
       (
         o.orderStatus === 'pending' || 
@@ -935,6 +1011,28 @@ export class TradeExecutorService {
       console.log(`    ⚠️ ${holding.stockCode} 요청 수량(${quantity}주)이 가상 잔고(${virtualRemainingQty}주) 초과 — 수량 조정 혹은 차단`);
       // 수량을 가상 잔고에 맞춰 조정하거나 차단 (여기서는 일단 안전하게 차단)
       return;
+    }
+
+    const exitSnapshot = await this.getBrokerPositionSnapshot(
+      kiwoomService,
+      activeAccount.accountNumber,
+      activeAccount.accountType === 'real' ? 'real' : 'mock',
+      holding.stockCode,
+    );
+    if (exitSnapshot) {
+      if (exitSnapshot.holdingQty <= 0) {
+        console.log(`    [SellGuard] broker holding is 0 for ${holding.stockCode} - skip`);
+        return;
+      }
+      if (exitSnapshot.sellableQty !== null) {
+        quantity = Math.min(quantity, exitSnapshot.sellableQty);
+      } else {
+        quantity = Math.min(quantity, exitSnapshot.holdingQty);
+      }
+      if (!quantity || quantity <= 0) {
+        console.log(`    [SellGuard] broker sellable is 0 for ${holding.stockCode} - skip`);
+        return;
+      }
     }
 
 
@@ -1368,22 +1466,55 @@ export class TradeExecutorService {
     if (!activeAccount) return;
 
     const holdings = await storage.getHoldings(activeAccount.id);
-    const holding = holdings.find((h: any) => h.stockCode === stock.code);
+    const targetCode = this.normalizeStockCode(stock.code);
+    const holding = holdings.find((h: any) => this.normalizeStockCode(h.stockCode) === targetCode);
     if (!holding) { console.log(`    ⚠️  No holdings found for ${stock.code} - skipping`); return; }
 
     // 중복 매도 주문 방지
     const existingOrders = await storage.getOrders(activeAccount.id, 200);
     const hasPendingSell = existingOrders.some((o: any) =>
-      o.stockCode === stock.code && o.orderType === 'sell' && o.orderStatus === 'pending'
+      this.normalizeStockCode(o.stockCode) === targetCode && o.orderType === 'sell' && o.orderStatus === 'pending'
     );
     if (hasPendingSell) {
       console.log(`    ⏭️ 대기중 매도 주문 이미 존재 (${stock.code}) — 중복 주문 스킵`);
       return;
     }
+    const sellRetryCooldownMs = this.getSellRetryCooldownMs(settings);
+    const recentFailedSell = existingOrders.find((o: any) => {
+      if (this.normalizeStockCode(o.stockCode) !== targetCode || o.orderType !== 'sell' || o.orderStatus !== 'failed') return false;
+      const ts = o.createdAt ? new Date(o.createdAt).getTime() : 0;
+      return ts >= Date.now() - sellRetryCooldownMs;
+    });
+    if (recentFailedSell) {
+      console.log(`    [SellCooldown] recent failed sell exists for ${stock.code} - skip retry`);
+      return;
+    }
 
     try {
-      const sellQuantity = Math.floor(holding.quantity * (rainbow.weight / 100));
+      let sellQuantity = Math.floor(holding.quantity * (rainbow.weight / 100));
       if (sellQuantity === 0) { console.log(`    ⚠️  Calculated sell quantity is 0 - skipping`); return; }
+
+      const sellSnapshot = await this.getBrokerPositionSnapshot(
+        kiwoomService,
+        activeAccount.accountNumber,
+        activeAccount.accountType === 'real' ? 'real' : 'mock',
+        stock.code,
+      );
+      if (sellSnapshot) {
+        if (sellSnapshot.holdingQty <= 0) {
+          console.log(`    [SellGuard] broker holding is 0 for ${stock.code} - skip`);
+          return;
+        }
+        if (sellSnapshot.sellableQty !== null) {
+          sellQuantity = Math.min(sellQuantity, sellSnapshot.sellableQty);
+        } else {
+          sellQuantity = Math.min(sellQuantity, sellSnapshot.holdingQty);
+        }
+        if (!sellQuantity || sellQuantity <= 0) {
+          console.log(`    [SellGuard] broker sellable is 0 for ${stock.code} - skip`);
+          return;
+        }
+      }
 
       const sellOrder = await storage.createOrder({
         accountId: activeAccount.id,
@@ -1416,7 +1547,7 @@ export class TradeExecutorService {
           action: 'place_sell_order',
           success: false,
           errorMessage: `[${stock.name}] 매도 실패: ${errMsg}`,
-          details: { stockCode: stock.code, quantity: sellQuantity, price: currentPrice }
+          details: { stockCode: stock.code, quantity: sellQuantity, price: stock.price }
         });
         storage.createEngineNotification({ userId: model.userId, severity: 'warn', type: 'ERROR', message: `[주문실패] ${stock.name} 매도 실패: ${errMsg}`, payload: { stockCode: stock.code } }).catch(e => console.error('[Notification]', e));
         return;
@@ -2182,6 +2313,7 @@ export class TradeExecutorService {
       aiEntryPolicy: {
         candidateDecisionCooldownMode: 'interval_120m',
         disableReevaluationForBoughtToday: false,
+        sellRetryCooldownSec: this.parseNonNegativeInt(process.env.AUTO_TRADING_SELL_RETRY_COOLDOWN_SEC, 0),
       },
     });
   }

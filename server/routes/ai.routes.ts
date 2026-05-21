@@ -706,14 +706,32 @@ export function registerAiRoutes(app: Router) {
       if (requestedDisableReeval !== undefined && typeof requestedDisableReeval !== 'boolean') {
         return res.status(400).json({ error: 'aiEntryPolicy.disableReevaluationForBoughtToday는 boolean 이어야 합니다.' });
       }
+      const requestedSellRetryCooldownSecRaw = safeBody.aiEntryPolicy?.sellRetryCooldownSec;
+      let requestedSellRetryCooldownSec: number | undefined;
+      if (requestedSellRetryCooldownSecRaw !== undefined) {
+        const v = parseInt(String(requestedSellRetryCooldownSecRaw), 10);
+        if (!Number.isFinite(v) || v < 0 || v > 86400) {
+          return res.status(400).json({ error: 'aiEntryPolicy.sellRetryCooldownSec는 0~86400 정수여야 합니다.' });
+        }
+        requestedSellRetryCooldownSec = v;
+      }
 
       const existing = await storage.getAutoTradingSettings(modelId);
+      const existingEntryPolicy = (existing?.aiEntryPolicy ?? {}) as any;
+      const envSellRetryCooldownSec = parseInt(String(process.env.AUTO_TRADING_SELL_RETRY_COOLDOWN_SEC ?? ''), 10);
+      const defaultSellRetryCooldownSec = Number.isFinite(envSellRetryCooldownSec) && envSellRetryCooldownSec >= 0
+        ? envSellRetryCooldownSec
+        : 0;
       const normalizedAiEntryPolicy = safeBody.aiEntryPolicy === undefined
         ? undefined
         : {
+          ...existingEntryPolicy,
           ...(safeBody.aiEntryPolicy ?? {}),
           candidateDecisionCooldownMode: requestedCooldownMode ?? 'interval_120m',
           disableReevaluationForBoughtToday: requestedDisableReeval ?? false,
+          sellRetryCooldownSec: requestedSellRetryCooldownSec
+            ?? existingEntryPolicy.sellRetryCooldownSec
+            ?? defaultSellRetryCooldownSec,
         };
 
       if (existing) {
@@ -730,6 +748,7 @@ export function registerAiRoutes(app: Router) {
           aiEntryPolicy: normalizedAiEntryPolicy ?? {
             candidateDecisionCooldownMode: 'interval_120m',
             disableReevaluationForBoughtToday: false,
+            sellRetryCooldownSec: defaultSellRetryCooldownSec,
           },
         });
         res.json(created);

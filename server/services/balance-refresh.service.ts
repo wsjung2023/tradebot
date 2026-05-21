@@ -43,7 +43,7 @@ export class BalanceRefreshService {
     console.log(`[BalanceRefresh] 서비스 시작 — ${this.intervalMinutes}분마다 실계좌 잔고 자동 갱신 (KST 08:30~18:00 월~금)`);
     this.task = cron.schedule(cronExpr, async () => {
       try {
-        await this.refreshAllRealAccounts();
+        await this.refreshAllActiveAccounts();
       } catch (err: any) {
         console.error('[BalanceRefresh] 스케줄 오류:', err.message);
       }
@@ -73,12 +73,12 @@ export class BalanceRefreshService {
     return this.intervalMinutes;
   }
 
-  async refreshAllRealAccounts(): Promise<void> {
+  async refreshAllActiveAccounts(): Promise<void> {
     if (!isKstMarketHours()) return;
 
-    let accounts: Awaited<ReturnType<typeof storage.getAllRealKiwoomAccounts>>;
+    let accounts: Awaited<ReturnType<typeof storage.getAllActiveKiwoomAccounts>>;
     try {
-      accounts = await storage.getAllRealKiwoomAccounts();
+      accounts = await storage.getAllActiveKiwoomAccounts();
     } catch (err: any) {
       console.error('[BalanceRefresh] 실계좌 목록 조회 실패:', err.message);
       return;
@@ -98,6 +98,11 @@ export class BalanceRefreshService {
 
     console.log('[BalanceRefresh] 자동 잔고 갱신 완료');
     this.onRun?.();
+  }
+
+  // Backward compatibility: keep old method name for existing callers.
+  async refreshAllRealAccounts(): Promise<void> {
+    await this.refreshAllActiveAccounts();
   }
 
   private async refreshAccount(
