@@ -35,7 +35,7 @@ for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":5000 " ^| findstr "LISTENIN
   taskkill /PID %%a /F >nul 2>&1
 )
 schtasks /End /TN "TradeBot-Server" >nul 2>&1
-timeout /t 3 /nobreak >nul
+ping -n 4 127.0.0.1 >nul
 schtasks /Run /TN "TradeBot-Server"
 if errorlevel 1 (
   echo [오류] TradeBot-Server 시작 실패
@@ -50,4 +50,4 @@ echo  배포 완료!
 echo  운영: http://localhost:5000
 echo  개발: http://localhost:5002
 echo ====================================
-timeout /t 3 /nobreak >nul
+ping -n 4 127.0.0.1 >nul
