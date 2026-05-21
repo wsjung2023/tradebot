@@ -179,12 +179,28 @@ export function registerAccountRoutes(app: Router) {
 
       // DB 보유종목 동기화 (parseHoldingItem: server/utils/balance-parser.ts)
       // 먼저 기존 보유종목 전체 삭제 후 새로 받은 종목만 저장 (stale 데이터 방지)
-      await storage.deleteHoldingsByAccount(account.id);
+      const parsedHoldings: Array<{ stockCode: string; updates: ReturnType<typeof parseHoldingItem> }> = [];
       for (const item of output2) {
         const parsed = parseHoldingItem(item);
         if (!parsed.stockCode) continue;
-        const { stockCode, ...updates } = parsed;
-        await storage.createHolding({ accountId: account.id, stockCode, ...updates });
+        parsedHoldings.push({ stockCode: parsed.stockCode, updates: parsed });
+      }
+      const existingHoldings = await storage.getHoldings(account.id);
+      const preserveExisting = parsedHoldings.length === 0 && existingHoldings.length > 0;
+      if (preserveExisting) {
+        storage.createEngineNotification({
+          userId: user!.id,
+          severity: "warn",
+          type: "SYNC",
+          message: `[BalanceSyncGuard] account ${account.accountNumber} returned 0 holdings - preserving existing ${existingHoldings.length}`,
+          payload: { accountId: account.id, accountNumber: account.accountNumber, existingHoldingsCount: existingHoldings.length },
+        }).catch(() => {});
+      } else {
+        await storage.deleteHoldingsByAccount(account.id);
+        for (const { stockCode, updates } of parsedHoldings) {
+          const { stockCode: _ignored, ...holdingUpdates } = updates;
+          await storage.createHolding({ accountId: account.id, stockCode, ...holdingUpdates });
+        }
       }
 
       const todayProfitRate = totalAssetsWithDeposit > 0 ? (todayProfit / totalAssetsWithDeposit) * 100 : 0;
@@ -267,13 +283,30 @@ export function registerAccountRoutes(app: Router) {
 
       const { output1, output2 } = req.body;
       if (Array.isArray(output2)) {
-        await storage.deleteHoldingsByAccount(account.id);
+        const parsedHoldings: Array<{ stockCode: string; updates: ReturnType<typeof parseHoldingItem>; raw: any }> = [];
         for (const item of output2) {
           const parsed = parseHoldingItem(item);
           if (!parsed.stockCode) continue;
-          const { stockCode, ...updates } = parsed;
-          console.log(`[sync-balance] 종목 파싱: code=${stockCode} name=${updates.stockName} avgPrc=${updates.averagePrice} plRate=${updates.profitLossRate} rawFields={pchs_avg_pric:${item.pchs_avg_pric},pur_pric:${item.pur_pric},prft_rt:${item.prft_rt}}`);
-          await storage.createHolding({ accountId: account.id, stockCode, ...updates });
+          parsedHoldings.push({ stockCode: parsed.stockCode, updates: parsed, raw: item });
+        }
+
+        const existingHoldings = await storage.getHoldings(account.id);
+        const preserveExisting = parsedHoldings.length === 0 && existingHoldings.length > 0;
+        if (preserveExisting) {
+          storage.createEngineNotification({
+            userId: user!.id,
+            severity: "warn",
+            type: "SYNC",
+            message: `[BalanceSyncGuard] sync-balance account ${account.accountNumber} returned 0 holdings - preserving existing ${existingHoldings.length}`,
+            payload: { accountId: account.id, accountNumber: account.accountNumber, existingHoldingsCount: existingHoldings.length },
+          }).catch(() => {});
+        } else {
+          await storage.deleteHoldingsByAccount(account.id);
+          for (const { stockCode, updates, raw } of parsedHoldings) {
+            const { stockCode: _ignored, ...holdingUpdates } = updates;
+            console.log(`[sync-balance] 종목 파싱: code=${stockCode} name=${holdingUpdates.stockName} avgPrc=${holdingUpdates.averagePrice} plRate=${holdingUpdates.profitLossRate} rawFields={pchs_avg_pric:${raw.pchs_avg_pric},pur_pric:${raw.pur_pric},prft_rt:${raw.prft_rt}}`);
+            await storage.createHolding({ accountId: account.id, stockCode, ...holdingUpdates });
+          }
         }
       }
       res.json({ ok: true });

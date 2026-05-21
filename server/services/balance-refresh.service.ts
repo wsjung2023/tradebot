@@ -133,10 +133,23 @@ export class BalanceRefreshService {
       parsedHoldings.push({ stockCode: parsed.stockCode, updates: parsed });
     }
 
-    await storage.deleteHoldingsByAccount(accountId);
-    for (const { stockCode, updates } of parsedHoldings) {
-      const { stockCode: _ignored, ...holdingUpdates } = updates;
-      await storage.createHolding({ accountId, stockCode, ...holdingUpdates });
+    const existingHoldings = await storage.getHoldings(accountId);
+    const preserveExisting = parsedHoldings.length === 0 && existingHoldings.length > 0;
+    if (preserveExisting) {
+      console.error(`[BalanceRefresh] suspicious empty holdings snapshot for account ${accountId} (${accountNumber}) - preserving existing ${existingHoldings.length} holdings`);
+      storage.createEngineNotification({
+        userId,
+        severity: 'warn',
+        type: 'SYNC',
+        message: `[BalanceRefreshGuard] account ${accountNumber} returned 0 holdings - preserving existing ${existingHoldings.length}`,
+        payload: { accountId, accountNumber, accountType, existingHoldingsCount: existingHoldings.length },
+      }).catch(() => {});
+    } else {
+      await storage.deleteHoldingsByAccount(accountId);
+      for (const { stockCode, updates } of parsedHoldings) {
+        const { stockCode: _ignored, ...holdingUpdates } = updates;
+        await storage.createHolding({ accountId, stockCode, ...holdingUpdates });
+      }
     }
 
     let totalAssetsWithDeposit = stockEvalAmount + depositRaw;
