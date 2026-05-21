@@ -380,7 +380,14 @@ export function registerTradingRoutes(app: Router) {
       const accounts = await storage.getKiwoomAccounts(user!.id);
       if (accounts.length === 0) return res.json([]);
 
-      const allOrders = await Promise.all(accounts.map((a) => storage.getOrders(a.id)));
+      const requestedLimit = Number(req.query.limit ?? 1000);
+      const perAccountLimit = Number.isFinite(requestedLimit)
+        ? Math.min(Math.max(Math.trunc(requestedLimit), 1), 5000)
+        : 1000;
+
+      const allOrders = await Promise.all(
+        accounts.map((a) => storage.getOrders(a.id, perAccountLimit))
+      );
       const orders = allOrders.flat().sort((a, b) =>
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
