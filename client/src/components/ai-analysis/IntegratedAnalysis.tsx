@@ -1,6 +1,6 @@
 // IntegratedAnalysis.tsx — 뉴스 + 재무제표 + 기술적 분석 통합 AI 분석 컴포넌트
-import { useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,9 +8,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+import { StockSelector } from "@/components/stocks/StockSelector";
+import type { SelectedStock } from "@/lib/stocks";
 import {
   Newspaper, BarChart3, TrendingUp, TrendingDown, Minus,
-  Search, Loader2, AlertTriangle, Zap, ShieldCheck, Target,
+  Loader2, AlertTriangle, Zap, ShieldCheck, Target,
   ChevronRight, ExternalLink, RefreshCw,
 } from "lucide-react";
 
@@ -102,6 +104,11 @@ function formatPubDate(pubDate: string): string {
     return new Date(pubDate).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   } catch { return pubDate; }
 }
+function impactLevelLabel(level: 'low' | 'medium' | 'high'): string {
+  if (level === 'high') return '높음';
+  if (level === 'medium') return '보통';
+  return '낮음';
+}
 
 // ─── 점수 게이지 바 ───────────────────────────────────────────────────────
 function ScoreBar({ label, score, icon }: { label: string; score: number; icon: React.ReactNode }) {
@@ -186,14 +193,20 @@ function NewsCard({ article }: { article: NewsArticle }) {
 // ─── 메인 컴포넌트 ────────────────────────────────────────────────────────
 export function IntegratedAnalysis() {
   const { toast } = useToast();
-  const [stockCode, setStockCode] = useState('');
-  const [stockName, setStockName] = useState('');
+  const [selectedStock, setSelectedStock] = useState<SelectedStock | null>(null);
   const [currentPrice, setCurrentPrice] = useState('');
   const [result, setResult] = useState<IntegratedResult | null>(null);
   const [lastMaterialSync, setLastMaterialSync] = useState<MaterialSyncResult | null>(null);
   const [forceMaterialSync, setForceMaterialSync] = useState(false);
 
-  const { data: accounts = [] } = useQuery<any[]>({ queryKey: ['/api/accounts'] });
+  const stockCode = selectedStock?.stockCode?.trim() || '';
+  const stockName = selectedStock?.stockName?.trim() || '';
+
+  useEffect(() => {
+    if (typeof selectedStock?.currentPrice === "number" && selectedStock.currentPrice > 0) {
+      setCurrentPrice(String(selectedStock.currentPrice));
+    }
+  }, [selectedStock?.stockCode, selectedStock?.currentPrice]);
 
   const analysisMutation = useMutation({
     mutationFn: async (data: { stockCode: string; stockName: string; currentPrice: number; syncMaterials?: boolean }) => {
@@ -202,7 +215,7 @@ export function IntegratedAnalysis() {
     },
     onSuccess: (data) => {
       setResult(data);
-      toast({ title: '통합 분석 완료', description: `${stockName} 분석이 완료되었습니다` });
+      toast({ title: '통합 분석 완료', description: `${data?.stockName || stockName} 분석이 완료되었습니다` });
     },
     onError: (e: any) => {
       toast({ variant: 'destructive', title: '분석 실패', description: e.message });
@@ -226,26 +239,9 @@ export function IntegratedAnalysis() {
     },
   });
 
-  // 종목 검색 — stockCode 입력 후 자동으로 가격 조회
-  const searchMutation = useMutation({
-    mutationFn: async (code: string) => {
-      const resp = await apiRequest('GET', `/api/stocks/${code}/price`);
-      return resp.json();
-    },
-    onSuccess: (data) => {
-      if (data?.stk_nm) setStockName(data.stk_nm);
-      if (data?.cur_prc) setCurrentPrice(String(Math.abs(Number(data.cur_prc))));
-    },
-  });
-
-  function handleSearch() {
-    if (!stockCode.trim()) return;
-    searchMutation.mutate(stockCode.trim());
-  }
-
   async function handleAnalyze() {
     if (!stockCode || !stockName || !currentPrice) {
-      toast({ variant: 'destructive', title: '입력 오류', description: '종목코드, 종목명, 현재가를 모두 입력해주세요' });
+      toast({ variant: 'destructive', title: '입력 오류', description: '검색 결과에서 종목을 선택하고 현재가를 확인해주세요' });
       return;
     }
 
@@ -278,66 +274,58 @@ export function IntegratedAnalysis() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex flex-wrap gap-2">
-            <div className="flex gap-2 flex-1 min-w-40">
+          <div className="space-y-3">
+            <StockSelector
+              label="분석할 종목"
+              value={selectedStock}
+              onChange={(stock) => {
+                setSelectedStock(stock);
+                setResult(null);
+                setLastMaterialSync(null);
+              }}
+              placeholder="종목명 또는 코드 입력 (예: 삼성전자, 005930)"
+              inputTestId="input-integrated-stock-code"
+              allowManualCode
+            />
+
+            <div className="flex flex-wrap items-center gap-2">
               <Input
-                placeholder="종목코드 (예: 005930)"
-                value={stockCode}
-                onChange={e => setStockCode(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleSearch()}
-                data-testid="input-integrated-stock-code"
+                placeholder="현재가"
+                value={currentPrice}
+                onChange={e => setCurrentPrice(e.target.value)}
+                data-testid="input-integrated-price"
                 className="w-36"
+                type="number"
               />
               <Button
-                size="icon"
                 variant="outline"
-                onClick={handleSearch}
-                disabled={searchMutation.isPending}
-                data-testid="button-integrated-search"
+                onClick={() => syncMaterialsMutation.mutate({ stockCode, stockName, force: forceMaterialSync })}
+                disabled={syncMaterialsMutation.isPending || !stockCode || !stockName}
+                data-testid="button-sync-materials"
               >
-                {searchMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                {syncMaterialsMutation.isPending
+                  ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />동기화 중...</>
+                  : <><RefreshCw className="w-4 h-4 mr-2" />재료 동기화</>
+                }
+              </Button>
+              <label className="inline-flex items-center gap-2 text-xs text-muted-foreground px-2" data-testid="toggle-force-sync">
+                <Switch checked={forceMaterialSync} onCheckedChange={setForceMaterialSync} />
+                강제 동기화
+              </label>
+              <Button
+                onClick={handleAnalyze}
+                disabled={analysisMutation.isPending}
+                data-testid="button-integrated-analyze"
+              >
+                {analysisMutation.isPending
+                  ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />분석 중...</>
+                  : <><Zap className="w-4 h-4 mr-2" />통합 분석</>
+                }
               </Button>
             </div>
-            <Input
-              placeholder="종목명 (예: 삼성전자)"
-              value={stockName}
-              onChange={e => setStockName(e.target.value)}
-              data-testid="input-integrated-stock-name"
-              className="flex-1 min-w-32"
-            />
-            <Input
-              placeholder="현재가"
-              value={currentPrice}
-              onChange={e => setCurrentPrice(e.target.value)}
-              data-testid="input-integrated-price"
-              className="w-32"
-              type="number"
-            />
-            <Button
-              variant="outline"
-              onClick={() => syncMaterialsMutation.mutate({ stockCode, stockName, force: forceMaterialSync })}
-              disabled={syncMaterialsMutation.isPending || !stockCode || !stockName}
-              data-testid="button-sync-materials"
-            >
-              {syncMaterialsMutation.isPending
-                ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />동기화 중...</>
-                : <><RefreshCw className="w-4 h-4 mr-2" />재료 동기화</>
-              }
-            </Button>
-            <label className="inline-flex items-center gap-2 text-xs text-muted-foreground px-2" data-testid="toggle-force-sync">
-              <Switch checked={forceMaterialSync} onCheckedChange={setForceMaterialSync} />
-              강제 동기화
-            </label>
-            <Button
-              onClick={handleAnalyze}
-              disabled={analysisMutation.isPending}
-              data-testid="button-integrated-analyze"
-            >
-              {analysisMutation.isPending
-                ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />분석 중...</>
-                : <><Zap className="w-4 h-4 mr-2" />통합 분석</>
-              }
-            </Button>
+            <p className="text-xs text-muted-foreground">
+              재료 동기화: 최근 30분 내 저장된 재료가 있으면 재사용하고, 없으면 뉴스/공시/이슈를 새로 수집합니다. 강제 동기화: 기존 재료를 무시하고 즉시 새로 수집합니다.
+            </p>
           </div>
           {analysisMutation.isPending && (
             <p className="text-xs text-muted-foreground mt-3 flex items-center gap-1.5">
@@ -496,7 +484,7 @@ export function IntegratedAnalysis() {
                     {result.marketIssues.slice(0, 5).map((issue, idx) => (
                       <div key={`${issue.issueType}-${idx}`} className="text-xs border rounded-md p-2">
                         <p className="font-medium">[{issue.issueType}] {issue.issueTitle}</p>
-                        <p className="text-muted-foreground">영향도: {issue.impactLevel}</p>
+                        <p className="text-muted-foreground">영향도: {impactLevelLabel(issue.impactLevel)}</p>
                       </div>
                     ))}
                   </div>

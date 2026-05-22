@@ -257,43 +257,43 @@ export class AIService {
     usageContext?: AiUsageContext,
     systemMessage?: string,
   ): Promise<StockAnalysisResponse> {
-    const prompt = `You are a professional stock trading analyst. Analyze the following stock and provide actionable trading recommendations.
+    const prompt = `당신은 한국 주식시장 전문 트레이딩 애널리스트입니다. 아래 종목을 분석해 실행 가능한 매매 의견을 제시하세요.
 
-Stock Information:
-- Code: ${request.stockCode}
-- Name: ${request.stockName}
-- Current Price: ₩${request.currentPrice.toLocaleString()}
-${request.priceHistory ? `- Recent Price Data: ${JSON.stringify(request.priceHistory.slice(0, 30))}` : ''}
-${request.technicalIndicators ? `- Technical Indicators: ${JSON.stringify(request.technicalIndicators)}` : ''}
+종목 정보:
+- 코드: ${request.stockCode}
+- 종목명: ${request.stockName}
+- 현재가: ₩${request.currentPrice.toLocaleString()}
+${request.priceHistory ? `- 최근 가격 데이터: ${JSON.stringify(request.priceHistory.slice(0, 30))}` : ''}
+${request.technicalIndicators ? `- 기술 지표: ${JSON.stringify(request.technicalIndicators)}` : ''}
 ${request.rainbowChart ? `
-Rainbow Chart Analysis (240-Day Range):
-- 240-Day High: ₩${request.rainbowChart.highest.toLocaleString()}
-- 240-Day Low: ₩${request.rainbowChart.lowest.toLocaleString()}
-- Current Position: ${request.rainbowChart.currentPosition.toFixed(1)}%
-- Current Zone: ${request.rainbowChart.currentZone}
-- Chart Recommendation: ${request.rainbowChart.recommendation.toUpperCase()}
-- CL (50% Green Line): ₩${request.rainbowChart.CL.toLocaleString()}
-- CL Width: ${request.rainbowChart.clWidth.toFixed(1)}%
-- Current vs CL: ${((request.currentPrice / request.rainbowChart.CL - 1) * 100).toFixed(2)}%
+레인보우 차트 분석 (240일 범위):
+- 240일 고점: ₩${request.rainbowChart.highest.toLocaleString()}
+- 240일 저점: ₩${request.rainbowChart.lowest.toLocaleString()}
+- 현재 위치: ${request.rainbowChart.currentPosition.toFixed(1)}%
+- 현재 구간: ${request.rainbowChart.currentZone}
+- 차트 추천: ${request.rainbowChart.recommendation.toUpperCase()}
+- CL (50% 기준선): ₩${request.rainbowChart.CL.toLocaleString()}
+- CL 폭: ${request.rainbowChart.clWidth.toFixed(1)}%
+- 현재가 vs CL: ${((request.currentPrice / request.rainbowChart.CL - 1) * 100).toFixed(2)}%
 ` : ''}
 
-Based on technical analysis, market trends, and trading patterns, provide:
-1. Recommended action: BUY, SELL, or HOLD
-2. Confidence level: 0-100%
-3. Theme score: sector/theme momentum strength (0-100, independent of news)
-4. News score: implied news sentiment from price action and volume patterns (0-100)
-5. Target price (if applicable)
-6. Clear reasoning for your recommendation
-7. Key indicators that support your decision
+아래 항목을 기반으로 판단하세요:
+1. 권장 액션: BUY / SELL / HOLD
+2. 신뢰도: 0~100
+3. 테마 점수(themeScore): 섹터/테마 모멘텀 강도 0~100 (뉴스와 독립)
+4. 뉴스 점수(newsScore): 가격/거래량 흐름에서 추정한 뉴스 심리 0~100
+5. 목표가(가능한 경우)
+6. 추천 근거
+7. 핵심 지표
 
-Format your response as JSON:
+반드시 아래 JSON 형식으로만 응답하세요:
 {
   "action": "buy|sell|hold",
   "confidence": 75,
   "themeScore": 60,
   "newsScore": 55,
   "targetPrice": 50000,
-  "reasoning": "detailed explanation",
+  "reasoning": "반드시 한국어 설명",
   "indicators": {
     "trend": "bullish|bearish|neutral",
     "momentum": "strong|weak|neutral",
@@ -306,7 +306,7 @@ Format your response as JSON:
       [
         {
           role: 'system',
-          content: systemMessage ?? 'You are an expert stock trading analyst with deep knowledge of Korean stock market (KOSPI/KOSDAQ). Provide precise, actionable trading advice based on technical analysis.',
+          content: systemMessage ?? '당신은 KOSPI/KOSDAQ에 정통한 한국 주식 트레이딩 전문가입니다. 반드시 한국어로, 구체적이고 실행 가능한 매매 조언을 JSON 형식으로만 제공합니다.',
         },
         {
           role: 'user',
@@ -323,7 +323,7 @@ Format your response as JSON:
       themeScore: clamp(response.themeScore),
       newsScore: clamp(response.newsScore),
       targetPrice: typeof response.targetPrice === 'number' ? response.targetPrice : null,
-      reasoning: response.reasoning || 'Analysis pending',
+      reasoning: response.reasoning || '분석 결과가 충분하지 않습니다.',
       indicators: response.indicators || {},
     };
   }
@@ -345,40 +345,40 @@ Format your response as JSON:
       profitLossRate: h.profitLossRate,
     }));
 
-    const prompt = `You are a professional portfolio manager. Analyze this investment portfolio and provide optimization recommendations.
+    const prompt = `당신은 한국 주식 포트폴리오 전문 운용역입니다. 아래 포트폴리오를 분석해 최적화 전략을 제시하세요.
 
-Portfolio Holdings:
+포트폴리오 보유 현황:
 ${JSON.stringify(portfolioSummary, null, 2)}
 
-Investment Profile:
-- Risk Level: ${request.riskLevel}
-- Investment Goal: ${request.investmentGoal}
+투자자 프로필:
+- 위험 성향: ${request.riskLevel}
+- 투자 목표: ${request.investmentGoal}
 
-Provide:
-1. Individual stock recommendations (buy more, sell, hold)
-2. Overall portfolio strategy
-3. Risk assessment
-4. Diversification suggestions
+아래를 반드시 포함하세요:
+1. 종목별 액션 제안(추가매수/매도/보유)
+2. 전체 포트폴리오 전략
+3. 리스크 평가
+4. 분산/리밸런싱 제안
 
-Format as JSON:
+반드시 아래 JSON 형식으로만 응답하세요:
 {
   "recommendations": [
     {
       "stockCode": "005930",
       "stockName": "삼성전자",
       "action": "hold",
-      "reason": "strong fundamentals"
+      "reason": "반드시 한국어 근거"
     }
   ],
-  "overallStrategy": "strategy description",
-  "riskAssessment": "risk analysis"
+  "overallStrategy": "반드시 한국어",
+  "riskAssessment": "반드시 한국어"
 }`;
 
     const response = await this.createJsonCompletion(
       [
         {
           role: 'system',
-          content: 'You are an expert portfolio manager specializing in Korean stock market investments. Provide comprehensive portfolio analysis and optimization strategies.',
+          content: '당신은 한국 주식시장 전문 포트폴리오 매니저입니다. 결과는 반드시 한국어로 작성하고, JSON 스키마를 엄격히 지킵니다.',
         },
         {
           role: 'user',

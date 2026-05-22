@@ -5,7 +5,8 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, TrendingUp, TrendingDown, Minus, Brain } from "lucide-react";
+import { Loader2, TrendingUp, TrendingDown, Minus, Brain, Download } from "lucide-react";
+import { buildMarkdownTimestamp, downloadMarkdownFile } from "@/lib/markdown-download";
 
 interface PortfolioAnalysis {
   overallStrategy: string;
@@ -31,6 +32,38 @@ const ACTION_ICONS: Record<string, JSX.Element> = {
 };
 
 export function AIPortfolioAnalysis({ accounts, selectedAccountId, portfolioAnalysis, isPending, onAccountChange, onAnalyze }: Props) {
+  const handleDownloadMarkdown = () => {
+    if (!portfolioAnalysis) return;
+
+    const account = accounts.find((item) => item.id === selectedAccountId);
+    const accountLabel = account ? `${account.accountNumber} (${account.accountName})` : "미선택";
+    const recommendationLines = portfolioAnalysis.recommendations.length
+      ? portfolioAnalysis.recommendations.map((rec, index) => {
+          const action = rec.action === "buy" ? "매수" : rec.action === "sell" ? "매도" : "관망";
+          return `${index + 1}. ${rec.stockName} (${rec.stockCode}) - ${action}\n   - 근거: ${rec.reason}`;
+        }).join("\n")
+      : "추천 내역이 없습니다.";
+
+    const markdown = [
+      `# 포트폴리오 AI 분석 리포트`,
+      ``,
+      `- 생성시각: ${new Date().toLocaleString("ko-KR")}`,
+      `- 분석 계좌: ${accountLabel}`,
+      ``,
+      `## 전체 전략`,
+      portfolioAnalysis.overallStrategy || "-",
+      ``,
+      `## 리스크 평가`,
+      portfolioAnalysis.riskAssessment || "-",
+      ``,
+      `## 종목별 추천`,
+      recommendationLines,
+      ``,
+    ].join("\n");
+
+    downloadMarkdownFile(`portfolio-analysis-${buildMarkdownTimestamp()}`, markdown);
+  };
+
   return (
     <TabsContent value="portfolio" className="space-y-6">
       <Card>
@@ -58,6 +91,12 @@ export function AIPortfolioAnalysis({ accounts, selectedAccountId, portfolioAnal
 
       {portfolioAnalysis && (
         <div className="space-y-6" data-testid="card-portfolio-result">
+          <div className="flex justify-end">
+            <Button type="button" variant="outline" size="sm" onClick={handleDownloadMarkdown} data-testid="button-download-portfolio-markdown">
+              <Download className="h-4 w-4 mr-2" />
+              Markdown 다운로드
+            </Button>
+          </div>
           <Card>
             <CardHeader><CardTitle>전체 전략</CardTitle></CardHeader>
             <CardContent><p className="text-sm whitespace-pre-wrap" data-testid="text-overall-strategy">{portfolioAnalysis.overallStrategy}</p></CardContent>
