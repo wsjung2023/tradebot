@@ -83,7 +83,7 @@ export default function CandidateDecisions() {
   const [fromDate, setFromDate] = useState(toDateInputValue(weekAgo));
   const [toDate, setToDate] = useState(toDateInputValue(now));
   const [modelId, setModelId] = useState("all");
-  const [acceptedFilter, setAcceptedFilter] = useState<"all" | "accepted" | "rejected">("rejected");
+  const [acceptedFilter, setAcceptedFilter] = useState<"all" | "accepted" | "rejected">("all");
 
   const { data: models = [] } = useQuery<AiModelSummary[]>({
     queryKey: ["/api/ai/models"],
@@ -171,7 +171,11 @@ export default function CandidateDecisions() {
         <CardHeader className="pb-3">
           <CardTitle className="text-base">일별 요약</CardTitle>
         </CardHeader>
-        <CardContent className="flex flex-wrap gap-2">
+        <CardContent className="space-y-2">
+          <p className="text-xs text-muted-foreground">
+            요약은 선택 기간/모델 기준 전체(선정+탈락)를 집계합니다. 우측 결과 필터는 아래 상세 로그에만 적용됩니다.
+          </p>
+          <div className="flex flex-wrap gap-2">
           {dailySummary.length === 0 ? (
             <span className="text-sm text-muted-foreground">조회 범위 내 데이터가 없습니다.</span>
           ) : (
@@ -181,6 +185,7 @@ export default function CandidateDecisions() {
               </Badge>
             ))
           )}
+          </div>
         </CardContent>
       </Card>
 

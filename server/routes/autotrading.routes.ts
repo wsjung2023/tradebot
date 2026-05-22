@@ -211,13 +211,27 @@ export function registerAutoTradingRoutes(app: Router) {
         offset: parsed.data.offset ?? 0,
       });
 
+      // 일별 요약은 결과 필터(선정/탈락)와 무관하게 동일 기간/모델 기준 전체를 집계한다.
+      // 그렇지 않으면 accepted=false(탈락) 필터에서 선정 수치가 항상 0으로 보이는 혼선이 발생한다.
+      const summaryLogs = await storage.getCandidateDecisionLogsForUser(user!.id, {
+        modelId: parsed.data.modelId,
+        from,
+        to,
+        // 요약 집계는 충분히 큰 상한으로 조회(일반 화면 범위에서 요약 누락 방지)
+        limit: 5000,
+        offset: 0,
+      });
+
       const logsWithKst = logs.map((row) => ({
         ...row,
         decidedAtKst: toKstDateTime(row.decidedAt),
       }));
-
+      const summaryLogsWithKst = summaryLogs.map((row) => ({
+        ...row,
+        decidedAtKst: toKstDateTime(row.decidedAt),
+      }));
       const dailySummaryMap = new Map<string, { total: number; accepted: number; rejected: number }>();
-      for (const row of logsWithKst) {
+      for (const row of summaryLogsWithKst) {
         const kstDay = toKstDay(row.decidedAt);
         const current = dailySummaryMap.get(kstDay) ?? { total: 0, accepted: 0, rejected: 0 };
         current.total += 1;
