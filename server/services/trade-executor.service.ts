@@ -6,6 +6,7 @@ import { AiModel, AutoTradingSettings, CandidateStock } from '@shared/schema';
 import { RainbowChartAnalyzer } from '../formula/rainbow-chart';
 import { normalizeChartDataAsc } from '../utils/chart-normalization';
 import { parseHoldingItem } from '../utils/balance-parser';
+import { extractErrorDiagnostics } from '../utils/error-diagnostics';
 import { getNewsService } from './news.service';
 import { getDartService } from './dart.service';
 import { getUserKiwoomService } from './user-kiwoom.service';
@@ -1063,8 +1064,28 @@ export class TradeExecutorService {
         });
       } catch (apiErr: any) {
         const errMsg = apiErr.message || String(apiErr);
-        await storage.updateOrder(exitSellOrder.id, { orderStatus: 'failed', errorMessage: errMsg });
+        const diagnostics = extractErrorDiagnostics(apiErr);
+        await storage.updateOrder(exitSellOrder.id, {
+          orderStatus: 'failed',
+          errorMessage: errMsg,
+          details: {
+            lastFailure: diagnostics,
+          },
+        });
         console.error(`    ❌ 키움 매도 API 실패 (${holding.stockName}): ${errMsg}`);
+        await storage.createTradingLog({
+          accountId: activeAccount.id,
+          action: 'place_exit_sell_order',
+          success: false,
+          errorMessage: `[${holding.stockName || holding.stockCode}] 청산 매도 실패: ${errMsg}`,
+          details: {
+            stockCode: holding.stockCode,
+            stockName: holding.stockName || holding.stockCode,
+            quantity,
+            price: currentPrice,
+            errorDiagnostics: diagnostics,
+          }
+        });
         return;
       }
       const exitOrdNo = exitSellResp?.output?.ord_no || exitSellResp?.ord_no || null;
@@ -1390,14 +1411,21 @@ export class TradeExecutorService {
         });
       } catch (apiErr: any) {
         const errMsg = apiErr.message || String(apiErr);
-        await storage.updateOrder(order.id, { orderStatus: 'failed', errorMessage: errMsg });
+        const diagnostics = extractErrorDiagnostics(apiErr);
+        await storage.updateOrder(order.id, {
+          orderStatus: 'failed',
+          errorMessage: errMsg,
+          details: {
+            lastFailure: diagnostics,
+          },
+        });
         console.error(`    ❌ 키움 매수 API 실패 (${stock.name}): ${errMsg}`);
         await storage.createTradingLog({
           accountId: activeAccount.id,
           action: 'place_buy_order',
           success: false,
           errorMessage: `[${stock.name}] 매수 실패: ${errMsg}`,
-          details: { stockCode: stock.code, quantity, price: stock.price }
+          details: { stockCode: stock.code, quantity, price: stock.price, errorDiagnostics: diagnostics }
         });
         storage.createEngineNotification({ userId: model.userId, severity: 'warn', type: 'ERROR', message: `[주문실패] ${stock.name} 매수 실패: ${errMsg}`, payload: { stockCode: stock.code } }).catch(e => console.error('[Notification]', e));
         return;
@@ -1540,14 +1568,21 @@ export class TradeExecutorService {
         });
       } catch (apiErr: any) {
         const errMsg = apiErr.message || String(apiErr);
-        await storage.updateOrder(sellOrder.id, { orderStatus: 'failed', errorMessage: errMsg });
+        const diagnostics = extractErrorDiagnostics(apiErr);
+        await storage.updateOrder(sellOrder.id, {
+          orderStatus: 'failed',
+          errorMessage: errMsg,
+          details: {
+            lastFailure: diagnostics,
+          },
+        });
         console.error(`    ❌ 키움 매도 API 실패 (${stock.name}): ${errMsg}`);
         await storage.createTradingLog({
           accountId: activeAccount.id,
           action: 'place_sell_order',
           success: false,
           errorMessage: `[${stock.name}] 매도 실패: ${errMsg}`,
-          details: { stockCode: stock.code, quantity: sellQuantity, price: stock.price }
+          details: { stockCode: stock.code, quantity: sellQuantity, price: stock.price, errorDiagnostics: diagnostics }
         });
         storage.createEngineNotification({ userId: model.userId, severity: 'warn', type: 'ERROR', message: `[주문실패] ${stock.name} 매도 실패: ${errMsg}`, payload: { stockCode: stock.code } }).catch(e => console.error('[Notification]', e));
         return;
@@ -2250,14 +2285,23 @@ export class TradeExecutorService {
         });
       } catch (apiErr: any) {
         const errMsg = apiErr.message || String(apiErr);
-        await storage.updateOrder(addBuyOrder.id, { orderStatus: 'failed', errorMessage: errMsg });
+        const diagnostics = extractErrorDiagnostics(apiErr);
+        await storage.updateOrder(addBuyOrder.id, {
+          orderStatus: 'failed',
+          errorMessage: errMsg,
+          details: {
+            rainbowLine: rainbow.currentLine,
+            tradeType: 'additional_buy',
+            lastFailure: diagnostics,
+          },
+        });
         console.error(`    ❌ 키움 추가매수 API 실패 (${stock.name}): ${errMsg}`);
         await storage.createTradingLog({
           accountId: activeAccount.id,
           action: 'place_add_buy_order',
           success: false,
           errorMessage: `[${stock.name}] 추가매수 실패: ${errMsg}`,
-          details: { stockCode: stock.code, quantity, price: stock.price }
+          details: { stockCode: stock.code, quantity, price: stock.price, errorDiagnostics: diagnostics }
         });
         storage.createEngineNotification({ userId: model.userId, severity: 'warn', type: 'ERROR', message: `[주문실패] ${stock.name} 추가매수 실패: ${errMsg}`, payload: { stockCode: stock.code } }).catch(e => console.error('[Notification]', e));
         return;

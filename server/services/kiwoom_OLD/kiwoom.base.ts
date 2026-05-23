@@ -297,6 +297,27 @@ export class KiwoomBase {
     throw new Error(`Kiwoom 인증 실패: ${error?.message ?? String(error)}`);
   }
 
+  private summarizeAuthPayload(data: unknown): string {
+    const raw = typeof data === "string" ? data : JSON.stringify(data);
+    const text = String(raw || "");
+    const lower = text.toLowerCase();
+    const isHtml = lower.includes("<!doctype") || lower.includes("<html");
+    if (!isHtml) return text.slice(0, 300);
+
+    const compact = text.replace(/\s+/g, " ").trim();
+    const hasMaintenanceWord = compact.includes("중단") || compact.includes("점검") || compact.includes("시스템 작업");
+    const timeMatch = compact.match(/중단\s*일시[^0-9]*(\d{1,2}\/\d{1,2}\([^)]+\)\s*\d{1,2}:\d{2}\s*~\s*\d{1,2}:\d{2})/);
+    const reasonMatch = compact.match(/중단\s*사유[^<\n]*[:：]?\s*([^<\n]+)/);
+
+    if (hasMaintenanceWord) {
+      const timeText = timeMatch?.[1] ? `, 중단 일시: ${timeMatch[1]}` : "";
+      const reasonText = reasonMatch?.[1] ? `, 사유: ${reasonMatch[1].trim()}` : "";
+      return `키움 서버 점검/중단 공지 페이지 응답${timeText}${reasonText}`;
+    }
+
+    return "키움 인증 응답이 HTML(공지/오류 페이지)로 반환되었습니다.";
+  }
+
   private async _doAuthenticate(baseURL: string): Promise<void> {
     const response = await axios.post(
       `${baseURL}/oauth2/token`,
@@ -318,7 +339,10 @@ export class KiwoomBase {
     }
 
     const token = data.access_token || data.token;
-    if (!token) throw new Error(`Kiwoom auth: no token in response. ${JSON.stringify(data)}`);
+    if (!token) {
+      const brief = this.summarizeAuthPayload(response.data);
+      throw new Error(`Kiwoom auth: no token in response. ${brief}`);
+    }
 
     this.accessToken = token;
     this.tokenExpiry = Date.now() + ((data.expires_in || 86400) * 1000) - 60000;

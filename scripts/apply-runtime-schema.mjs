@@ -80,6 +80,9 @@ CREATE TABLE IF NOT EXISTS stock_status (
   updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS error_message TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS details JSONB;
+
 ALTER TABLE auto_trading_settings ADD COLUMN IF NOT EXISTS filter_investment_warnings BOOLEAN NOT NULL DEFAULT FALSE;
 UPDATE auto_trading_settings SET filter_investment_warnings = FALSE WHERE filter_investment_warnings IS NULL OR filter_investment_warnings = TRUE;
 `;

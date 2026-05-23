@@ -7,6 +7,7 @@ import { AgentTimeoutError } from "../services/agent-proxy.service";
 import { getUserKiwoomService } from "../services/user-kiwoom.service";
 import { RainbowChartAnalyzer } from "../formula/rainbow-chart";
 import { getDartService } from "../services/dart.service";
+import { extractErrorDiagnostics } from "../utils/error-diagnostics";
 
 export function registerTradingRoutes(app: Router) {
   const userKiwoomService = getUserKiwoomService();
@@ -320,13 +321,16 @@ export function registerTradingRoutes(app: Router) {
 
   // 주문 실행
   app.post("/api/orders", isAuthenticated, async (req, res) => {
+    let orderData: any = null;
+    let order: any = null;
+    let account: any = null;
+    const user = getCurrentUser(req);
     try {
-      const orderData = insertOrderSchema.parse(req.body);
-      const order = await storage.createOrder(orderData);
-      const account = await storage.getKiwoomAccount(orderData.accountId);
+      orderData = insertOrderSchema.parse(req.body);
+      order = await storage.createOrder(orderData);
+      account = await storage.getKiwoomAccount(orderData.accountId);
       if (!account) return res.status(404).json({ error: "Account not found" });
 
-      const user = getCurrentUser(req);
       const kiwoomOrder = await userKiwoomService.placeOrder(user!.id, {
         stockCode: orderData.stockCode,
         orderType: orderData.orderType as "buy" | "sell",
@@ -369,7 +373,51 @@ export function registerTradingRoutes(app: Router) {
 
       res.json(updatedOrder);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      const errMsg = error?.message || String(error);
+      const diagnostics = extractErrorDiagnostics(error);
+
+      if (order?.id) {
+        try {
+          const existingDetails =
+            order?.details && typeof order.details === "object" ? (order.details as Record<string, unknown>) : {};
+          await storage.updateOrder(order.id, {
+            orderStatus: "failed",
+            errorMessage: errMsg,
+            details: {
+              ...existingDetails,
+              lastFailure: diagnostics,
+            },
+          });
+        } catch {
+          // error_message 칼럼이 없는 구버전 스키마 fallback
+          await storage.updateOrder(order.id, { orderStatus: "failed" });
+        }
+      }
+
+      if (orderData?.accountId) {
+        try {
+          await storage.createTradingLog({
+            accountId: orderData.accountId,
+            action: "place_order",
+            success: false,
+            errorMessage: errMsg,
+            details: {
+              orderId: order?.id ?? null,
+              stockCode: orderData.stockCode ?? null,
+              stockName: orderData.stockName ?? null,
+              orderType: orderData.orderType ?? null,
+              orderQuantity: orderData.orderQuantity ?? null,
+              orderPrice: orderData.orderPrice ?? null,
+              accountId: account?.id ?? orderData.accountId,
+              errorDiagnostics: diagnostics,
+            },
+          });
+        } catch (logErr) {
+          console.error("[orders] failed to persist failure trading log:", logErr);
+        }
+      }
+
+      res.status(400).json({ error: errMsg });
     }
   });
 
