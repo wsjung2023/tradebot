@@ -1074,6 +1074,11 @@ export class TradeExecutorService {
           },
         });
         console.error(`    ❌ 키움 매도 API 실패 (${holding.stockName}): ${errMsg}`);
+        // 800033: 잔고 없음 → 로컬 holding 제거해서 재시도 차단
+        if (/800033|매도가능수량/.test(errMsg)) {
+          console.warn(`    [SellGuard] 800033 잔고 없음 — holding 제거 (재시도 차단): ${holding.stockCode}`);
+          await storage.deleteHolding(holding.id);
+        }
         await storage.createTradingLog({
           accountId: activeAccount.id,
           action: 'place_exit_sell_order',
