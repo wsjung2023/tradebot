@@ -38,6 +38,7 @@ import {
   type AiUsageDaily,
   type TradeJournal, type InsertTradeJournal,
   type StockStatus, type InsertStockStatus,
+  type InsertConditionScanLog,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -227,6 +228,9 @@ export interface IStorage {
   clearCandidateStocks(userId: string, modelId: number): Promise<void>;
   updateCandidateStock(id: number, updates: Partial<CandidateStock>): Promise<CandidateStock | undefined>;
   updateCandidateEvaluation(candidateId: number, updates: Pick<CandidateStock, 'evaluationResult' | 'skipReason' | 'evaluatedAt'>): Promise<CandidateStock | undefined>;
+
+  // 조건검색 스캔 히스토리
+  createConditionScanLog(data: InsertConditionScanLog): Promise<void>;
 
   // 의사결정 로그
   createCandidateDecisionLog(data: InsertCandidateDecisionLog): Promise<CandidateDecisionLog>;

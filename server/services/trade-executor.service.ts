@@ -541,7 +541,7 @@ export class TradeExecutorService {
       return;
     }
 
-    // ── [가드 3] 24시간 per-line 쿨다운 ──────────────────────────────────
+    // ── [가드 3] per-line 쿨다운 (기본 24h, RC4007/RC4010 에러 시 7일) ──────────────────────────────────
     const now = new Date();
     const scaleInCooldownKey = `scaleIn:${model.id}:${stockCode}:line${currentLine}`;
     const recentScaleIn = await storage.getLatestCandidateDecisionByCooldownKey(
@@ -549,10 +549,11 @@ export class TradeExecutorService {
     );
     if (recentScaleIn?.decidedAt) {
       const elapsedMs = now.getTime() - new Date(recentScaleIn.decidedAt).getTime();
-      const cooldownMs = 24 * 60 * 60 * 1000; // 24시간
+      // RC4007/RC4010 영구제한 에러로 기록된 경우 더 긴 쿨다운 사용
+      const cooldownMs = (recentScaleIn.aiDecision as any)?.cooldownDurationMs ?? (24 * 60 * 60 * 1000);
       if (elapsedMs < cooldownMs) {
         const remainHr = ((cooldownMs - elapsedMs) / 3600000).toFixed(1);
-        console.log(`    [ScaleIn] ⏭️  ${stockCode} ${currentLine}% 라인 — 24h 쿨다운 중 (잔여 ${remainHr}h), 스킵`);
+        console.log(`    [ScaleIn] ⏭️  ${stockCode} ${currentLine}% 라인 — 쿨다운 중 (잔여 ${remainHr}h), 스킵`);
         return;
       }
     }
@@ -2304,6 +2305,35 @@ export class TradeExecutorService {
           details: { stockCode: stock.code, quantity, price: stock.price, errorDiagnostics: diagnostics }
         });
         storage.createEngineNotification({ userId: model.userId, severity: 'warn', type: 'ERROR', message: `[주문실패] ${stock.name} 추가매수 실패: ${errMsg}`, payload: { stockCode: stock.code } }).catch(e => console.error('[Notification]', e));
+        // RC4007(모의투자 매매제한) / RC4010(영업일 아님) → 재시도해도 항상 실패하는 에러이므로 7일 쿨다운
+        const isKiwoomPermanentBlock = /RC4007|RC4010|매매제한/.test(errMsg);
+        if (isKiwoomPermanentBlock) {
+          const blockNow = new Date();
+          const blockCooldownKey = `scaleIn:${model.id}:${stock.code}:line${rainbow.currentLine}`;
+          storage.createCandidateDecisionLog({
+            modelId: model.id,
+            stockCode: stock.code,
+            stockName: stock.name,
+            scorecard: null,
+            aiDecision: {
+              accepted: false,
+              decisionType: 'scaleIn_blocked_kiwoom',
+              qualitativeReason: `키움 영구 거부(${errMsg}) — 7일 차단`,
+              cooldownKey: blockCooldownKey,
+              cooldownMode: 'scaleIn_7d',
+              cooldownDurationMs: 7 * 24 * 60 * 60 * 1000,
+              cooldownWindowLabel: 'scaleIn_7d',
+              cooldownSince: blockNow.toISOString(),
+              decidedAt: blockNow.toISOString(),
+              dailyKey: this.todayKST(),
+            },
+            accepted: false,
+            rejectReason: 'execution_blocked_kiwoom_restriction',
+            strategyVersion: 'v2',
+            ladderPlan: null,
+          }).catch(e => console.error('[ScaleIn] 7일 차단 기록 실패:', e));
+          console.warn(`    🚫 [ScaleIn] ${stock.name} ${rainbow.currentLine}% 라인 — RC4007/RC4010 에러, 7일 차단 기록`);
+        }
         return;
       }
       const addOrdNo = addBuyResp?.output?.ord_no || addBuyResp?.ord_no || null;

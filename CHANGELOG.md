@@ -1,5 +1,27 @@
 # CHANGELOG
 
+## 2026-05-27 — 조건검색 스캔 히스토리 영구 보존 + RC4007 추가매수 반복 차단
+
+### 신규 DB 테이블
+| 테이블 | 설명 |
+|--------|------|
+| `condition_scan_logs` | 매 30분 조건검색 스캔 결과를 영구 보존. `model_id`, `condition_seq`, `stock_code`, `dart_blocked`, `scanned_at` 컬럼. 이전까지는 `candidate_stocks`가 매 스캔 사이클마다 초기화되어 전날 스캔 내역 확인 불가했음 |
+
+### 버그 수정
+- **RC4007/RC4010 추가매수 무한 재시도 차단**: 모의투자 매매제한 종목(`RC4007`) 또는 비영업일(`RC4010`) 에러로 추가매수 API가 실패하면 기존에는 24h 쿨다운 후 매일 재시도했음. 이제 해당 에러 발생 시 7일 쿨다운을 `candidate_decision_logs`에 기록하여 재시도 차단 (`cooldownDurationMs: 7일`)
+
+### 변경 파일
+| 파일 | 내용 |
+|------|------|
+| `shared/schema.ts` | `conditionScanLogs` 테이블 정의 추가 |
+| `migrations/0006_condition_scan_logs.sql` | CREATE TABLE + 인덱스 |
+| `server/auto-trading-worker.ts` | 스캔 사이클에서 `createConditionScanLog` 호출 (DART 차단 여부 포함) |
+| `server/services/trade-executor.service.ts` | ① 쿨다운 체크 시 레코드의 `cooldownDurationMs` 읽어 가변 적용 ② RC4007/RC4010 에러 후 7일 차단 레코드 삽입 |
+| `server/storage/interface.ts` | `createConditionScanLog` 메서드 선언 |
+| `server/storage/postgres-core.storage.ts` | `createConditionScanLog` 구현 |
+
+---
+
 ## [PR #11] 2026-03-12 — DART 공시·학습 서비스·분석 재료 수집·Replit 준비상태 스크립트
 
 ### 신규 파일

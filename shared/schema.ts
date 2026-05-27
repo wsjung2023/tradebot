@@ -874,6 +874,23 @@ export const insertCandidateStockSchema = createInsertSchema(candidateStocks).om
 export type CandidateStock = typeof candidateStocks.$inferSelect;
 export type InsertCandidateStock = z.infer<typeof insertCandidateStockSchema>;
 
+// 조건검색 스캔 히스토리 (매 스캔 사이클마다 결과를 영구 보존)
+export const conditionScanLogs = pgTable("condition_scan_logs", {
+  id: serial("id").primaryKey(),
+  modelId: integer("model_id").notNull(),
+  userId: varchar("user_id").notNull(),
+  conditionSeq: text("condition_seq").notNull(),
+  conditionName: text("condition_name"),
+  stockCode: text("stock_code").notNull(),
+  stockName: text("stock_name").notNull().default(''),
+  dartBlocked: boolean("dart_blocked").notNull().default(false),
+  scannedAt: timestamp("scanned_at").notNull().defaultNow(),
+});
+
+export const insertConditionScanLogSchema = createInsertSchema(conditionScanLogs).omit({ id: true, scannedAt: true });
+export type ConditionScanLog = typeof conditionScanLogs.$inferSelect;
+export type InsertConditionScanLog = z.infer<typeof insertConditionScanLogSchema>;
+
 // Candidate evaluation decision log (one row per AI evaluation)
 export const candidateDecisionLogs = pgTable("candidate_decision_logs", {
   id: serial("id").primaryKey(),

@@ -43,6 +43,13 @@
       "when": 1747699300000,
       "tag": "0005_order_error_message",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1748304000000,
+      "tag": "0006_condition_scan_logs",
+      "breakpoints": true
     }
   ]
 }

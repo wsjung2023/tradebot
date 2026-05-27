@@ -30,6 +30,7 @@ import type {
   AgentAlertLog, InsertAgentAlertLog,
   AiUsageDaily,
   TradeJournal, InsertTradeJournal,
+  InsertConditionScanLog,
 } from '@shared/schema';
 
 export class PostgreSQLCoreStorage {
@@ -819,6 +820,10 @@ export class PostgreSQLCoreStorage {
         eq(schema.candidateStocks.userId, userId),
         eq(schema.candidateStocks.modelId, modelId),
       ));
+  }
+
+  async createConditionScanLog(data: InsertConditionScanLog): Promise<void> {
+    await db.insert(schema.conditionScanLogs).values(data);
   }
 
   async updateCandidateStock(id: number, updates: Partial<CandidateStock>): Promise<CandidateStock | undefined> {

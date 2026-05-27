@@ -189,6 +189,16 @@ class AutoTradingWorker {
             for (const raw of results) {
               const stock = this.userKiwoomService.normalizeConditionResult(raw);
               const isDangerous = await this.checkDartDanger(stock.stockCode);
+              // 히스토리 로그 기록 (DART 차단 여부 포함)
+              storage.createConditionScanLog({
+                modelId: model.id,
+                userId: model.userId,
+                conditionSeq: seq.conditionId,
+                conditionName: seq.name ?? seq.conditionId,
+                stockCode: stock.stockCode,
+                stockName: stock.stockName,
+                dartBlocked: isDangerous,
+              }).catch(e => console.error('[ScanJob] 히스토리 로그 실패:', e));
               if (isDangerous) {
                 console.log(`[ScanJob] 🚫 DART 위험공시: ${stock.stockCode} — 제외`);
                 continue;
