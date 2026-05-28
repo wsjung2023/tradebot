@@ -153,6 +153,11 @@ export function HoldingExitPlanDialog({ open, onOpenChange, modelId, holding }: 
 
             {/* ── AI 계획 탭 ── */}
             <TabsContent value="ai" className="space-y-4">
+              <div className="rounded-md bg-blue-500/10 border border-blue-500/20 p-3 text-xs text-blue-300 space-y-1">
+                <p className="font-semibold">AI 계획이란?</p>
+                <p>이동평균선(MA5/20/60), 최근 60일 고점·저점, 레인보우 CL 위치를 GPT가 분석해 "몇 % 수익에 몇 %를 팔아라" 계획을 자동으로 만들어줍니다.</p>
+                <p className="text-blue-400">⚠ 계획이 있으면 모델의 3% 익절보다 이 계획이 먼저 실행됩니다. 계획 삭제 시 다시 모델 기본값으로 돌아갑니다.</p>
+              </div>
               <div className="flex items-center justify-between">
                 <div className="text-sm text-muted-foreground">
                   {plan?.source === 'ai_batch' && plan?.generatedAt && (
@@ -212,6 +217,17 @@ export function HoldingExitPlanDialog({ open, onOpenChange, modelId, holding }: 
 
             {/* ── 수기 설정 탭 ── */}
             <TabsContent value="manual" className="space-y-5">
+              <div className="rounded-md bg-muted/50 border border-border p-3 text-xs text-muted-foreground space-y-1">
+                <p><span className="text-foreground font-semibold">익절 기준 (%)</span> — 이 종목만 다른 %로 팔고 싶을 때. 비워두면 모델의 3% 적용.</p>
+                <p><span className="text-foreground font-semibold">분할매도 단계</span> — 단계를 추가하면 모델 익절%보다 이 단계가 먼저 실행됩니다.</p>
+                <p className="pt-1 border-t border-border">
+                  <span className="font-semibold text-yellow-400">조건 타입 설명:</span><br/>
+                  · <b>익절률(%)</b> — 수익률이 해당 % 이상 될 때 매도<br/>
+                  · <b>레인보우라인(CL)</b> — 현재가가 CL 60, 70, 80% 등 도달 시 매도<br/>
+                  · <b>손절률(%)</b> — 손실이 해당 % 이상 날 때 매도<br/>
+                  <span className="font-semibold text-yellow-400">매도 비중</span> — 그 시점의 남은 수량 기준. 50% → 남은 것의 절반, 100% → 전량
+                </p>
+              </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <Label>익절 기준 (%)</Label>
