@@ -2323,7 +2323,7 @@ export class TradeExecutorService {
             aiDecision: {
               accepted: false,
               decisionType: 'scaleIn_blocked_kiwoom',
-              qualitativeReason: `키움 영구 거부(${errMsg}) — 7일 차단`,
+              qualitativeReason: `키움 RC4007 차단(${errMsg}) — 7일 재시도 금지`,
               cooldownKey: blockCooldownKey,
               cooldownMode: 'scaleIn_7d',
               cooldownDurationMs: 7 * 24 * 60 * 60 * 1000,
