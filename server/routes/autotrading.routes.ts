@@ -564,15 +564,37 @@ export function registerAutoTradingRoutes(app: Router) {
         : 0;
 
       let currentRainbowLine = 50;
+      let ma5: number | undefined, ma20: number | undefined, ma60: number | undefined, ma120: number | undefined;
+      let recentHigh: number | undefined, recentLow: number | undefined;
+      let high52w: number | undefined, low52w: number | undefined;
+
       try {
         const chartData = await userKiwoomService.getChart(user.id, stockCode, 'D', 250);
         const ohlcv = normalizeChartDataAsc(chartData?.output || chartData);
+
+        // 레인보우 CL
         const analysis = RainbowChartAnalyzer.analyze(stockCode, ohlcv, 240);
         const range = analysis.highest - analysis.lowest;
         if (range > 0) {
           const pct = ((currentPrice - analysis.lowest) / range) * 100;
           currentRainbowLine = Math.min(100, Math.max(10, Math.round(pct / 10) * 10));
         }
+
+        // 이동평균 계산
+        const closes = ohlcv.map((c: any) => Number(c.close)).filter(Boolean);
+        const ma = (n: number) => closes.length >= n
+          ? closes.slice(-n).reduce((a: number, b: number) => a + b, 0) / n
+          : undefined;
+        ma5 = ma(5); ma20 = ma(20); ma60 = ma(60); ma120 = ma(120);
+
+        // 최근 60일 고점/저점
+        const recent60 = ohlcv.slice(-60);
+        recentHigh = Math.max(...recent60.map((c: any) => Number(c.high)).filter(Boolean));
+        recentLow = Math.min(...recent60.map((c: any) => Number(c.low)).filter(Boolean));
+
+        // 52주(250거래일) 고점/저점
+        high52w = Math.max(...ohlcv.map((c: any) => Number(c.high)).filter(Boolean));
+        low52w = Math.min(...ohlcv.map((c: any) => Number(c.low)).filter(Boolean));
       } catch { /* ignore */ }
 
       const userSettings = await storage.getUserSettings(user.id);
@@ -589,6 +611,9 @@ export function registerAutoTradingRoutes(app: Router) {
         quantity: holding.quantity,
         filledEntrySteps,
         holdingDays,
+        ma5, ma20, ma60, ma120,
+        recentHigh, recentLow,
+        high52w, low52w,
       }, aiModel, { userId: user.id, accountId, source: 'exit-plan-generate' });
 
       const plan = await storage.upsertHoldingExitPlan({
@@ -612,6 +637,18 @@ export function registerAutoTradingRoutes(app: Router) {
       if (!await verifyModelOwnership(user.id, modelId)) return res.status(403).json({ error: 'forbidden' });
       const plans = await storage.getHoldingExitPlansForModel(modelId);
       res.json({ plans });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // DELETE /api/auto-trading/exit-plans/:modelId  — 모델 전체 계획 일괄 삭제
+  app.delete('/api/auto-trading/exit-plans/:modelId', isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req)!;
+      const modelId = parseInt(req.params.modelId);
+      if (!await verifyModelOwnership(user.id, modelId)) return res.status(403).json({ error: 'forbidden' });
+      const plans = await storage.getHoldingExitPlansForModel(modelId);
+      await Promise.all(plans.map((p: any) => storage.deleteHoldingExitPlan(modelId, p.stockCode)));
+      res.json({ ok: true, deleted: plans.length });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 }

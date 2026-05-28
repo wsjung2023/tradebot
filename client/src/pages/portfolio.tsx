@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -65,9 +66,27 @@ export default function Portfolio() {
   const [selectedAccount, setSelectedAccount] = useState<string>("all");
   const [exitPlanHolding, setExitPlanHolding] = useState<PortfolioHolding | null>(null);
   const [exitPlanOpen, setExitPlanOpen] = useState(false);
+  const { toast } = useToast();
+  const qc = useQueryClient();
 
   const { data: accountsData = [] } = useQuery<PortfolioAccount[]>({ queryKey: ["/api/accounts"] });
   const { data: modelsData = [] } = useQuery<AiModel[]>({ queryKey: ["/api/ai/models"] });
+
+  const deleteAllPlansMutation = useMutation({
+    mutationFn: async () => {
+      const results = await Promise.all(
+        modelsData.map((m: AiModel) =>
+          fetch(`/api/auto-trading/exit-plans/${m.id}`, { method: 'DELETE' }).then(r => r.json())
+        )
+      );
+      return results.reduce((sum: number, r: any) => sum + (r.deleted ?? 0), 0);
+    },
+    onSuccess: (deleted) => {
+      qc.invalidateQueries({ queryKey: ['/api/auto-trading/exit-plan'] });
+      toast({ title: `전체 매도 계획 삭제 완료`, description: `${deleted}개 계획 삭제됨` });
+    },
+    onError: () => toast({ title: '삭제 실패', variant: 'destructive' }),
+  });
 
   const { data, isLoading, isError } = useQuery<{ holdings: PortfolioHolding[] }>({
     queryKey: ["/api/portfolio/holdings"],
@@ -133,12 +152,28 @@ export default function Portfolio() {
 
   return (
     <div className="p-3 md:p-6 space-y-4 md:space-y-6">
-      <div>
-        <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-2" data-testid="text-portfolio-title">
-          <Briefcase className="h-7 w-7" />
-          포트폴리오
-        </h1>
-        <p className="text-muted-foreground mt-1">전체 계좌 보유종목 통합 현황 (1분 자동갱신)</p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-2" data-testid="text-portfolio-title">
+            <Briefcase className="h-7 w-7" />
+            포트폴리오
+          </h1>
+          <p className="text-muted-foreground mt-1">전체 계좌 보유종목 통합 현황 (1분 자동갱신)</p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="shrink-0 text-destructive border-destructive/40 hover:bg-destructive/10"
+          onClick={() => {
+            if (confirm('모든 종목의 매도 계획을 삭제합니다. 계속하시겠습니까?')) {
+              deleteAllPlansMutation.mutate();
+            }
+          }}
+          disabled={deleteAllPlansMutation.isPending}
+          title="모든 종목의 매도 계획(ExitStage) 일괄 삭제"
+        >
+          {deleteAllPlansMutation.isPending ? '삭제 중...' : '전체 매도계획 삭제'}
+        </Button>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
