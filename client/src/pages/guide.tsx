@@ -31,6 +31,7 @@ const sections: Section[] = [
   { id: "rainbow", title: "레인보우 차트 로직", icon: Workflow, color: "neon-cyan", badge: "뒷차기2" },
   { id: "ai-logic", title: "AI 판단 및 수식", icon: Bot, color: "neon-purple", badge: "핵심" },
   { id: "settings", title: "모델 상세 설정", icon: SlidersHorizontal, color: "neon-green", badge: "운용" },
+  { id: "exit-strategy", title: "매도 전략 우선순위", icon: Activity, color: "neon-red", badge: "매도" },
   { id: "dart", title: "DART 재무 필터", icon: ShieldAlert, color: "neon-cyan", badge: "리스크" },
   { id: "jobs", title: "배치잡 및 모니터링", icon: ServerCog, color: "neon-purple", badge: "운영" },
   { id: "safety", title: "안전장치 및 429 에러", icon: AlertTriangle, color: "neon-green", badge: "중요" },
@@ -253,18 +254,77 @@ Position(%) = ((현재가 - 240일 저점) / (240일 고점 - 240일 저점)) * 
         </Warn>
       </SectionCard>
 
-      <SectionCard {...sections[5]}>
-        <Code>{`1. 배치잡 관리 (Jobs)
-- [스캔 잡]: 조건검색식을 돌려 후보를 뽑는 주기 (보통 1~5분)
-- [매매 잡]: 뽑힌 후보를 AI가 평가하고 실제 주문을 내는 주기 (보통 1~2분)
-- [학습 잡]: 하루 매매 데이터를 분석해 AI 파라미터를 자동 최적화 (매일 16:00 실행)
-  · 거래 데이터 20건 미만 → 분석 스킵 (권고사항 없음)
-  · 20~49건 → 분석 + 권고사항 생성, 파라미터 자동 적용은 보류
-  · 50건 이상 → 분석 + 파라미터 자동 적용 (minAiConfidence 등 조정)
+      <SectionCard {...sections[4]}>
+        <p className="text-sm leading-relaxed mb-3">
+          매 <strong>1분 사이클</strong>마다 보유 종목에 대해 아래 순서로 매도 조건을 평가합니다.
+          상위 조건이 발동되면 이하 조건은 해당 사이클에서 건너뜁니다.
+        </p>
+        <Code>{`매도 평가 순서 (높은 우선순위 → 낮은 우선순위)
 
-2. 실시간 모니터링 (Monitor)
-- 엔진 상태가 'running' 인지 상시 확인
-- '매매 결정 피드'에서 AI가 왜 SKIP 했는지 사유(Low Confidence, High Position 등)를 확인 가능`}</Code>
+① ExitStage 분할매도 계획 (최우선)
+   - 포트폴리오 > 종목 > 🎯 버튼으로 설정하거나, 매도계획 배치잡이 매일 08:50 KST에 자동 생성
+   - 트리거 종류: profit_rate(수익률%), rainbow_line(CL선%), loss_rate(손절%)
+   - 발동 시 설정된 sellRatio(잔여수량 비율) 만큼 분할 매도
+   - 해당 단계는 fulfilled=true 처리 → 같은 단계 재발동 없음
+
+② 종목별 단순 익절% (수기 오버라이드)
+   - 포트폴리오 > 종목 > 🎯 > 수기 설정 탭의 '익절 기준(%)'
+   - 모델 기본값보다 이 값이 우선 적용됨
+   - 미설정 시 ③ 모델 값으로 자동 폴백
+
+③ 모델 익절% (모델 기본값)
+   - 자동매매 설정 > 기본 전략 설정의 '익절 기준(%)'
+   - 종목별 설정이 없을 때 사용되는 공통 기준
+
+④ 물타기 익절 (자동 계산)
+   - 추가매수(scale-in) 2유닛 이상 보유 시 활성화
+   - 기본값: 2유닛→8%, 3유닛→6%, 4유닛→4%, 5유닛→3% (유닛 많을수록 목표 낮아짐)
+   - 설정에서 'scaleInTakeProfitPct' 값으로 고정 가능
+
+⑤ CL선 분할매도 (rainbowLineSettings.sellWeight)
+   - 자동매매 설정 > 레인보우 라인 설정의 각 라인 'sell%' 슬라이더
+   - CL이 60%(노랑) 이상 도달 시 해당 라인의 sellWeight 비율만큼 분할 매도
+   - 예: CL 70%(주황) sellWeight=50% → 보유수량의 50% 매도
+   - 이미 매도 주문이 진행 중이면 중복 방지 로직으로 재발동 차단
+
+⑥ 손절 (stop loss)
+   - 모델 설정의 손절 정책(hard / conditional / disabled)에 따라 작동
+   - hard: 손실 >= hardCutLossPct 즉시 전량 청산
+   - conditional: 특정 CL 색상(초록/파랑) 이하일 때만 손절 발동
+
+⑦ 동적 청산
+   - 급등 청산: 수익률이 surgeThreshold% 이상 → 전량
+   - 장기 보유 청산: stalePeriodDays 초과 + 손실 중 → 전량
+   - 거래량 급증 청산: 당일 거래량 > 30일 평균 × volumeSpikeMultiplier → 전량
+
+⑧ AI 거부권 (soft_ai_first 모드만)
+   - ①~⑦ 중 하나가 발동된 후, AI에게 최종 판단을 의뢰
+   - AI가 'hold' 판단 시 매도 취소 / 'partial_exit' 시 50% 분할 / 'full_exit' 시 전량`}</Code>
+        <div className="mt-3 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-md text-xs text-yellow-300 space-y-1">
+          <p className="font-bold">⚠️ 주의사항</p>
+          <p>① ExitStage 배치잡을 끄더라도 DB에 이미 저장된 계획은 계속 실행됩니다. 계획 자체를 삭제해야 멈춥니다.</p>
+          <p>⑤ CL 분할매도는 수익 중일 때만 발동합니다 (손실 중 CL 상승은 발동 안 함).</p>
+          <p>⑧ AI 거부권은 soft_ai_first 모드일 때만 작동합니다. 모드가 disabled/hard/conditional이면 AI 판단 없이 바로 실행됩니다.</p>
+        </div>
+      </SectionCard>
+
+      <SectionCard {...sections[5]}>
+        <Code>{`배치잡 목록 (배치잡 관리 페이지에서 시작/중지/시각 변경 가능)
+
+[스캔 잡]      : 30분마다 조건검색식으로 후보 종목 발굴 → condition_scan_logs에 영구 저장
+[매매 잡]      : 1분마다 AI 평가 + 매수/매도 실행 (장중에만 실질 동작)
+[학습 잡]      : 매일 16:00 KST 거래 성과 분석 → AI 파라미터 자동 최적화
+  · 거래 데이터 20건 미만 → 분석 스킵
+  · 20~49건 → 권고사항 생성, 자동 적용 보류
+  · 50건 이상 → 파라미터 자동 적용
+[잔고갱신 잡]  : 5분마다 실계좌 잔고 동기화 (장중 08:30~18:00 KST 월~금)
+[매도계획 잡]  : 매일 08:50 KST 보유 종목별 AI 분할매도 계획 자동 생성
+  · 꺼도 이미 저장된 계획은 계속 실행됨 (계획 삭제 필요)
+  · 포트폴리오에서 수기로 편집 가능
+
+모니터링
+- 실시간 모니터 페이지에서 엔진 상태 'running' 확인
+- 선정/탈락 이력 페이지에서 AI 판단 이유 및 매도 발동 로그 확인 가능`}</Code>
       </SectionCard>
 
       <SectionCard {...sections[6]}>
@@ -290,7 +350,7 @@ Position(%) = ((현재가 - 240일 저점) / (240일 고점 - 240일 저점)) * 
 
       <div className="pt-8 text-center">
         <p className="text-xs text-muted-foreground italic">
-          최종 업데이트: 2026년 5월 16일 (뒷차기2 통합 엔진 기준)
+          최종 업데이트: 2026년 5월 28일 (매도 전략 우선순위 / 종목별 분할매도 계획 추가)
         </p>
       </div>
     </div>

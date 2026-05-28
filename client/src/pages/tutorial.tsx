@@ -200,7 +200,7 @@ const steps: TutorialStep[] = [
     systemAction: [
       "에이전트를 통해 키움 서버에 실제 매수/매도 주문 전송",
       "진입 후 가격 하락 시 라더 계획에 따라 스케일인(추가매수) 실행",
-      "익절/손절가 도달 시 또는 AI 청산 결정 시 전량/분할 매도 실행",
+      "매도 조건 우선순위: ExitStage(분할계획) → 종목별익절% → 모델익절% → 물타기익절 → CL분할 → 손절 → 동적청산 → AI거부권 순으로 평가",
     ],
     checkpoints: [
       "실제 계좌에 주문이 체결되는가?",
@@ -210,6 +210,36 @@ const steps: TutorialStep[] = [
   },
   {
     id: 8,
+    phase: "매도전략",
+    title: "종목별 분할매도 계획 설정",
+    icon: SlidersHorizontal,
+    color: "neon-red",
+    trigger: "매수 후 포지션 운용 시 또는 매일 08:50 자동",
+    goal: "보유 종목별로 '언제, 몇 %를 팔지' 세밀하게 제어하여 최적 청산 타이밍을 잡는다.",
+    operatorAction: [
+      "포트폴리오 > 종목 행 우측 🎯 버튼 클릭 → 매도전략 다이얼로그 열기",
+      "[AI 계획 탭] 'AI 계획 생성' 버튼 → AI가 레인보우·수익률·보유기간 분석 후 2~4단계 자동 생성",
+      "[수기 설정 탭] 익절%·손절% 단순 오버라이드 또는 단계별 직접 입력(CL선/수익률/손절률 트리거)",
+      "매도계획 배치잡(08:50 KST)을 켜두면 매일 아침 자동으로 계획 갱신됨",
+    ],
+    systemAction: [
+      "holding_exit_plans 테이블에 종목별 ExitStage 배열 저장",
+      "1분 사이클마다 ExitStage 조건 평가 → 발동 시 sellRatio만큼 분할 매도, fulfilled=true 처리",
+      "모델 레벨 CL 분할매도(rainbowLineSettings.sellWeight)는 별도로 매 1분 평가",
+    ],
+    checkpoints: [
+      "🎯 버튼 클릭 시 다이얼로그가 열리는가?",
+      "AI 계획 생성 후 ExitStage 목록이 표시되는가?",
+      "선정/탈락 이력에 '단계매도[1차 익절]' 형태 로그가 발생하는가?",
+    ],
+    failCase: {
+      condition: "🎯 버튼이 보이지 않음",
+      action: "데스크탑 크기(md 이상) 브라우저에서만 표시됩니다. 화면을 넓히거나 줌 아웃 후 확인하세요.",
+    },
+    output: "레인보우·수익률 기반 자동 분할매도 운용",
+  },
+  {
+    id: 9,
     phase: "학습",
     title: "데이터 피드백 및 전략 최적화",
     icon: GraduationCap,

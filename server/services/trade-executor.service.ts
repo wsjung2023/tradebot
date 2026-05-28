@@ -915,6 +915,30 @@ export class TradeExecutorService {
 
 
 
+        // ── CL선 기반 분할매도 (rainbowLineSettings.sellWeight) ─────────────────────────
+        // 1분 사이클에서 보유 종목의 현재 CL이 매도 구간(>=60)이고 sellWeight > 0이면 분할 매도
+        if (!shouldSell) {
+          const clRainbowSettings = settings.rainbowLineSettings as { line: number; buyWeight: number; sellWeight: number }[] | null | undefined;
+          if (Array.isArray(clRainbowSettings) && clRainbowSettings.length > 0) {
+            if (currentLineForDecision === null) {
+              currentLineForDecision = await this.getCurrentRainbowLine(holding.stockCode, currentPrice, kiwoomService);
+            }
+            const clLine = currentLineForDecision;
+            if (clLine >= 60) {
+              const matched = clRainbowSettings.find(r => r.line === clLine)
+                ?? clRainbowSettings.reduce((prev, curr) =>
+                  Math.abs(curr.line - clLine) < Math.abs(prev.line - clLine) ? curr : prev);
+              const sw = matched?.sellWeight ?? 0;
+              if (sw > 0) {
+                shouldSell = true;
+                sellRatio = sw / 100;
+                exitReason = `CL${clLine}% 분할매도: sellWeight=${sw}% (${matched.line}선 기준)`;
+                console.log(`    🌈 [CL매도] ${holding.stockCode} CL=${clLine}%, sellWeight=${sw}% → sellRatio=${sellRatio.toFixed(2)}`);
+              }
+            }
+          }
+        }
+
         if (shouldSell && stopLossMode === 'soft_ai_first' && aiService) {
           try {
             if (currentLineForDecision === null) {
