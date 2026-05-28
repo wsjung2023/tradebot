@@ -761,17 +761,18 @@ export class TradeExecutorService {
           }
         }
 
-        // ── 기본 익절 체크 (takeProfitPercent 설정 시, ExitStage 미발동 시) ─────────────
-        if (!shouldSell && hasAnyExitCondition && effectiveTakeProfitPercent && profitRate >= effectiveTakeProfitPercent) {
+        // ── 기본 익절 체크 (effectiveTakeProfitPercent = 종목별 OR 모델 기본값) ──────────
+        // hasAnyExitCondition 제거: effectiveTakeProfitPercent 자체가 설정 존재 여부를 담보
+        if (!shouldSell && effectiveTakeProfitPercent && profitRate >= effectiveTakeProfitPercent) {
           if (allowAiHoldBeyondTarget) {
-            console.log(`    ℹ️  ${holding.stockCode} 목표 도달(+${takeProfitPercent}%) 했지만 '목표초과 보유 허용' 설정으로 보유 유지`);
+            console.log(`    ℹ️  ${holding.stockCode} 목표 도달(+${effectiveTakeProfitPercent}%) 했지만 '목표초과 보유 허용' 설정으로 보유 유지`);
           } else if (allowAiPartialTakeProfit && holding.quantity >= 2) {
             shouldSell = true;
             sellRatio = 0.5;
-            exitReason = `부분익절: +${profitRate.toFixed(1)}% (기준: +${takeProfitPercent}%, 50% 청산)`;
+            exitReason = `부분익절: +${profitRate.toFixed(1)}% (기준: +${effectiveTakeProfitPercent}%, 50% 청산)`;
           } else {
             shouldSell = true;
-            exitReason = `익절: +${profitRate.toFixed(1)}% (기준: +${takeProfitPercent}%)`;
+            exitReason = `익절: +${profitRate.toFixed(1)}% (기준: +${effectiveTakeProfitPercent}%)`;
           }
         }
 
