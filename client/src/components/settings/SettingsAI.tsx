@@ -1,5 +1,5 @@
-// SettingsAI.tsx — AI 분석 모델 선택 + 월 예산 설정 카드
-import { useState } from "react";
+// SettingsAI.tsx — AI 분석 모델 선택 + 월 예산 설정 + 학습 잡 정책 카드
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -10,12 +10,91 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Brain, DollarSign } from "lucide-react";
+import { Brain, DollarSign, GraduationCap } from "lucide-react";
 
 interface Props {
   aiModel?: string;
   isPending: boolean;
   onModelChange: (value: string) => void;
+}
+
+// 학습 정책 기본값
+const LP_DEFAULTS = { minTradesForAnalysis: 20, minTradesForAutoApply: 50, autoApplyMinWinRate: 45, autoApplyMinReturn: 0, autoApplyMaxDrawdown: 30 };
+
+function LearningPolicySection() {
+  const { toast } = useToast();
+  const [lp, setLp] = useState(LP_DEFAULTS);
+  const [selectedModelId, setSelectedModelId] = useState<number | null>(null);
+
+  const { data: models = [] } = useQuery<any[]>({
+    queryKey: ['/api/ai/models'],
+    queryFn: () => apiRequest('GET', '/api/ai/models').then(r => r.json()),
+  });
+
+  // 첫 번째 활성 모델 자동 선택
+  useEffect(() => {
+    if (models.length > 0 && !selectedModelId) {
+      setSelectedModelId(models[0].id);
+    }
+  }, [models]);
+
+  const { data: tsData } = useQuery<any>({
+    queryKey: ['/api/ai/models', selectedModelId, 'trading-settings'],
+    queryFn: () => apiRequest('GET', `/api/ai/models/${selectedModelId}/trading-settings`).then(r => r.json()),
+    enabled: !!selectedModelId,
+    onSuccess: (d: any) => {
+      const p = d?.learningPolicy;
+      if (p) setLp({ ...LP_DEFAULTS, ...p });
+      else setLp(LP_DEFAULTS);
+    },
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: () => apiRequest('PATCH', `/api/ai/models/${selectedModelId}/trading-settings`, { learningPolicy: lp }).then(r => r.json()),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/ai/models', selectedModelId, 'trading-settings'] });
+      toast({ title: '학습 잡 정책 저장됨' });
+    },
+    onError: (e: any) => toast({ variant: 'destructive', title: '저장 실패', description: e.message }),
+  });
+
+  const field = (key: keyof typeof LP_DEFAULTS, label: string, desc: string) => (
+    <div className="space-y-1">
+      <Label className="text-xs">{label}</Label>
+      <Input type="number" className="h-8 text-xs" value={lp[key]} onChange={e => setLp(prev => ({ ...prev, [key]: parseFloat(e.target.value) || 0 }))} />
+      <p className="text-[10px] text-muted-foreground">{desc}</p>
+    </div>
+  );
+
+  if (models.length === 0) return null;
+
+  return (
+    <div className="border-t pt-4 space-y-3">
+      <div className="flex items-center gap-2">
+        <GraduationCap className="h-4 w-4 text-muted-foreground" />
+        <span className="font-medium text-sm">학습 잡 정책</span>
+      </div>
+      <p className="text-xs text-muted-foreground">학습 잡이 매일 돌 때 분석 및 자동 적용 기준입니다. 모델별로 설정됩니다.</p>
+
+      {models.length > 1 && (
+        <Select value={String(selectedModelId)} onValueChange={v => setSelectedModelId(Number(v))}>
+          <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+          <SelectContent>{models.map((m: any) => <SelectItem key={m.id} value={String(m.id)}>{m.modelName}</SelectItem>)}</SelectContent>
+        </Select>
+      )}
+
+      <div className="grid grid-cols-2 gap-3">
+        {field('minTradesForAnalysis', '분석 시작 최소 거래 수', '이 건수 미만이면 분석 없이 스킵 (기본 20)')}
+        {field('minTradesForAutoApply', '자동 적용 최소 거래 수', '이 건수 이상 + 아래 조건 충족 시 파라미터 자동 변경 (기본 50)')}
+        {field('autoApplyMinWinRate', '자동 적용 최소 승률 (%)', '기본 45%')}
+        {field('autoApplyMinReturn', '자동 적용 최소 수익률 (%)', '기본 0% (플러스 수익 필요)')}
+        {field('autoApplyMaxDrawdown', '자동 적용 최대 낙폭 (%)', '기본 30%')}
+      </div>
+      <Button size="sm" onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending || !selectedModelId}>
+        {saveMutation.isPending ? '저장 중...' : '학습 정책 저장'}
+      </Button>
+    </div>
+  );
 }
 
 export function SettingsAI({ aiModel, isPending, onModelChange }: Props) {
@@ -156,6 +235,8 @@ export function SettingsAI({ aiModel, isPending, onModelChange }: Props) {
             예산 저장
           </Button>
         </div>
+
+        <LearningPolicySection />
       </CardContent>
     </Card>
   );
