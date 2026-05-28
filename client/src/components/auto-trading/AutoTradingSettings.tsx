@@ -193,6 +193,12 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
   const [candidateDecisionCooldownMode, setCandidateDecisionCooldownMode] = useState<CandidateDecisionCooldownMode>("interval_120m");
   const [disableReevaluationForBoughtToday, setDisableReevaluationForBoughtToday] = useState(false);
   const [conditionSequences, setConditionSequences] = useState<{ conditionId: string; name: string }[]>([]);
+  // 학습 정책 (기본값 = 하드코딩 값과 동일)
+  const [lpMinTradesAnalysis, setLpMinTradesAnalysis] = useState('20');
+  const [lpMinTradesAutoApply, setLpMinTradesAutoApply] = useState('50');
+  const [lpMinWinRate, setLpMinWinRate] = useState('45');
+  const [lpMinReturn, setLpMinReturn] = useState('0');
+  const [lpMaxDrawdown, setLpMaxDrawdown] = useState('30');
 
   useEffect(() => {
     setCfgLineUnits(entryLadderToLineUnits(entryLadder));
@@ -246,6 +252,14 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
       setAllowAiDoubleDown(settings.allowAiDoubleDown ?? false);
       setAllowAiPartialTakeProfit(settings.allowAiPartialTakeProfit ?? false);
       setAllowAiHoldBeyondTarget(settings.allowAiHoldBeyondTarget ?? false);
+      const lp = settings.learningPolicy as any;
+      if (lp) {
+        if (lp.minTradesForAnalysis != null) setLpMinTradesAnalysis(String(lp.minTradesForAnalysis));
+        if (lp.minTradesForAutoApply != null) setLpMinTradesAutoApply(String(lp.minTradesForAutoApply));
+        if (lp.autoApplyMinWinRate != null) setLpMinWinRate(String(lp.autoApplyMinWinRate));
+        if (lp.autoApplyMinReturn != null) setLpMinReturn(String(lp.autoApplyMinReturn));
+        if (lp.autoApplyMaxDrawdown != null) setLpMaxDrawdown(String(lp.autoApplyMaxDrawdown));
+      }
       setAllowSpeculativeLeaderTrades(settings.allowSpeculativeLeaderTrades ?? false);
       const storedCooldownMode = (settings.aiEntryPolicy as any)?.candidateDecisionCooldownMode;
       if (
@@ -346,6 +360,13 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
       maxUnitsPerStock: maxUParsed,
       entryLadderSettings: entryLadder,
       stopLossPolicy: { mode: stopLossMode, hardCutLossPct: parseFloat(hardCutLossPct) || 10 },
+      learningPolicy: {
+        minTradesForAnalysis: parseInt(lpMinTradesAnalysis) || 20,
+        minTradesForAutoApply: parseInt(lpMinTradesAutoApply) || 50,
+        autoApplyMinWinRate: parseFloat(lpMinWinRate) ?? 45,
+        autoApplyMinReturn: parseFloat(lpMinReturn) ?? 0,
+        autoApplyMaxDrawdown: parseFloat(lpMaxDrawdown) || 30,
+      },
       allowAiDoubleDown,
       allowAiPartialTakeProfit,
       allowAiHoldBeyondTarget,
@@ -981,6 +1002,39 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
           >
             <Plus className="h-3.5 w-3.5" />조건검색식 추가
           </Button>
+        </div>
+
+        {/* ── 학습 정책 ── */}
+        <div className="border-t pt-4 space-y-3">
+          <Label className="text-sm font-semibold">학습 잡 정책</Label>
+          <p className="text-xs text-muted-foreground">학습 잡이 매일 돌 때 분석 및 자동 적용 기준을 설정합니다.</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label className="text-xs">분석 시작 최소 완료 거래 수</Label>
+              <Input type="number" min="1" value={lpMinTradesAnalysis} onChange={e => setLpMinTradesAnalysis(e.target.value)} className="h-8 text-xs" />
+              <p className="text-[10px] text-muted-foreground">이 건수 미만이면 "데이터 부족"으로 스킵 (기본: 20)</p>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">자동 적용 최소 완료 거래 수</Label>
+              <Input type="number" min="1" value={lpMinTradesAutoApply} onChange={e => setLpMinTradesAutoApply(e.target.value)} className="h-8 text-xs" />
+              <p className="text-[10px] text-muted-foreground">이 건수 이상 + 아래 조건 충족 시 파라미터 자동 적용 (기본: 50)</p>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">자동 적용 최소 승률 (%)</Label>
+              <Input type="number" min="0" max="100" value={lpMinWinRate} onChange={e => setLpMinWinRate(e.target.value)} className="h-8 text-xs" />
+              <p className="text-[10px] text-muted-foreground">기본: 45%</p>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">자동 적용 최소 총 수익률 (%)</Label>
+              <Input type="number" value={lpMinReturn} onChange={e => setLpMinReturn(e.target.value)} className="h-8 text-xs" />
+              <p className="text-[10px] text-muted-foreground">기본: 0% (플러스 수익 필요)</p>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">자동 적용 최대 낙폭 (%)</Label>
+              <Input type="number" min="1" value={lpMaxDrawdown} onChange={e => setLpMaxDrawdown(e.target.value)} className="h-8 text-xs" />
+              <p className="text-[10px] text-muted-foreground">기본: 30% (낙폭 이하여야 적용)</p>
+            </div>
+          </div>
         </div>
 
         {/* ── AI 재량 설정 ── */}

@@ -502,7 +502,27 @@ export class LearningService {
   /**
    * Apply optimized parameters to AI model
    */
-  async optimizeModel(modelId: number, autoApply: boolean = false, userId?: string): Promise<OptimizationResult> {
+  // 학습 정책 기본값 (learningPolicy가 없을 때 사용)
+  static readonly DEFAULT_LEARNING_POLICY = {
+    minTradesForAnalysis: 20,   // 분석 시작 최소 거래 수
+    minTradesForAutoApply: 50,  // 파라미터 자동 적용 최소 거래 수
+    autoApplyMinWinRate: 45,    // 자동 적용 최소 승률 (%)
+    autoApplyMinReturn: 0,      // 자동 적용 최소 총 수익률 (%)
+    autoApplyMaxDrawdown: 30,   // 자동 적용 최대 낙폭 (%)
+  };
+
+  async optimizeModel(modelId: number, autoApply: boolean = false, userId?: string, learningPolicy?: Record<string, any>): Promise<OptimizationResult> {
+    // 정책 값: 설정값 우선, 없으면 기본값
+    const policy = {
+      ...LearningService.DEFAULT_LEARNING_POLICY,
+      ...(learningPolicy ?? {}),
+    };
+    const minTradesForAnalysis = Number(policy.minTradesForAnalysis) || LearningService.DEFAULT_LEARNING_POLICY.minTradesForAnalysis;
+    const minTradesForAutoApply = Number(policy.minTradesForAutoApply) || LearningService.DEFAULT_LEARNING_POLICY.minTradesForAutoApply;
+    const autoApplyMinWinRate = Number(policy.autoApplyMinWinRate) ?? LearningService.DEFAULT_LEARNING_POLICY.autoApplyMinWinRate;
+    const autoApplyMinReturn = Number(policy.autoApplyMinReturn) ?? LearningService.DEFAULT_LEARNING_POLICY.autoApplyMinReturn;
+    const autoApplyMaxDrawdown = Number(policy.autoApplyMaxDrawdown) || LearningService.DEFAULT_LEARNING_POLICY.autoApplyMaxDrawdown;
+
     const [stats, patterns] = await Promise.all([
       this.analyzePerformance(modelId),
       this.findPatterns(modelId),
@@ -524,8 +544,8 @@ export class LearningService {
     }
 
     // Only optimize if we have enough data
-    if (stats.totalTrades < 20) {
-      recommendations.push(`데이터 부족: ${stats.totalTrades}건 (최소 20건 필요)`);
+    if (stats.totalTrades < minTradesForAnalysis) {
+      recommendations.push(`데이터 부족: ${stats.totalTrades}건 (최소 ${minTradesForAnalysis}건 필요)`);
 
       await storage.createLearningRecord({
         modelId,
@@ -570,13 +590,12 @@ export class LearningService {
 
     // Auto-apply optimizations if enabled with safety checks
     let appliedChanges = false;
-    if (autoApply && stats.totalTrades >= 50) { // Increased threshold from 30 to 50
-      // Safety checks before applying
+    if (autoApply && stats.totalTrades >= minTradesForAutoApply) {
       const shouldApply = (
-        stats.winRate >= 45 && // Minimum 45% win rate
-        stats.totalReturn > 0 && // Positive total return
-        stats.maxDrawdown < 30 && // Max drawdown less than 30%
-        stats.totalTrades >= 50 // At least 50 trades for statistical significance
+        stats.winRate >= autoApplyMinWinRate &&
+        stats.totalReturn > autoApplyMinReturn &&
+        stats.maxDrawdown < autoApplyMaxDrawdown &&
+        stats.totalTrades >= minTradesForAutoApply
       );
 
       if (shouldApply) {

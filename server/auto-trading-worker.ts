@@ -804,7 +804,9 @@ class AutoTradingWorker {
   private async optimizeModel(model: AiModel): Promise<boolean> {
     console.log(`\n🧠 Learning from model: ${model.modelName} (ID: ${model.id})`);
     try {
-      const result = await this.learningService.optimizeModel(model.id, true, model.userId);
+      const settings = await storage.getAutoTradingSettings(model.id);
+      const learningPolicy = (settings?.learningPolicy as Record<string, any> | null) ?? undefined;
+      const result = await this.learningService.optimizeModel(model.id, true, model.userId, learningPolicy);
       const s = result.stats;
       console.log(`  📈 Stats: ${s.totalTrades} trades | winRate ${s.winRate.toFixed(1)}% | return ${s.totalReturn.toFixed(2)}%`);
       if (result.appliedChanges) console.log(`  ✅ Optimized parameters applied automatically`);
