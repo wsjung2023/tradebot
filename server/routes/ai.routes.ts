@@ -613,6 +613,31 @@ export function registerAiRoutes(app: Router) {
     }
   });
 
+  // 학습 정책만 부분 업데이트 (가중치 검증 불필요)
+  app.patch("/api/ai/models/:modelId/trading-settings", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req);
+      const modelId = parseInt(req.params.modelId);
+      const model = await storage.getAiModel(modelId);
+      if (!model) return res.status(404).json({ error: "Model not found" });
+      if (model.userId !== user!.id) return res.status(403).json({ error: "Not authorized" });
+
+      const existing = await storage.getAutoTradingSettings(modelId);
+      if (!existing) return res.status(404).json({ error: "Settings not found" });
+
+      // learningPolicy만 허용
+      if (req.body.learningPolicy !== undefined) {
+        const updated = await storage.updateAutoTradingSettings(modelId, {
+          learningPolicy: req.body.learningPolicy,
+        });
+        return res.json(updated);
+      }
+      return res.status(400).json({ error: "지원하지 않는 필드입니다. learningPolicy만 PATCH 가능합니다." });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.put("/api/ai/models/:modelId/trading-settings", isAuthenticated, async (req, res) => {
     try {
       const user = getCurrentUser(req);
