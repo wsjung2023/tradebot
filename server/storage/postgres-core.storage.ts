@@ -1058,5 +1058,69 @@ export class PostgreSQLCoreStorage {
       .where(eq(schema.stockStatus.stockCode, stockCode));
     return row || null;
   }
+
+  // ==================== Holding Exit Plans (종목별 분할매도 계획) ====================
+
+  async getHoldingExitPlan(modelId: number, stockCode: string): Promise<schema.HoldingExitPlan | undefined> {
+    const [row] = await db.select()
+      .from(schema.holdingExitPlans)
+      .where(and(
+        eq(schema.holdingExitPlans.modelId, modelId),
+        eq(schema.holdingExitPlans.stockCode, stockCode),
+      ));
+    return row;
+  }
+
+  async upsertHoldingExitPlan(data: schema.InsertHoldingExitPlan & { modelId: number; stockCode: string }): Promise<schema.HoldingExitPlan> {
+    const now = new Date();
+    const [row] = await db.insert(schema.holdingExitPlans)
+      .values({ ...data, updatedAt: now })
+      .onConflictDoUpdate({
+        target: [schema.holdingExitPlans.modelId, schema.holdingExitPlans.stockCode],
+        set: {
+          exitStages: data.exitStages,
+          aiReasoning: data.aiReasoning,
+          source: data.source,
+          generatedAt: data.generatedAt,
+          // 수기 오버라이드 필드는 ai_batch 호출 시에만 null이면 유지
+          ...(data.takeProfitPercent !== undefined ? { takeProfitPercent: data.takeProfitPercent } : {}),
+          ...(data.stopLossPercent !== undefined ? { stopLossPercent: data.stopLossPercent } : {}),
+          updatedAt: now,
+        },
+      })
+      .returning();
+    return row;
+  }
+
+  async deleteHoldingExitPlan(modelId: number, stockCode: string): Promise<void> {
+    await db.delete(schema.holdingExitPlans)
+      .where(and(
+        eq(schema.holdingExitPlans.modelId, modelId),
+        eq(schema.holdingExitPlans.stockCode, stockCode),
+      ));
+  }
+
+  async getHoldingExitPlansForModel(modelId: number): Promise<schema.HoldingExitPlan[]> {
+    return db.select()
+      .from(schema.holdingExitPlans)
+      .where(eq(schema.holdingExitPlans.modelId, modelId))
+      .orderBy(desc(schema.holdingExitPlans.updatedAt));
+  }
+
+  async markExitStageFulfilled(modelId: number, stockCode: string, priority: number): Promise<schema.HoldingExitPlan | undefined> {
+    const existing = await this.getHoldingExitPlan(modelId, stockCode);
+    if (!existing || !Array.isArray(existing.exitStages)) return existing;
+    const updated = (existing.exitStages as schema.ExitStage[]).map(s =>
+      s.priority === priority ? { ...s, fulfilled: true } : s
+    );
+    const [row] = await db.update(schema.holdingExitPlans)
+      .set({ exitStages: updated, updatedAt: new Date() })
+      .where(and(
+        eq(schema.holdingExitPlans.modelId, modelId),
+        eq(schema.holdingExitPlans.stockCode, stockCode),
+      ))
+      .returning();
+    return row;
+  }
 }
 

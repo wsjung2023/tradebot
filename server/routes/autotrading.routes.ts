@@ -6,6 +6,7 @@ import { AgentTimeoutError } from "../services/agent-proxy.service";
 import { getUserKiwoomService } from "../services/user-kiwoom.service";
 import { RainbowChartAnalyzer } from "../formula/rainbow-chart";
 import { normalizeChartDataAsc } from "../utils/chart-normalization";
+import { getAIService } from "../services/ai.service";
 import { z } from "zod";
 
 
@@ -466,5 +467,151 @@ export function registerAutoTradingRoutes(app: Router) {
       if (error instanceof AgentTimeoutError) return res.status(503).json({ error: error.message });
       res.status(500).json({ error: error.message });
     }
+  });
+
+  // ── 종목별 분할매도 계획 (Holding Exit Plans) ──────────────────────────────────
+
+  const exitStageSchema = z.object({
+    priority: z.number().int().positive(),
+    triggerType: z.enum(['profit_rate', 'rainbow_line', 'loss_rate']),
+    triggerValue: z.number(),
+    sellRatio: z.number().min(0).max(1),
+    label: z.string().max(100),
+    fulfilled: z.boolean().default(false),
+  });
+
+  const upsertExitPlanSchema = z.object({
+    takeProfitPercent: z.number().positive().nullable().optional(),
+    stopLossPercent: z.number().positive().nullable().optional(),
+    exitStages: z.array(exitStageSchema).max(10).nullable().optional(),
+  });
+
+  async function verifyModelOwnership(userId: string, modelId: number) {
+    const models = await storage.getAiModels(userId);
+    return models.find((m: any) => m.id === modelId);
+  }
+
+  // GET /api/auto-trading/exit-plan/:modelId/:stockCode
+  app.get('/api/auto-trading/exit-plan/:modelId/:stockCode', isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req)!;
+      const modelId = parseInt(req.params.modelId);
+      const stockCode = req.params.stockCode;
+      if (!await verifyModelOwnership(user.id, modelId)) return res.status(403).json({ error: 'forbidden' });
+      const plan = await storage.getHoldingExitPlan(modelId, stockCode);
+      res.json({ plan: plan ?? null });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // PUT /api/auto-trading/exit-plan/:modelId/:stockCode
+  app.put('/api/auto-trading/exit-plan/:modelId/:stockCode', isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req)!;
+      const modelId = parseInt(req.params.modelId);
+      const stockCode = req.params.stockCode;
+      if (!await verifyModelOwnership(user.id, modelId)) return res.status(403).json({ error: 'forbidden' });
+      const body = upsertExitPlanSchema.parse(req.body);
+      const stages = body.exitStages?.map((s, i) => ({ ...s, priority: i + 1, fulfilled: false })) ?? null;
+      const plan = await storage.upsertHoldingExitPlan({
+        modelId,
+        stockCode,
+        takeProfitPercent: body.takeProfitPercent != null ? String(body.takeProfitPercent) : undefined,
+        stopLossPercent: body.stopLossPercent != null ? String(body.stopLossPercent) : undefined,
+        exitStages: stages,
+        source: 'manual',
+      } as any);
+      res.json({ plan });
+    } catch (e: any) { res.status(400).json({ error: e.message }); }
+  });
+
+  // DELETE /api/auto-trading/exit-plan/:modelId/:stockCode
+  app.delete('/api/auto-trading/exit-plan/:modelId/:stockCode', isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req)!;
+      const modelId = parseInt(req.params.modelId);
+      const stockCode = req.params.stockCode;
+      if (!await verifyModelOwnership(user.id, modelId)) return res.status(403).json({ error: 'forbidden' });
+      await storage.deleteHoldingExitPlan(modelId, stockCode);
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/auto-trading/exit-plan/:modelId/:stockCode/generate
+  app.post('/api/auto-trading/exit-plan/:modelId/:stockCode/generate', isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req)!;
+      const modelId = parseInt(req.params.modelId);
+      const stockCode = req.params.stockCode;
+      const model = await verifyModelOwnership(user.id, modelId);
+      if (!model) return res.status(403).json({ error: 'forbidden' });
+      const config = (model.config as any) || {};
+      const accountId = config.accountId;
+      if (!accountId) return res.status(400).json({ error: 'accountId not set on model' });
+
+      const holding = await storage.getHoldingByStock(accountId, stockCode);
+      if (!holding) return res.status(404).json({ error: 'holding not found' });
+
+      const avgPrice = parseFloat(holding.averagePrice?.toString() || '0');
+      const currentPrice = parseFloat(holding.currentPrice?.toString() || '0') || avgPrice;
+      const profitRatePct = avgPrice > 0 ? ((currentPrice - avgPrice) / avgPrice) * 100 : 0;
+
+      const perf = await storage.getTradingPerformanceByStock(modelId, stockCode);
+      const filledEntrySteps = Array.isArray(perf?.filledEntrySteps)
+        ? (perf!.filledEntrySteps as number[]).filter((n: number) => Number.isFinite(n))
+        : [];
+      const holdingDays = perf?.createdAt
+        ? Math.floor((Date.now() - new Date(perf.createdAt).getTime()) / 86400000)
+        : 0;
+
+      let currentRainbowLine = 50;
+      try {
+        const chartData = await userKiwoomService.getChart(user.id, stockCode, 'D', 250);
+        const ohlcv = normalizeChartDataAsc(chartData?.output || chartData);
+        const analysis = RainbowChartAnalyzer.analyze(stockCode, ohlcv, 240);
+        const range = analysis.highest - analysis.lowest;
+        if (range > 0) {
+          const pct = ((currentPrice - analysis.lowest) / range) * 100;
+          currentRainbowLine = Math.min(100, Math.max(10, Math.round(pct / 10) * 10));
+        }
+      } catch { /* ignore */ }
+
+      const userSettings = await storage.getUserSettings(user.id);
+      const aiModel = userSettings?.aiModel || 'gpt-5-mini';
+      const aiService = getAIService();
+
+      const result = await aiService.generateHoldingExitPlan({
+        stockCode,
+        stockName: holding.stockName || stockCode,
+        averagePrice: avgPrice,
+        currentPrice,
+        profitRatePct,
+        currentRainbowLine,
+        quantity: holding.quantity,
+        filledEntrySteps,
+        holdingDays,
+      }, aiModel, { userId: user.id, accountId, source: 'exit-plan-generate' });
+
+      const plan = await storage.upsertHoldingExitPlan({
+        modelId,
+        stockCode,
+        exitStages: result.exitStages,
+        aiReasoning: result.reasoning,
+        source: 'ai_batch',
+        generatedAt: new Date(),
+      } as any);
+
+      res.json({ plan });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/auto-trading/exit-plans/:modelId
+  app.get('/api/auto-trading/exit-plans/:modelId', isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req)!;
+      const modelId = parseInt(req.params.modelId);
+      if (!await verifyModelOwnership(user.id, modelId)) return res.status(403).json({ error: 'forbidden' });
+      const plans = await storage.getHoldingExitPlansForModel(modelId);
+      res.json({ plans });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 }

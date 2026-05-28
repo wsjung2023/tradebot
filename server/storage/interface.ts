@@ -39,6 +39,7 @@ import {
   type TradeJournal, type InsertTradeJournal,
   type StockStatus, type InsertStockStatus,
   type InsertConditionScanLog,
+  type HoldingExitPlan, type InsertHoldingExitPlan,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -349,4 +350,11 @@ export interface IStorage {
   // Stock Status (Phase 2)
   upsertStockStatus(status: InsertStockStatus): Promise<StockStatus>;
   getStockStatus(stockCode: string): Promise<StockStatus | null>;
+
+  // 종목별 분할매도 계획
+  getHoldingExitPlan(modelId: number, stockCode: string): Promise<HoldingExitPlan | undefined>;
+  upsertHoldingExitPlan(data: InsertHoldingExitPlan & { modelId: number; stockCode: string }): Promise<HoldingExitPlan>;
+  deleteHoldingExitPlan(modelId: number, stockCode: string): Promise<void>;
+  getHoldingExitPlansForModel(modelId: number): Promise<HoldingExitPlan[]>;
+  markExitStageFulfilled(modelId: number, stockCode: string, priority: number): Promise<HoldingExitPlan | undefined>;
 }

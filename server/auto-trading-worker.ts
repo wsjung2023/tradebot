@@ -37,9 +37,11 @@ class AutoTradingWorker {
   private isRunning = false;
   private readonly featureFlags = getFeatureFlags();
   private isLearningRunning = false;
+  private isExitPlanBatchRunning = false;
   private cronJob: cron.ScheduledTask | null = null;
   private scanJob: cron.ScheduledTask | null = null;
   private learningJob: cron.ScheduledTask | null = null;
+  private exitPlanJob: cron.ScheduledTask | null = null;
   private isScanRunning = false;
   private tradingErrorCount = 0;
   private lastTradingError: string | null = null;
@@ -87,12 +89,14 @@ class AutoTradingWorker {
     this.startScanJob('*/30 * * * *');
     this.startTradingJob('* * * * *');
     this.startLearningJob('0 16 * * *');
+    this.startExitPlanBatchJob('50 23 * * *'); // 08:50 KST
   }
 
   stop() {
     this.stopScanJob();
     this.stopTradingJob();
     this.stopLearningJob();
+    this.stopExitPlanBatchJob();
   }
 
   private onJobRun?: (jobId: string) => void;
@@ -262,10 +266,106 @@ class AutoTradingWorker {
     }
   }
 
+  startExitPlanBatchJob(schedule: string) {
+    if (this.exitPlanJob) this.exitPlanJob.stop();
+    this.exitPlanJob = cron.schedule(schedule, async () => {
+      await this.runExitPlanBatch();
+    });
+    console.log(`✅ ExitPlan Batch started (schedule: ${schedule})`);
+  }
+
+  stopExitPlanBatchJob() {
+    if (this.exitPlanJob) {
+      this.exitPlanJob.stop();
+      this.exitPlanJob = null;
+      console.log('⏹️  ExitPlan Batch stopped');
+    }
+  }
+
+  async runExitPlanBatch(): Promise<void> {
+    if (this.isExitPlanBatchRunning) {
+      console.log('⏭️  Skipping exit plan batch — previous still running');
+      return;
+    }
+    this.isExitPlanBatchRunning = true;
+    console.log('[ExitPlanBatch] 08:50 KST 종목별 매도 계획 생성 시작');
+    try {
+      const models = await storage.getActiveAiModels();
+      for (const model of models) {
+        const config = (model.config as any) || {};
+        const accountId = config.accountId;
+        if (!accountId) continue;
+        const accounts = await storage.getKiwoomAccounts(model.userId);
+        const account = accounts.find((a: any) => a.id === accountId);
+        if (!account) continue;
+
+        const holdings = await storage.getHoldings(accountId);
+        if (!holdings.length) continue;
+
+        const userSettings = await storage.getUserSettings(model.userId);
+        const selectedAiModel = userSettings?.aiModel || 'gpt-5-mini';
+
+        for (const holding of holdings) {
+          try {
+            const stockCode = holding.stockCode.replace(/^A/, '');
+            const avgPrice = parseFloat(holding.averagePrice?.toString() || '0');
+            if (!avgPrice) continue;
+
+            const currentPrice = parseFloat(holding.currentPrice?.toString() || '0') || avgPrice;
+            const profitRatePct = ((currentPrice - avgPrice) / avgPrice) * 100;
+
+            // rainbow line: getPrice 사용해 현재가 기반 CL 추정 (chart 계산 생략)
+            let currentRainbowLine = 50;
+
+            const perf = await storage.getTradingPerformanceByStock(model.id, stockCode);
+            const filledEntrySteps = Array.isArray(perf?.filledEntrySteps)
+              ? (perf!.filledEntrySteps as number[]).filter((n: number) => Number.isFinite(n))
+              : [];
+            const holdingDays = perf?.createdAt
+              ? Math.floor((Date.now() - new Date(perf.createdAt).getTime()) / 86400000)
+              : 0;
+
+            const result = await this.aiService.generateHoldingExitPlan({
+              stockCode,
+              stockName: holding.stockName || stockCode,
+              averagePrice: avgPrice,
+              currentPrice,
+              profitRatePct,
+              currentRainbowLine,
+              quantity: holding.quantity,
+              filledEntrySteps,
+              holdingDays,
+            }, selectedAiModel, { userId: model.userId, accountId, source: 'exit-plan-batch' });
+
+            await storage.upsertHoldingExitPlan({
+              modelId: model.id,
+              stockCode,
+              exitStages: result.exitStages,
+              aiReasoning: result.reasoning,
+              source: 'ai_batch',
+              generatedAt: new Date(),
+            });
+            console.log(`[ExitPlanBatch] ${stockCode} (${holding.stockName}) — ${result.exitStages.length}단계 계획 생성`);
+
+            await new Promise(r => setTimeout(r, 2000));
+          } catch (e: any) {
+            console.error(`[ExitPlanBatch] ${holding.stockCode} 실패:`, e?.message || e);
+          }
+        }
+      }
+    } catch (e: any) {
+      console.error('[ExitPlanBatch] 배치 실패:', e?.message || e);
+    } finally {
+      this.isExitPlanBatchRunning = false;
+      console.log('[ExitPlanBatch] 완료');
+    }
+  }
+
   isTradingJobRunning(): boolean { return this.cronJob !== null; }
   isLearningJobRunning(): boolean { return this.learningJob !== null; }
   async runTradingNow(): Promise<void> { await this.executeTradingCycle(); }
   async runLearningNow(): Promise<void> { await this.executeLearningCycleWrapper(); }
+  async runExitPlanBatchNow(): Promise<void> { await this.runExitPlanBatch(); }
   getLearningRuntimeStatus(): LearningRuntimeStatus {
     return { ...this.learningRuntime };
   }

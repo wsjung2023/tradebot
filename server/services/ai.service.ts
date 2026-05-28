@@ -885,6 +885,82 @@ CL(%) = 240일 저점~고점 구간에서 현재가의 위치. 낮을수록 저�
     };
   }
 
+  async generateHoldingExitPlan(params: {
+    stockCode: string;
+    stockName: string;
+    averagePrice: number;
+    currentPrice: number;
+    profitRatePct: number;
+    currentRainbowLine: number;
+    quantity: number;
+    filledEntrySteps: number[];
+    holdingDays: number;
+  }, aiModel: string = 'gpt-5-mini', usageContext?: AiUsageContext): Promise<{
+    exitStages: import('@shared/schema').ExitStage[];
+    reasoning: string;
+  }> {
+    const { stockCode, stockName, averagePrice, currentPrice, profitRatePct, currentRainbowLine, quantity, filledEntrySteps, holdingDays } = params;
+
+    const prompt = `당신은 한국 주식 분할매도 전략을 수립하는 AI입니다.
+
+【레인보우 CL 시스템】
+CL(%) = 240일 저점~고점 구간에서 현재가의 위치. 낮을수록 저렴(저점 근처), 높을수록 비쌈(고점 근처).
+- 50% 미만: 매수 구간, 50% 초과: 매도 구간
+- 60%=노랑(익절 고려), 70%=주황(적극 익절), 80%=빨강(강력 익절), 90%=핑크(full_exit 권장), 100%=MAX(full_exit 필수)
+
+【현재 보유 현황】
+- 종목: ${stockCode} (${stockName})
+- 평단가: ${averagePrice.toLocaleString()}원, 현재가: ${currentPrice.toLocaleString()}원
+- 현재 수익률: ${profitRatePct.toFixed(2)}%
+- 현재 CL 위치: ${currentRainbowLine}%
+- 보유 수량: ${quantity}주, 보유 기간: ${holdingDays}일
+- 진입한 레인보우 라인: ${filledEntrySteps.join(', ')}%
+
+【지시사항】
+위 종목에 대해 2~4개의 분할매도 단계를 제안하세요.
+각 단계는 아래 트리거 중 하나를 사용합니다:
+- profit_rate: 수익률이 triggerValue(%) 이상 될 때
+- rainbow_line: CL이 triggerValue(10~100) 이상 될 때
+- loss_rate: 수익률이 -triggerValue(%) 이하 될 때 (손절)
+
+sellRatio는 그 시점의 잔여수량 중 몇 %를 팔지 (0.0~1.0).
+예: 0.3 = 잔여의 30%, 1.0 = 전량
+
+현재 CL(${currentRainbowLine}%), 수익률(${profitRatePct.toFixed(1)}%), 보유 기간(${holdingDays}일)을 고려해 현실적인 목표를 제안하세요.
+매수 라인(${filledEntrySteps.join(', ')}%)이 낮을수록(평단가 낮을수록) 더 공격적 익절 가능.
+
+아래 JSON 배열만 응답하세요 (다른 텍스트 없이):
+[
+  {
+    "priority": 1,
+    "triggerType": "profit_rate",
+    "triggerValue": 8,
+    "sellRatio": 0.3,
+    "label": "1차 익절 (+8%)",
+    "fulfilled": false
+  },
+  ...
+]`;
+
+    const result = await this.createJsonCompletion([
+      { role: 'system', content: '당신은 한국 주식 분할매도 전략 AI입니다. 반드시 JSON 배열만 응답합니다.' },
+      { role: 'user', content: prompt },
+    ], { model: aiModel, temperature: 0.3, usageContext });
+
+    const stages: import('@shared/schema').ExitStage[] = Array.isArray(result)
+      ? result.map((s: any, i: number) => ({
+          priority: s.priority ?? (i + 1),
+          triggerType: s.triggerType ?? 'profit_rate',
+          triggerValue: Number(s.triggerValue ?? 10),
+          sellRatio: Math.min(1, Math.max(0, Number(s.sellRatio ?? 0.5))),
+          label: s.label ?? `${i + 1}차 매도`,
+          fulfilled: false,
+        }))
+      : [];
+
+    return { exitStages: stages, reasoning: typeof result === 'object' && !Array.isArray(result) ? (result.reasoning ?? '') : '' };
+  }
+
   async suggestStrategyEvolution(params: {
     modelType: string;
     stats: {

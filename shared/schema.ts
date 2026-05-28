@@ -1048,3 +1048,36 @@ export const stockStatus = pgTable("stock_status", {
 export const insertStockStatusSchema = createInsertSchema(stockStatus).omit({ updatedAt: true });
 export type StockStatus = typeof stockStatus.$inferSelect;
 export type InsertStockStatus = z.infer<typeof insertStockStatusSchema>;
+
+// ==================== Holding Exit Plans (종목별 분할매도 계획) ====================
+
+export type ExitStageTriggerType = 'profit_rate' | 'rainbow_line' | 'loss_rate';
+
+export interface ExitStage {
+  priority: number;         // 1=최우선, 오름차순 평가
+  triggerType: ExitStageTriggerType;
+  triggerValue: number;     // profit_rate/loss_rate → %, rainbow_line → CL숫자(10~100)
+  sellRatio: number;        // 0.0–1.0, 잔여수량 기준 비중
+  label: string;            // "1차 익절 (+8%)"
+  fulfilled: boolean;       // true면 이미 체결된 단계, 재평가 안 함
+}
+
+export const holdingExitPlans = pgTable("holding_exit_plans", {
+  id: serial("id").primaryKey(),
+  modelId: integer("model_id").notNull().references(() => aiModels.id, { onDelete: 'cascade' }),
+  stockCode: text("stock_code").notNull(),
+  takeProfitPercent: decimal("take_profit_percent", { precision: 8, scale: 4 }),
+  stopLossPercent: decimal("stop_loss_percent", { precision: 8, scale: 4 }),
+  exitStages: jsonb("exit_stages"),   // ExitStage[]
+  aiReasoning: text("ai_reasoning"),
+  source: text("source").notNull().default('manual'), // 'manual' | 'ai_batch'
+  generatedAt: timestamp("generated_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  uniqueModelStock: unique().on(table.modelId, table.stockCode),
+}));
+
+export const insertHoldingExitPlanSchema = createInsertSchema(holdingExitPlans).omit({ id: true, createdAt: true, updatedAt: true });
+export type HoldingExitPlan = typeof holdingExitPlans.$inferSelect;
+export type InsertHoldingExitPlan = z.infer<typeof insertHoldingExitPlanSchema>;

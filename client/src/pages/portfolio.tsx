@@ -11,8 +11,9 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Briefcase, TrendingUp, TrendingDown, Wallet, BarChart3, Hash, Loader2, AlertCircle } from "lucide-react";
+import { Briefcase, TrendingUp, TrendingDown, Wallet, BarChart3, Hash, Loader2, AlertCircle, Target } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { HoldingExitPlanDialog } from "@/components/auto-trading/HoldingExitPlanDialog";
 
 interface PortfolioHolding {
   id: number;
@@ -58,9 +59,15 @@ function maskAccount(accountNumber: string): string {
   return accountNumber;
 }
 
+interface AiModel { id: number; config: any; }
+
 export default function Portfolio() {
   const [selectedAccount, setSelectedAccount] = useState<string>("all");
+  const [exitPlanHolding, setExitPlanHolding] = useState<PortfolioHolding | null>(null);
+  const [exitPlanOpen, setExitPlanOpen] = useState(false);
+
   const { data: accountsData = [] } = useQuery<PortfolioAccount[]>({ queryKey: ["/api/accounts"] });
+  const { data: modelsData = [] } = useQuery<AiModel[]>({ queryKey: ["/api/ai/models"] });
 
   const { data, isLoading, isError } = useQuery<{ holdings: PortfolioHolding[] }>({
     queryKey: ["/api/portfolio/holdings"],
@@ -259,6 +266,7 @@ export default function Portfolio() {
                     <TableHead className="text-right">현재가</TableHead>
                     <TableHead className="text-right">손익</TableHead>
                     <TableHead className="text-right hidden sm:table-cell">수익률</TableHead>
+                    <TableHead className="text-center hidden md:table-cell">매도전략</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -292,6 +300,18 @@ export default function Portfolio() {
                         <TableCell className={`text-right font-mono text-sm hidden sm:table-cell ${pnlColor}`}>
                           {formatRate(rate)}
                         </TableCell>
+                        <TableCell className="text-center hidden md:table-cell">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7"
+                            title="매도 전략 설정"
+                            onClick={() => { setExitPlanHolding(h); setExitPlanOpen(true); }}
+                            data-testid={`button-exit-plan-${h.id}`}
+                          >
+                            <Target className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
                       </TableRow>
                     );
                   })}
@@ -301,6 +321,19 @@ export default function Portfolio() {
           )}
         </CardContent>
       </Card>
+
+      {exitPlanHolding && (() => {
+        const model = modelsData.find((m: AiModel) => m.config?.accountId === exitPlanHolding.accountId);
+        if (!model) return null;
+        return (
+          <HoldingExitPlanDialog
+            open={exitPlanOpen}
+            onOpenChange={(v) => { setExitPlanOpen(v); if (!v) setExitPlanHolding(null); }}
+            modelId={model.id}
+            holding={exitPlanHolding}
+          />
+        );
+      })()}
     </div>
   );
 }

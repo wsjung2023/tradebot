@@ -724,8 +724,45 @@ export class TradeExecutorService {
         let exitReason = '';
         let currentLineForDecision: number | null = null;
 
-        // ── 기본 익절 체크 (takeProfitPercent 설정 시) ──────────────────────────────────
-        if (hasAnyExitCondition && takeProfitPercent && profitRate >= takeProfitPercent) {
+        // ── 종목별 분할매도 계획 (ExitStage) 평가 ───────────────────────────────────────
+        const exitPlan = await storage.getHoldingExitPlan(model.id, holding.stockCode);
+        // 종목별 단순 오버라이드: takeProfitPercent
+        const effectiveTakeProfitPercent = (exitPlan?.takeProfitPercent != null)
+          ? parseFloat(String(exitPlan.takeProfitPercent))
+          : takeProfitPercent;
+
+        let triggeringStage: import('@shared/schema').ExitStage | null = null;
+        if (exitPlan && Array.isArray(exitPlan.exitStages) && (exitPlan.exitStages as any[]).length > 0) {
+          const stages = (exitPlan.exitStages as import('@shared/schema').ExitStage[])
+            .filter(s => !s.fulfilled)
+            .sort((a, b) => a.priority - b.priority);
+
+          for (const stage of stages) {
+            let fired = false;
+            if (stage.triggerType === 'profit_rate' && profitRate >= stage.triggerValue) fired = true;
+            if (stage.triggerType === 'loss_rate' && profitRate <= -stage.triggerValue) fired = true;
+            if (stage.triggerType === 'rainbow_line') {
+              // rainbow_line 트리거: 현재 CL 위치 필요 — 지연 로드
+              if (currentLineForDecision === null) {
+                try {
+                  currentLineForDecision = await this.getCurrentRainbowLine(holding.stockCode, currentPrice, kiwoomService);
+                } catch { currentLineForDecision = null; }
+              }
+              if (currentLineForDecision !== null && currentLineForDecision >= stage.triggerValue) fired = true;
+            }
+            if (fired) {
+              triggeringStage = stage;
+              shouldSell = true;
+              sellRatio = Math.min(1, Math.max(0, stage.sellRatio));
+              exitReason = `단계매도[${stage.label}]: 수익률 ${profitRate.toFixed(1)}%`;
+              console.log(`    🎯 [단계매도] ${holding.stockCode} stage${stage.priority} "${stage.label}" — sellRatio=${sellRatio}`);
+              break;
+            }
+          }
+        }
+
+        // ── 기본 익절 체크 (takeProfitPercent 설정 시, ExitStage 미발동 시) ─────────────
+        if (!shouldSell && hasAnyExitCondition && effectiveTakeProfitPercent && profitRate >= effectiveTakeProfitPercent) {
           if (allowAiHoldBeyondTarget) {
             console.log(`    ℹ️  ${holding.stockCode} 목표 도달(+${takeProfitPercent}%) 했지만 '목표초과 보유 허용' 설정으로 보유 유지`);
           } else if (allowAiPartialTakeProfit && holding.quantity >= 2) {
@@ -939,11 +976,20 @@ export class TradeExecutorService {
         if (shouldSell) {
           console.log(`    🚨 Exit triggered for ${holding.stockCode}: ${exitReason}`);
           await this.executeExitSell(model, settings, activeAccount, holding, currentPrice, exitReason, kiwoomService, sellRatio);
+          // ExitStage 트리거된 경우 fulfilled 마킹
+          if (triggeringStage) {
+            storage.markExitStageFulfilled(model.id, holding.stockCode, triggeringStage.priority)
+              .catch(e => console.error('[ExitStage] fulfilled 마킹 실패:', e));
+          }
         }
       } catch (err) {
         console.error(`    ❌ Error checking exit for ${holding.stockCode}:`, err);
       }
     }
+  }
+
+  async getCurrentRainbowLinePublic(stockCode: string, currentPrice: number, kiwoomService: KiwoomService): Promise<number> {
+    return this.getCurrentRainbowLine(stockCode, currentPrice, kiwoomService);
   }
 
   private async getCurrentRainbowLine(

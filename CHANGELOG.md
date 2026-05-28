@@ -1,5 +1,34 @@
 # CHANGELOG
 
+## 2026-05-28 — 종목별 분할매도 계획 (Per-Stock Exit Plan)
+
+### 신규 기능
+- **종목별 익절 % 오버라이드**: 모델 기본값 대신 종목별로 익절 기준을 설정 가능. 미설정 시 모델 기본값 사용
+- **분할매도 단계(ExitStage)**: 각 종목에 2~4개 매도 단계 설정 (profit_rate/rainbow_line/loss_rate 트리거 + 잔여수량 비율 매도)
+- **AI 자동 계획 생성**: 매일 08:50 KST 배치잡이 보유 종목별로 GPT에게 분할매도 계획 생성 요청 → 저장
+- **수기 편집 UI**: 포트폴리오 페이지 보유종목 행의 타겟 아이콘 클릭 → "AI 계획" / "수기 설정" 탭 다이얼로그
+
+### 신규 DB 테이블
+| 테이블 | 설명 |
+|--------|------|
+| `holding_exit_plans` | 종목별 매도 계획. `(model_id, stock_code)` 유니크. `take_profit_percent`, `stop_loss_percent` 단순 오버라이드 + `exit_stages` JSONB 배열 |
+
+### 변경 파일
+| 파일 | 내용 |
+|------|------|
+| `shared/schema.ts` | `holdingExitPlans` 테이블 + `ExitStage` interface 추가 |
+| `migrations/0007_holding_exit_plans.sql` | CREATE TABLE + 인덱스 |
+| `server/storage/interface.ts` | 5개 메서드 선언 |
+| `server/storage/postgres-core.storage.ts` | 5개 메서드 구현 |
+| `server/services/ai.service.ts` | `generateHoldingExitPlan()` 추가 |
+| `server/services/trade-executor.service.ts` | ExitStage 평가 블록 삽입 + 종목별 takeProfitPercent 오버라이드 + `getCurrentRainbowLinePublic` 추가 |
+| `server/auto-trading-worker.ts` | 08:50 KST `runExitPlanBatch()` 배치잡 |
+| `server/routes/autotrading.routes.ts` | 4개 API 엔드포인트 추가 |
+| `client/src/components/auto-trading/HoldingExitPlanDialog.tsx` | 신규 컴포넌트 (AI 계획 탭 + 수기 설정 탭) |
+| `client/src/pages/portfolio.tsx` | 보유종목 행마다 매도전략 버튼 추가 |
+
+---
+
 ## 2026-05-27 — 조건검색 스캔 히스토리 영구 보존 + RC4007 추가매수 반복 차단 + 800033 매도 재시도 차단
 
 ### 신규 DB 테이블
