@@ -64,6 +64,7 @@ class JobManager {
     ['auto-trading',    { intervalMinutes: 1,    scheduleTime: '', lastRun: null, runCount: 0, errorCount: 0, lastError: null }],
     ['learning',        { intervalMinutes: 1440, scheduleTime: '16:00', lastRun: null, runCount: 0, errorCount: 0, lastError: null }],
     ['balance-refresh', { intervalMinutes: 5,    scheduleTime: '', lastRun: null, runCount: 0, errorCount: 0, lastError: null }],
+    ['exit-plan',       { intervalMinutes: 1440, scheduleTime: '08:50', lastRun: null, runCount: 0, errorCount: 0, lastError: null }],
   ]);
 
   private balanceRefreshRunning = false;
@@ -77,6 +78,7 @@ class JobManager {
 
   private intervalLabel(id: string, state: JobStats): string {
     if (id === 'learning') return `매일 ${state.scheduleTime || '16:00'}`;
+    if (id === 'exit-plan') return `매일 ${state.scheduleTime || '08:50'}`;
     const m = state.intervalMinutes;
     if (m < 60) return `${m}분마다`;
     if (m < 1440) return `${Math.floor(m / 60)}시간마다`;
@@ -87,7 +89,7 @@ class JobManager {
   async initialize(): Promise<void> {
     console.log('[JobManager] 초기화 — DB에서 잡 상태/인터벌 로드 중...');
 
-    const ids = ['scan', 'auto-trading', 'learning', 'balance-refresh'];
+    const ids = ['scan', 'auto-trading', 'learning', 'balance-refresh', 'exit-plan'];
     for (const id of ids) {
       const state = this.stats.get(id)!;
 
@@ -96,6 +98,8 @@ class JobManager {
       if (savedInterval) {
         if (id === 'learning') {
           state.scheduleTime = savedInterval || '16:00';
+        } else if (id === 'exit-plan') {
+          state.scheduleTime = savedInterval || '08:50';
         } else {
           state.intervalMinutes = parseInt(savedInterval) || state.intervalMinutes;
         }
@@ -151,6 +155,10 @@ class JobManager {
       const schedule = timeToCron(state.scheduleTime || '16:00');
       autoTradingWorker.startLearningJob(schedule);
 
+    } else if (id === 'exit-plan') {
+      const schedule = timeToCron(state.scheduleTime || '08:50');
+      autoTradingWorker.startExitPlanBatchJob(schedule);
+
     } else if (id === 'balance-refresh') {
       balanceRefreshService.onRun = () => this.recordRun('balance-refresh');
       balanceRefreshService.start(state.intervalMinutes);
@@ -180,6 +188,9 @@ class JobManager {
     } else if (id === 'learning') {
       autoTradingWorker.stopLearningJob();
 
+    } else if (id === 'exit-plan') {
+      autoTradingWorker.stopExitPlanBatchJob();
+
     } else if (id === 'balance-refresh') {
       balanceRefreshService.stop();
       this.balanceRefreshRunning = false;
@@ -194,12 +205,14 @@ class JobManager {
     if (id === 'scan') return autoTradingWorker.isScanJobRunning();
     if (id === 'auto-trading') return autoTradingWorker.isTradingJobRunning();
     if (id === 'learning') return autoTradingWorker.isLearningJobRunning();
+    if (id === 'exit-plan') return autoTradingWorker.isExitPlanJobRunning();
     if (id === 'balance-refresh') return this.balanceRefreshRunning;
     return false;
   }
 
   private intervalTypeOf(id: string): 'minutes' | 'time-of-day' {
     if (id === 'learning') return 'time-of-day';
+    if (id === 'exit-plan') return 'time-of-day';
     return 'minutes';
   }
 
@@ -209,6 +222,7 @@ class JobManager {
       { id: 'auto-trading',   name: '매매 잡',    description: '장중 AI 모델 기반 자동 주문 실행. 활성 모델 없으면 아무것도 안 함.' },
       { id: 'learning',       name: '학습 잡',    description: '거래 성과 분석으로 AI 파라미터 자동 최적화 (자동 적용은 50건 이상 필요).' },
       { id: 'balance-refresh', name: '잔고 자동갱신', description: '장중(KST 08:30~18:00, 월~금) 실계좌 잔고 갱신.' },
+      { id: 'exit-plan',      name: '매도계획 잡', description: '매일 08:50 KST 보유 종목별 AI 분할매도 계획 자동 생성. 꺼도 기존 저장된 계획은 계속 실행됨.' },
     ];
 
     return defs.map(({ id, name, description }) => {
@@ -287,6 +301,17 @@ class JobManager {
       return { success: true, message: `학습 잡 실행 시각 → 매일 ${t}` };
     }
 
+    if (id === 'exit-plan') {
+      const t = opts.scheduleTime;
+      if (!t || !isValidTime(t)) return { success: false, message: '시간 형식이 올바르지 않습니다 (HH:MM).' };
+      state.scheduleTime = t;
+      await storage.setSystemConfig(DB_INTERVAL_KEY(id), t);
+      if (autoTradingWorker.isExitPlanJobRunning()) {
+        autoTradingWorker.startExitPlanBatchJob(timeToCron(t));
+      }
+      return { success: true, message: `매도계획 잡 실행 시각 → 매일 ${t}` };
+    }
+
     // 분 단위 잡
     const m = opts.intervalMinutes;
     if (!m || m < 1 || m > 10080) return { success: false, message: '주기는 1분 ~ 7일(10080분) 사이여야 합니다.' };
@@ -323,6 +348,7 @@ class JobManager {
       if (id === 'scan') { await autoTradingWorker.runScanNow(); return { success: true, message: '스캔 사이클 즉시 실행.' }; }
       if (id === 'auto-trading') { await autoTradingWorker.runTradingNow(); return { success: true, message: '매매 사이클 즉시 실행.' }; }
       if (id === 'learning') { await autoTradingWorker.runLearningNow(); return { success: true, message: '학습 사이클 즉시 실행.' }; }
+      if (id === 'exit-plan') { await autoTradingWorker.runExitPlanBatchNow(); return { success: true, message: '매도계획 배치 즉시 실행.' }; }
       if (id === 'balance-refresh') { await balanceRefreshService.refreshAllRealAccounts(); return { success: true, message: '잔고 갱신 즉시 실행.' }; }
       return { success: false, message: `[${id}]는 즉시 실행을 지원하지 않습니다.` };
     } catch (err: any) {

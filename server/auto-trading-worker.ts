@@ -363,6 +363,7 @@ class AutoTradingWorker {
 
   isTradingJobRunning(): boolean { return this.cronJob !== null; }
   isLearningJobRunning(): boolean { return this.learningJob !== null; }
+  isExitPlanJobRunning(): boolean { return this.exitPlanJob !== null; }
   async runTradingNow(): Promise<void> { await this.executeTradingCycle(); }
   async runLearningNow(): Promise<void> { await this.executeLearningCycleWrapper(); }
   async runExitPlanBatchNow(): Promise<void> { await this.runExitPlanBatch(); }
