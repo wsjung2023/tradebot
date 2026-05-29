@@ -99,7 +99,10 @@ async function ensureMonitorJobRunning(page) {
   const statusText = (await status.textContent()) || "";
   if (statusText.includes("중지")) {
     await page.locator('[data-testid="button-start-ops-monitor"]').click();
-    await page.waitForTimeout(1000);
+    await page.waitForFunction(() => {
+      const el = document.querySelector('[data-testid="status-job-ops-monitor"]');
+      return el?.textContent?.includes("실행중");
+    }, { timeout: 10000 });
   }
 
   // Set to 5 seconds for fast live updates in test.
@@ -118,6 +121,11 @@ async function verifyMonitoringWarRoom(page) {
   await page.waitForSelector('[data-testid="card-job-runtime"]');
   await page.waitForSelector('[data-testid="card-monitoring-thresholds"]');
 
+  await page.waitForFunction(() => {
+    const el = document.querySelector('[data-testid="badge-monitor-job"]');
+    return el?.textContent?.includes("ON");
+  }, { timeout: 15000 });
+
   const monitorBadge = (await page.locator('[data-testid="badge-monitor-job"]').textContent()) || "";
   if (!monitorBadge.includes("ON")) {
     throw new Error(`monitor badge is not ON: ${monitorBadge}`);
@@ -135,6 +143,10 @@ async function verifyMonitoringWarRoom(page) {
 
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.waitForSelector('[data-testid="input-threshold-aiErrorRateWarnPct"]', { timeout: 15000 });
+  await page.waitForFunction(() => {
+    const input = document.querySelector('[data-testid="input-threshold-aiErrorRateWarnPct"]');
+    return input && Number.isFinite(Number(input.value)) && Math.abs(Number(input.value) - 37.5) <= 0.1;
+  }, { timeout: 15000 });
   const savedValue = await page.locator('[data-testid="input-threshold-aiErrorRateWarnPct"]').inputValue();
   const numericSaved = Number(savedValue);
   if (!Number.isFinite(numericSaved) || Math.abs(numericSaved - 37.5) > 0.1) {
