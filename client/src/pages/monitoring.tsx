@@ -1,492 +1,580 @@
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { AlertTriangle, Bot, Cpu, Database, Gauge, Monitor, RefreshCw, ShieldAlert, ShieldCheck, Siren, Wifi, WifiOff } from "lucide-react";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Monitor, CircleDot, Clock, ArrowDownCircle, ArrowUpCircle, MinusCircle, AlertTriangle, Loader2, Bell, Power, GraduationCap } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useToast } from "@/hooks/use-toast";
 
-interface JobInfo {
-  id: string;
-  name: string;
-  status: "running" | "stopped";
-  scheduleLabel: string;
-  lastRun: string | null;
-  nextRun: string | null;
-  runCount: number;
-  errorCount: number;
-  lastError: string | null;
+type Severity = "info" | "warn" | "crit";
+type ThresholdField = keyof MonitorThresholds;
+
+interface MonitorThresholds {
+  minRequestCountForRateAlert: number;
+  http5xxRateWarnPct: number;
+  engineStatus401WarnPerMin: number;
+  aiMinCallsForAlert: number;
+  aiErrorRateWarnPct: number;
+  aiAvgLatencyWarnMs: number;
+  anomalyCooldownMs: number;
 }
 
-interface EngineRun {
-  state: string;
-  lastCycleAt: string | null;
+interface MonitorSnapshot {
+  measuredAt: string;
+  db: { ok: boolean; latencyMs: number | null; error: string | null };
+  runtime: {
+    uptimeSec: number;
+    memoryRssMb: number;
+    memoryHeapUsedMb: number;
+    memoryHeapTotalMb: number;
+  };
+  httpLast1m: {
+    requestCount: number;
+    status2xx: number;
+    status3xx: number;
+    status4xx: number;
+    status5xx: number;
+    error5xxRatePct: number;
+    p95LatencyMs: number;
+    engineStatus401Count: number;
+  };
+  aiLast5m: {
+    callCount: number;
+    successCount: number;
+    errorCount: number;
+    errorRatePct: number;
+    avgLatencyMs: number;
+  };
+  jobs: Array<{
+    id: string;
+    name: string;
+    status: "running" | "stopped";
+    lastRun: string | null;
+    nextRun: string | null;
+    errorCount: number;
+    lastError: string | null;
+  }>;
 }
 
-interface CandidateEvaluation {
-  confidence?: number;
-  themeScore?: number;
-  newsScore?: number;
-  financialsScore?: number;
-  liquidityScore?: number;
+interface SituationResponse {
+  monitorJob: {
+    running: boolean;
+    intervalSec: number;
+    lastRunAt: string | null;
+    nextRunAt: string | null;
+  };
+  current: MonitorSnapshot | null;
+  history: MonitorSnapshot[];
+  anomalies: Array<{
+    id: number;
+    detectedAt: string;
+    severity: Severity;
+    kind: string;
+    message: string;
+    details?: Record<string, unknown>;
+  }>;
+  ai: {
+    recentCalls5m: number;
+    recentErrors5m: number;
+    recentSuccessRatePct: number;
+    avgLatencyMs5m: number;
+    traces: Array<{
+      id: number;
+      timestamp: string;
+      source: string;
+      model: string;
+      success: boolean;
+      durationMs: number;
+      promptPreview: string;
+      contextPreview: string;
+      responsePreview: string | null;
+      errorMessage: string | null;
+      promptTokens: number;
+      completionTokens: number;
+      totalTokens: number;
+    }>;
+  };
+  notificationSummary: {
+    total: number;
+    unreadTotal: number;
+    unreadCrit: number;
+    unreadWarn: number;
+  };
+  recentEngineNotifications: Array<{
+    id: number;
+    severity: Severity;
+    type: string;
+    message: string;
+    createdAt: string;
+  }>;
+  thresholds: MonitorThresholds;
 }
 
-interface CandidateStock {
-  id: number;
-  stockCode: string;
-  stockName: string;
-  scannedLine: number | null;
-  scannedAt: string;
-  evaluationResult: CandidateEvaluation | null;
-  skipReason: string | null;
-  evaluatedAt: string | null;
-  modelId: number;
+function fmtDateTime(value: string | null | undefined): string {
+  if (!value) return "-";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "-";
+  return d.toLocaleString("ko-KR");
 }
 
-interface NotificationPayload {
-  confidence?: number;
-  themeScore?: number;
-  newsScore?: number;
-  financialsScore?: number;
-  liquidityScore?: number;
-  institutionalScore?: number;
-  skipReason?: string;
-  profitLoss?: number;
-  confidenceBreakdown?: {
-    weights?: {
-      theme?: number;
-      news?: number;
-      financials?: number;
-      liquidity?: number;
-      institutional?: number;
-    };
-    scores?: {
-      theme?: number;
-      news?: number;
-      financials?: number;
-      liquidity?: number;
-      institutional?: number;
-    };
-    weightedSum?: number;
-    denominator?: number;
-    calculatedConfidence?: number;
-    minAiConfidence?: number;
+function fmtDurationSec(sec: number): string {
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  if (h > 0) return `${h}h ${m}m ${s}s`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+function severityBadgeVariant(severity: Severity): "default" | "secondary" | "destructive" {
+  if (severity === "crit") return "destructive";
+  if (severity === "warn") return "secondary";
+  return "default";
+}
+
+function toEditableThresholds(input: MonitorThresholds) {
+  return {
+    minRequestCountForRateAlert: String(input.minRequestCountForRateAlert),
+    http5xxRateWarnPct: String(input.http5xxRateWarnPct),
+    engineStatus401WarnPerMin: String(input.engineStatus401WarnPerMin),
+    aiMinCallsForAlert: String(input.aiMinCallsForAlert),
+    aiErrorRateWarnPct: String(input.aiErrorRateWarnPct),
+    aiAvgLatencyWarnMs: String(input.aiAvgLatencyWarnMs),
+    anomalyCooldownMs: String(input.anomalyCooldownMs),
   };
 }
 
-interface EngineNotification {
-  id: number;
-  type: string;
-  severity: string;
-  message: string;
-  payload: NotificationPayload | null;
-  createdAt: string;
-  readAt: string | null;
-}
+export default function MonitoringPage() {
+  const { toast } = useToast();
+  const [live, setLive] = useState<SituationResponse | null>(null);
+  const [sseConnected, setSseConnected] = useState(false);
+  const [streamError, setStreamError] = useState<string | null>(null);
+  const [thresholdForm, setThresholdForm] = useState<Record<ThresholdField, string> | null>(null);
 
-interface NotifSummary {
-  total: number;
-  unreadTotal: number;
-  unreadCrit: number;
-  unreadWarn: number;
-}
-
-interface LearningLatestRecord {
-  createdAt: string;
-  totalTrades: number;
-  winRate: string | number | null;
-  avgReturn: string | number | null;
-  applied: boolean;
-  recommendations: string[];
-}
-
-interface LearningModelSummary {
-  modelId: number;
-  modelName: string;
-  isActive: boolean;
-  latestRecord: LearningLatestRecord | null;
-}
-
-interface LearningSummaryResponse {
-  learningEnabled: boolean;
-  defaultScheduleTime: string;
-  models: LearningModelSummary[];
-}
-
-function formatTime(dateStr?: string | null): string {
-  if (!dateStr) return "-";
-  try {
-    const d = new Date(dateStr);
-    return d.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  } catch {
-    return "-";
-  }
-}
-
-function formatDateTime(dateStr?: string | null): string {
-  if (!dateStr) return "-";
-  try {
-    const d = new Date(dateStr);
-    return d.toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
-  } catch {
-    return "-";
-  }
-}
-
-function formatPercent(value: string | number | null | undefined, digits = 1): string {
-  if (value === null || value === undefined) return "-";
-  const n = typeof value === "string" ? parseFloat(value) : value;
-  if (!Number.isFinite(n)) return "-";
-  return `${n.toFixed(digits)}%`;
-}
-
-function JobCard({ job }: { job: JobInfo }) {
-  const isRunning = job.status === "running";
-  return (
-    <Card data-testid={`card-job-${job.id}`}>
-      <CardContent className="pt-4 pb-3 px-4">
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-sm font-medium">{job.name}</span>
-          <Badge variant={isRunning ? "default" : "secondary"}>
-            <CircleDot className="h-3 w-3 mr-1" />
-            {isRunning ? "실행중" : "정지"}
-          </Badge>
-        </div>
-        <div className="flex items-center gap-1 mt-2 text-xs text-muted-foreground">
-          <Clock className="h-3 w-3" />
-          <span>마지막: {formatTime(job.lastRun)}</span>
-        </div>
-        <div className="flex items-center justify-between gap-2 mt-1 text-xs text-muted-foreground">
-          <span>{job.scheduleLabel}</span>
-          <span>실행 {job.runCount}회 / 오류 {job.errorCount}회</span>
-        </div>
-        {job.lastError && (
-          <p className="text-xs text-red-500 dark:text-red-400 mt-1 truncate">{job.lastError}</p>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function NotificationIcon({ type }: { type: string }) {
-  switch (type) {
-    case "BUY": return <ArrowDownCircle className="h-4 w-4 text-green-500 shrink-0" />;
-    case "SELL": return <ArrowUpCircle className="h-4 w-4 text-red-500 shrink-0" />;
-    case "SKIP": return <MinusCircle className="h-4 w-4 text-muted-foreground shrink-0" />;
-    default: return <AlertTriangle className="h-4 w-4 text-yellow-500 shrink-0" />;
-  }
-}
-
-function typeBadgeVariant(type: string) {
-  switch (type) {
-    case "BUY": return "default" as const;
-    case "SELL": return "destructive" as const;
-    default: return "secondary" as const;
-  }
-}
-
-export default function Monitoring() {
-  const { data: jobsData } = useQuery<JobInfo[]>({
-    queryKey: ["/api/admin/jobs"],
-    refetchInterval: 30_000,
-  });
-
-  const { data: engineData } = useQuery<{ initialized: boolean; run: EngineRun | null }>({
-    queryKey: ["/api/auto-trading/engine-status"],
-    refetchInterval: 30_000,
-  });
-
-  const { data: candidatesData, isLoading: candidatesLoading } = useQuery<{ candidates: CandidateStock[] }>({
-    queryKey: ["/api/auto-trading/candidates"],
-    refetchInterval: 30_000,
-  });
-
-  const { data: notifData, isLoading: notifLoading } = useQuery<{ notifications: EngineNotification[] }>({
-    queryKey: ["/api/auto-trading/notifications", { limit: 100 }],
+  const query = useQuery<SituationResponse>({
+    queryKey: ["/api/monitoring/situation-room"],
     queryFn: async () => {
-      const resp = await fetch("/api/auto-trading/notifications?limit=100", { credentials: "include" });
-      if (!resp.ok) throw new Error("Failed to fetch notifications");
-      return resp.json();
+      const res = await fetch("/api/monitoring/situation-room?historyLimit=120&anomalyLimit=120&traceLimit=80&notificationLimit=80", {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error(`failed_to_load_situation_room (${res.status})`);
+      return res.json();
     },
-    refetchInterval: 30_000,
+    refetchInterval: 15_000,
   });
 
-  const { data: summaryData } = useQuery<{ summary: NotifSummary }>({
-    queryKey: ["/api/auto-trading/notifications/summary"],
-    refetchInterval: 30_000,
+  useEffect(() => {
+    let es: EventSource | null = null;
+    try {
+      es = new EventSource("/api/monitoring/live");
+      es.addEventListener("snapshot", (evt: MessageEvent) => {
+        try {
+          const payload = JSON.parse(evt.data) as SituationResponse;
+          setLive(payload);
+          setSseConnected(true);
+          setStreamError(null);
+        } catch {
+          // ignore malformed payload
+        }
+      });
+      es.onerror = () => {
+        setSseConnected(false);
+        setStreamError("실시간 스트림 연결이 불안정합니다.");
+      };
+    } catch (e: any) {
+      setSseConnected(false);
+      setStreamError(e?.message || "스트림 초기화 실패");
+    }
+    return () => {
+      es?.close();
+    };
+  }, []);
+
+  const data = live ?? query.data ?? null;
+  const current = data?.current ?? null;
+
+  useEffect(() => {
+    if (!data?.thresholds) return;
+    setThresholdForm((prev) => prev ?? toEditableThresholds(data.thresholds));
+  }, [data?.thresholds]);
+
+  const updateThresholdField = (field: ThresholdField, value: string) => {
+    setThresholdForm((prev) => {
+      const base = prev ?? toEditableThresholds(data?.thresholds ?? {
+        minRequestCountForRateAlert: 20,
+        http5xxRateWarnPct: 8,
+        engineStatus401WarnPerMin: 12,
+        aiMinCallsForAlert: 3,
+        aiErrorRateWarnPct: 30,
+        aiAvgLatencyWarnMs: 9000,
+        anomalyCooldownMs: 120000,
+      });
+      return { ...base, [field]: value };
+    });
+  };
+
+  const saveThresholdMutation = useMutation({
+    mutationFn: async () => {
+      if (!thresholdForm) throw new Error("임계치 값이 없습니다.");
+      const payload = {
+        minRequestCountForRateAlert: Number(thresholdForm.minRequestCountForRateAlert),
+        http5xxRateWarnPct: Number(thresholdForm.http5xxRateWarnPct),
+        engineStatus401WarnPerMin: Number(thresholdForm.engineStatus401WarnPerMin),
+        aiMinCallsForAlert: Number(thresholdForm.aiMinCallsForAlert),
+        aiErrorRateWarnPct: Number(thresholdForm.aiErrorRateWarnPct),
+        aiAvgLatencyWarnMs: Number(thresholdForm.aiAvgLatencyWarnMs),
+        anomalyCooldownMs: Number(thresholdForm.anomalyCooldownMs),
+      };
+      const values = Object.values(payload);
+      if (values.some((v) => !Number.isFinite(v))) {
+        throw new Error("숫자 형식으로 입력해주세요.");
+      }
+      const res = await apiRequest("PATCH", "/api/monitoring/config", payload);
+      return res.json();
+    },
+    onSuccess: async (json: any) => {
+      const next = json?.thresholds as MonitorThresholds | undefined;
+      if (next) {
+        setThresholdForm(toEditableThresholds(next));
+      }
+      await queryClient.invalidateQueries({ queryKey: ["/api/monitoring/situation-room"] });
+      await query.refetch();
+      toast({ title: "모니터링 임계치 저장 완료" });
+    },
+    onError: (err: any) => {
+      toast({
+        variant: "destructive",
+        title: "모니터링 임계치 저장 실패",
+        description: err?.message || "요청 처리 중 오류가 발생했습니다.",
+      });
+    },
   });
 
-  const { data: learningSummaryData, isLoading: learningSummaryLoading } = useQuery<LearningSummaryResponse>({
-    queryKey: ["/api/ai/learning-summary"],
-    refetchInterval: 60_000,
-  });
+  const health = useMemo(() => {
+    if (!current) return { level: "unknown" as const, message: "데이터 대기중" };
+    if (!current.db.ok) return { level: "crit" as const, message: "DB 연결 이상" };
+    if (current.httpLast1m.error5xxRatePct >= 8 || current.aiLast5m.errorRatePct >= 30) {
+      return { level: "warn" as const, message: "주의 필요" };
+    }
+    return { level: "ok" as const, message: "정상" };
+  }, [current]);
 
-  const jobs = jobsData ?? [];
-  const engineRun = engineData?.run;
-  const candidates = candidatesData?.candidates ?? [];
-  const decisionTypes = new Set(["BUY", "SELL", "SKIP", "ADDITIONAL_BUY", "EXIT_SELL"]);
-  const notifications = (notifData?.notifications ?? []).filter((n) => decisionTypes.has(n.type));
-  const summary = summaryData?.summary;
-  const learningModels = learningSummaryData?.models ?? [];
-  const activeLearningModels = learningModels.filter((m) => m.isActive);
-  const learningJob = jobs.find((j) => j.id === "learning");
+  const thresholdFields: Array<{
+    key: ThresholdField;
+    label: string;
+    suffix: string;
+  }> = [
+    { key: "minRequestCountForRateAlert", label: "HTTP 에러율 최소 요청 수", suffix: "req" },
+    { key: "http5xxRateWarnPct", label: "HTTP 5xx 경고 비율", suffix: "%" },
+    { key: "engineStatus401WarnPerMin", label: "engine-status 401 경고 수", suffix: "count/1m" },
+    { key: "aiMinCallsForAlert", label: "AI 경고 최소 호출 수", suffix: "calls/5m" },
+    { key: "aiErrorRateWarnPct", label: "AI 에러율 경고", suffix: "%" },
+    { key: "aiAvgLatencyWarnMs", label: "AI 평균 지연 경고", suffix: "ms" },
+    { key: "anomalyCooldownMs", label: "이상감지 중복 억제", suffix: "ms" },
+  ];
 
   return (
-    <div className="p-3 md:p-6 space-y-4 md:space-y-6">
-      <div className="flex items-start justify-between gap-2 flex-wrap">
+    <div className="p-4 md:p-6 space-y-5">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-2" data-testid="text-monitoring-title">
-            <Monitor className="h-7 w-7" />
-            실시간 자동매매 모니터
+            <Monitor className="w-7 h-7" />
+            운영 실시간 상황실
           </h1>
-          <p className="text-muted-foreground mt-1">봇 상태, 후보 종목, 매매 결정을 실시간으로 확인합니다 (30초 자동갱신)</p>
+          <p className="text-sm text-muted-foreground mt-1">
+            배치 상태, 이상탐지, AI 프롬프트/컨텍스트 트레이스, 엔진 알림을 실시간으로 확인합니다.
+          </p>
         </div>
-        {engineRun && (
-          <Badge variant={engineRun.state === "running" ? "default" : "secondary"} data-testid="badge-engine-state">
-            <Power className="h-3 w-3 mr-1" />
-            엔진: {engineRun.state === "running" ? "가동중" : engineRun.state}
-            {engineRun.lastCycleAt && <span className="ml-1">({formatTime(engineRun.lastCycleAt)})</span>}
+        <div className="flex items-center gap-2">
+          <Badge variant={sseConnected ? "default" : "secondary"} data-testid="badge-stream-status">
+            {sseConnected ? <Wifi className="w-3 h-3 mr-1" /> : <WifiOff className="w-3 h-3 mr-1" />}
+            {sseConnected ? "Live 연결됨" : "Live 끊김"}
           </Badge>
-        )}
+          <Badge variant={data?.monitorJob.running ? "default" : "secondary"} data-testid="badge-monitor-job">
+            {data?.monitorJob.running ? "모니터 잡 ON" : "모니터 잡 OFF"}
+          </Badge>
+          <Button size="sm" variant="outline" onClick={() => query.refetch()} data-testid="button-refresh-situation-room">
+            <RefreshCw className="w-3 h-3 mr-1" />
+            새로고침
+          </Button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        {jobs.length > 0 ? jobs.map((job) => (
-          <JobCard key={job.id} job={job} />
-        )) : (
-          <>
-            {["스캔 잡", "매매 잡", "학습 잡"].map((name) => (
-              <Card key={name}>
-                <CardContent className="pt-4 pb-3 px-4">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-medium">{name}</span>
-                    <Badge variant="secondary">
-                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                      로딩중
-                    </Badge>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </>
-        )}
-      </div>
+      {streamError && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 text-amber-900 px-3 py-2 text-sm">
+          {streamError}
+        </div>
+      )}
 
-      {summary && (
-        <Card data-testid="card-notification-summary">
-          <CardContent className="pt-3 pb-3 px-4">
-            <div className="flex items-center flex-wrap gap-4 text-sm">
-              <div className="flex items-center gap-1">
-                <Bell className="h-4 w-4" />
-                <span className="font-medium">알림 요약</span>
-              </div>
-              <span>전체: {summary.total}건</span>
-              <span>미확인: {summary.unreadTotal}건</span>
-              {summary.unreadCrit > 0 && (
-                <Badge variant="destructive" className="text-xs">긴급 {summary.unreadCrit}</Badge>
-              )}
-              {summary.unreadWarn > 0 && (
-                <Badge variant="secondary" className="text-xs">경고 {summary.unreadWarn}</Badge>
-              )}
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+        <Card data-testid="card-system-health">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4" />
+              시스템 상태
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-1">
+            <Badge variant={health.level === "crit" ? "destructive" : health.level === "warn" ? "secondary" : "default"}>
+              {health.message}
+            </Badge>
+            <div className="text-xs text-muted-foreground">
+              마지막 수집: {fmtDateTime(current?.measuredAt)}
             </div>
           </CardContent>
         </Card>
-      )}
 
-      <Card data-testid="card-learning-summary">
-        <CardHeader className="pb-3">
+        <Card data-testid="card-db-health">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Database className="w-4 h-4" />
+              DB 헬스
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-1 text-sm">
+            <div>{current?.db.ok ? "정상" : "실패"}</div>
+            <div className="text-xs text-muted-foreground">지연: {current?.db.latencyMs ?? "-"} ms</div>
+            {current?.db.error && <div className="text-xs text-destructive break-all">{current.db.error}</div>}
+          </CardContent>
+        </Card>
+
+        <Card data-testid="card-http-health">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Gauge className="w-4 h-4" />
+              HTTP 1분
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-1 text-sm">
+            <div>요청 {current?.httpLast1m.requestCount ?? 0}건</div>
+            <div className="text-xs text-muted-foreground">
+              5xx 비율 {current?.httpLast1m.error5xxRatePct ?? 0}% / P95 {current?.httpLast1m.p95LatencyMs ?? 0}ms
+            </div>
+            <div className="text-xs text-muted-foreground">
+              engine-status 401: {current?.httpLast1m.engineStatus401Count ?? 0}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card data-testid="card-ai-health">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Bot className="w-4 h-4" />
+              AI 5분
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-1 text-sm">
+            <div>호출 {data?.ai.recentCalls5m ?? 0}건</div>
+            <div className="text-xs text-muted-foreground">
+              성공률 {data?.ai.recentSuccessRatePct ?? 0}% / 평균 {data?.ai.avgLatencyMs5m ?? 0}ms
+            </div>
+            <div className="text-xs text-muted-foreground">
+              에러 {data?.ai.recentErrors5m ?? 0}건
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card data-testid="card-monitoring-thresholds">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">이상감지 임계치 설정</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2">
+            {thresholdFields.map((field) => (
+              <label key={field.key} className="text-xs text-muted-foreground space-y-1">
+                <span className="block">{field.label}</span>
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={thresholdForm?.[field.key] ?? ""}
+                    onChange={(e) => updateThresholdField(field.key, e.target.value)}
+                    data-testid={`input-threshold-${field.key}`}
+                  />
+                  <span className="text-[11px] whitespace-nowrap">{field.suffix}</span>
+                </div>
+              </label>
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              onClick={() => saveThresholdMutation.mutate()}
+              disabled={saveThresholdMutation.isPending || !thresholdForm}
+              data-testid="button-save-thresholds"
+            >
+              {saveThresholdMutation.isPending ? "저장 중..." : "임계치 저장"}
+            </Button>
+            <span className="text-xs text-muted-foreground">
+              저장 후 즉시 탐지 로직에 반영되고, 재시작 후에도 유지됩니다.
+            </span>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <Card data-testid="card-anomalies">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Siren className="w-4 h-4" />
+              이상탐지 로그
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <ScrollArea className="h-[360px]">
+              <div className="divide-y">
+                {(data?.anomalies ?? []).length === 0 && (
+                  <div className="p-4 text-sm text-muted-foreground">탐지된 이상징후가 없습니다.</div>
+                )}
+                {(data?.anomalies ?? []).map((a) => (
+                  <div key={a.id} className="p-3 space-y-1" data-testid={`row-anomaly-${a.id}`}>
+                    <div className="flex items-center gap-2">
+                      <Badge variant={severityBadgeVariant(a.severity)}>{a.severity.toUpperCase()}</Badge>
+                      <span className="text-xs text-muted-foreground">{a.kind}</span>
+                      <span className="text-xs text-muted-foreground ml-auto">{fmtDateTime(a.detectedAt)}</span>
+                    </div>
+                    <div className="text-sm">{a.message}</div>
+                    {a.details && (
+                      <pre className="text-[11px] text-muted-foreground bg-muted rounded p-2 overflow-auto">
+                        {JSON.stringify(a.details, null, 2)}
+                      </pre>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </ScrollArea>
+          </CardContent>
+        </Card>
+
+        <Card data-testid="card-engine-notifications">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4" />
+              엔진 알림
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <div className="flex flex-wrap gap-2 text-xs">
+              <Badge variant="outline">전체 {data?.notificationSummary?.total ?? 0}</Badge>
+              <Badge variant="outline">미확인 {data?.notificationSummary?.unreadTotal ?? 0}</Badge>
+              {(data?.notificationSummary?.unreadCrit ?? 0) > 0 && (
+                <Badge variant="destructive">CRIT {data?.notificationSummary?.unreadCrit}</Badge>
+              )}
+              {(data?.notificationSummary?.unreadWarn ?? 0) > 0 && (
+                <Badge variant="secondary">WARN {data?.notificationSummary?.unreadWarn}</Badge>
+              )}
+            </div>
+            <ScrollArea className="h-[300px] border rounded">
+              <div className="divide-y">
+                {(data?.recentEngineNotifications ?? []).map((n) => (
+                  <div key={n.id} className="p-3" data-testid={`row-engine-notification-${n.id}`}>
+                    <div className="flex items-center gap-2">
+                      <Badge variant={severityBadgeVariant(n.severity)}>{n.type}</Badge>
+                      <span className="text-xs text-muted-foreground ml-auto">{fmtDateTime(n.createdAt)}</span>
+                    </div>
+                    <div className="text-sm mt-1">{n.message}</div>
+                  </div>
+                ))}
+                {(data?.recentEngineNotifications ?? []).length === 0 && (
+                  <div className="p-3 text-sm text-muted-foreground">표시할 알림이 없습니다.</div>
+                )}
+              </div>
+            </ScrollArea>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card data-testid="card-ai-traces">
+        <CardHeader className="pb-2">
           <CardTitle className="text-base flex items-center gap-2">
-            <GraduationCap className="h-4 w-4" />
-            학습 요약
+            <Bot className="w-4 h-4" />
+            AI 호출 트레이스 (프롬프트/컨텍스트/응답)
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          <ScrollArea className="h-[460px]">
+            <div className="divide-y">
+              {(data?.ai.traces ?? []).length === 0 && (
+                <div className="p-4 text-sm text-muted-foreground">아직 AI 호출 기록이 없습니다.</div>
+              )}
+              {(data?.ai.traces ?? []).map((t) => (
+                <div key={t.id} className="p-3 space-y-2" data-testid={`row-ai-trace-${t.id}`}>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Badge variant={t.success ? "default" : "destructive"}>{t.success ? "SUCCESS" : "ERROR"}</Badge>
+                    <Badge variant="outline">{t.model}</Badge>
+                    <Badge variant="secondary">{t.source}</Badge>
+                    <span className="text-xs text-muted-foreground ml-auto">
+                      {fmtDateTime(t.timestamp)} / {t.durationMs}ms / tokens {t.totalTokens}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 xl:grid-cols-3 gap-2 text-[12px]">
+                    <div className="border rounded p-2 bg-muted/20">
+                      <div className="font-medium mb-1">Prompt</div>
+                      <pre className="whitespace-pre-wrap break-words">{t.promptPreview || "-"}</pre>
+                    </div>
+                    <div className="border rounded p-2 bg-muted/20">
+                      <div className="font-medium mb-1">Context</div>
+                      <pre className="whitespace-pre-wrap break-words">{t.contextPreview || "-"}</pre>
+                    </div>
+                    <div className="border rounded p-2 bg-muted/20">
+                      <div className="font-medium mb-1">Response / Error</div>
+                      <pre className="whitespace-pre-wrap break-words">
+                        {t.success ? t.responsePreview || "-" : t.errorMessage || "-"}
+                      </pre>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </ScrollArea>
+        </CardContent>
+      </Card>
+
+      <Card data-testid="card-job-runtime">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Cpu className="w-4 h-4" />
+            배치 잡 런타임
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex items-center flex-wrap gap-2 text-xs">
-            <Badge variant={learningSummaryData?.learningEnabled ? "default" : "secondary"}>
-              학습 플래그: {learningSummaryData?.learningEnabled ? "ON" : "OFF"}
+            <Badge variant={data?.monitorJob.running ? "default" : "secondary"}>
+              모니터 잡: {data?.monitorJob.running ? "ON" : "OFF"}
             </Badge>
-            <Badge variant="outline">기본 실행시각: {learningSummaryData?.defaultScheduleTime ?? "16:00"}</Badge>
-            <Badge variant={learningJob?.status === "running" ? "default" : "secondary"}>
-              학습 잡: {learningJob?.status === "running" ? "실행중" : "중지"}
-            </Badge>
-            <Badge variant="outline">다음 실행: {learningJob?.nextRun ? formatDateTime(learningJob.nextRun) : "-"}</Badge>
-            <Badge variant="outline">활성 모델: {activeLearningModels.length}개</Badge>
+            <Badge variant="outline">주기: {data?.monitorJob.intervalSec ?? 0}초</Badge>
+            <Badge variant="outline">마지막: {fmtDateTime(data?.monitorJob.lastRunAt)}</Badge>
+            <Badge variant="outline">다음: {fmtDateTime(data?.monitorJob.nextRunAt)}</Badge>
           </div>
-
-          {learningSummaryLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            </div>
-          ) : activeLearningModels.length === 0 ? (
-            <p className="text-sm text-muted-foreground">활성 모델이 없어서 학습 대상이 없습니다.</p>
-          ) : (
-            <div className="space-y-2">
-              {activeLearningModels.map((m) => {
-                const rec = m.latestRecord;
-                const lastRecommendation = rec?.recommendations?.[0];
-                return (
-                  <div key={m.modelId} className="rounded-md border border-border/40 p-3 space-y-1.5">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-sm font-medium">{m.modelName}</p>
-                      <Badge variant={rec?.applied ? "default" : "secondary"} className="text-xs">
-                        {rec ? (rec.applied ? "자동반영됨" : "추천만 생성") : "학습기록 없음"}
-                      </Badge>
-                    </div>
-                    <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                      <span>최근 학습: {rec ? formatDateTime(rec.createdAt) : "-"}</span>
-                      <span>거래수: {rec?.totalTrades ?? "-"}</span>
-                      <span>승률: {formatPercent(rec?.winRate, 1)}</span>
-                      <span>평균수익: {formatPercent(rec?.avgReturn, 2)}</span>
-                    </div>
-                    {lastRecommendation && (
-                      <p className="text-xs text-muted-foreground truncate">{lastRecommendation}</p>
-                    )}
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+            {(current?.jobs ?? []).map((j) => (
+              <div key={j.id} className="border rounded-md p-3 text-sm" data-testid={`card-job-runtime-${j.id}`}>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-medium">{j.name}</span>
+                  <Badge variant={j.status === "running" ? "default" : "secondary"}>{j.status}</Badge>
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">last: {fmtDateTime(j.lastRun)}</div>
+                <div className="text-xs text-muted-foreground">next: {fmtDateTime(j.nextRun)}</div>
+                {j.errorCount > 0 && (
+                  <div className="text-xs text-destructive mt-1 flex items-center gap-1">
+                    <ShieldAlert className="w-3 h-3" />
+                    오류 {j.errorCount}회
                   </div>
-                );
-              })}
-            </div>
-          )}
+                )}
+              </div>
+            ))}
+            {(current?.jobs ?? []).length === 0 && (
+              <div className="text-sm text-muted-foreground">잡 데이터가 아직 없습니다.</div>
+            )}
+          </div>
+          <div className="text-xs text-muted-foreground">
+            서버 업타임: {current ? fmtDurationSec(current.runtime.uptimeSec) : "-"} / 메모리 RSS {current?.runtime.memoryRssMb ?? "-"}MB
+          </div>
         </CardContent>
       </Card>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">후보 종목 ({candidates.length})</CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            {candidatesLoading ? (
-              <div className="flex items-center justify-center py-12">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-              </div>
-            ) : candidates.length === 0 ? (
-              <div className="text-center py-12 text-muted-foreground text-sm" data-testid="text-no-candidates">
-                후보 종목이 없습니다
-              </div>
-            ) : (
-              <ScrollArea className="max-h-[500px]">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>종목</TableHead>
-                      <TableHead className="w-[70px]">라인</TableHead>
-                      <TableHead className="w-[90px]">스캔시각</TableHead>
-                      <TableHead className="w-[80px]">결과</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {candidates.map((c) => {
-                      const evalResult = c.evaluationResult;
-                      const confidence = evalResult?.confidence;
-                      return (
-                        <TableRow key={c.id} data-testid={`row-candidate-${c.id}`}>
-                          <TableCell>
-                            <div className="flex flex-col">
-                              <span className="font-medium text-sm">{c.stockName}</span>
-                              <span className="text-xs text-muted-foreground font-mono">{c.stockCode}</span>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            {c.scannedLine != null ? (
-                              <Badge variant="outline">{c.scannedLine}%</Badge>
-                            ) : "-"}
-                          </TableCell>
-                          <TableCell className="text-xs text-muted-foreground">
-                            {formatDateTime(c.scannedAt)}
-                          </TableCell>
-                          <TableCell>
-                            {c.skipReason ? (
-                              <Badge variant="secondary" className="text-xs">{c.skipReason}</Badge>
-                            ) : confidence != null ? (
-                              <Badge variant="default" className="text-xs">{Number(confidence).toFixed(0)}%</Badge>
-                            ) : (
-                              <span className="text-xs text-muted-foreground">대기</span>
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </ScrollArea>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">매매 결정 피드</CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            {notifLoading ? (
-              <div className="flex items-center justify-center py-12">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-              </div>
-            ) : notifications.length === 0 ? (
-              <div className="text-center py-12 text-muted-foreground text-sm" data-testid="text-no-notifications">
-                매매 결정 기록이 없습니다
-              </div>
-            ) : (
-              <ScrollArea className="max-h-[500px]">
-                <div className="divide-y">
-                  {notifications.map((n) => {
-                    const payload = n.payload;
-                    return (
-                      <div key={n.id} className="px-4 py-3 space-y-1" data-testid={`row-notification-${n.id}`}>
-                        <div className="flex items-center gap-2">
-                          <NotificationIcon type={n.type} />
-                          <Badge variant={typeBadgeVariant(n.type)} className="text-xs">{n.type}</Badge>
-                          <span className="text-xs text-muted-foreground ml-auto">{formatTime(n.createdAt)}</span>
-                        </div>
-                        <p className="text-sm">{n.message}</p>
-                        {payload && (
-                          <div className="space-y-1.5">
-                            <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                              {payload.confidence != null && <span>신뢰도: {Number(payload.confidence).toFixed(1)}%</span>}
-                              {payload.themeScore != null && <span>테마: {payload.themeScore}</span>}
-                              {payload.newsScore != null && <span>뉴스: {payload.newsScore}</span>}
-                              {payload.financialsScore != null && <span>재무: {payload.financialsScore}</span>}
-                              {payload.liquidityScore != null && <span>유동성: {payload.liquidityScore}</span>}
-                              {payload.institutionalScore != null && <span>기관수급: {payload.institutionalScore}</span>}
-                              {payload.skipReason && <span className="font-medium">{payload.skipReason}</span>}
-                              {payload.profitLoss != null && (
-                                <span className={Number(payload.profitLoss) > 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}>
-                                  P/L: {Number(payload.profitLoss) > 0 ? "+" : ""}{Number(payload.profitLoss).toLocaleString()}원
-                                </span>
-                              )}
-                            </div>
-                            {payload.confidenceBreakdown?.weights && payload.confidenceBreakdown?.scores && (
-                              <div className="text-[11px] text-muted-foreground rounded border px-2 py-1">
-                                <span className="font-medium">계산 근거:</span>{" "}
-                                {`(${payload.confidenceBreakdown.scores.theme ?? 0}×${payload.confidenceBreakdown.weights.theme ?? 0} + `}
-                                {`${payload.confidenceBreakdown.scores.news ?? 0}×${payload.confidenceBreakdown.weights.news ?? 0} + `}
-                                {`${payload.confidenceBreakdown.scores.financials ?? 0}×${payload.confidenceBreakdown.weights.financials ?? 0} + `}
-                                {`${payload.confidenceBreakdown.scores.liquidity ?? 0}×${payload.confidenceBreakdown.weights.liquidity ?? 0} + `}
-                                {`${payload.confidenceBreakdown.scores.institutional ?? 0}×${payload.confidenceBreakdown.weights.institutional ?? 0}) / `}
-                                {`${payload.confidenceBreakdown.denominator ?? 100}`}
-                                {` = ${(payload.confidenceBreakdown.calculatedConfidence ?? payload.confidence ?? 0).toFixed(2)}%`}
-                                {payload.confidenceBreakdown.minAiConfidence != null && (
-                                  <span>{` (최소 ${payload.confidenceBreakdown.minAiConfidence}%)`}</span>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </ScrollArea>
-            )}
-          </CardContent>
-        </Card>
-      </div>
     </div>
   );
 }

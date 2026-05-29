@@ -11,6 +11,7 @@
         "db:push": "drizzle-kit push",
         "test:playwright": "npm run build && node scripts/playwright-smoke.mjs",
         "test:playwright:candidate-decisions": "node scripts/playwright-candidate-decisions.mjs",
+        "test:playwright:monitoring-war-room": "node scripts/playwright-monitoring-war-room.mjs",
         "verify:replit": "node scripts/replit-readiness.mjs",
         "test:chart-normalization": "tsx scripts/test-chart-normalization.ts",
         "check:runtime-schema": "node scripts/check-runtime-schema.mjs",

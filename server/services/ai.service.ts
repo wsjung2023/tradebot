@@ -4,6 +4,7 @@ import type { AiModel, Holding, Order } from '@shared/schema';
 import type { NewsResult } from './news.service';
 import { RainbowChartAnalyzer, type OHLCVData, type RainbowChartResult } from '../formula/rainbow-chart';
 import { storage } from '../storage';
+import { opsMonitorService } from './ops-monitor.service';
 
 export class AiBudgetExceededError extends Error {
   constructor(monthlyTotal: number, budget: number) {
@@ -203,6 +204,48 @@ export class AIService {
     }
   }
 
+  private flattenMessageContent(content: OpenAI.Chat.Completions.ChatCompletionMessageParam["content"]): string {
+    if (typeof content === "string") return content;
+    if (!Array.isArray(content)) return "";
+    return content
+      .map((part: any) => {
+        if (typeof part === "string") return part;
+        if (part?.type === "text") return String(part?.text || "");
+        return "";
+      })
+      .join("\n");
+  }
+
+  private buildTraceContext(
+    messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
+    usageContext?: AiUsageContext,
+  ): { promptPreview: string; contextPreview: string } {
+    const systemContents = messages
+      .filter((m) => m.role === "system")
+      .map((m) => this.flattenMessageContent((m as any).content))
+      .filter(Boolean);
+
+    const userContents = messages
+      .filter((m) => m.role === "user")
+      .map((m) => this.flattenMessageContent((m as any).content))
+      .filter(Boolean);
+
+    const promptSource = userContents.length > 0 ? userContents[userContents.length - 1] : "";
+    const promptPreview = promptSource.replace(/\s+/g, " ").trim().slice(0, 2000);
+
+    const contextObj = {
+      source: usageContext?.source ?? "unknown",
+      hasUserId: Boolean(usageContext?.userId),
+      hasAccountId: usageContext?.accountId != null,
+      messageCount: messages.length,
+      systemMessageChars: systemContents.reduce((sum, text) => sum + text.length, 0),
+      userMessageChars: userContents.reduce((sum, text) => sum + text.length, 0),
+      userMessageCount: userContents.length,
+    };
+    const contextPreview = JSON.stringify(contextObj);
+    return { promptPreview, contextPreview };
+  }
+
   private async createJsonCompletion(
     messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
     options: {
@@ -212,7 +255,22 @@ export class AIService {
     } = {}
   ): Promise<any> {
     const { model = 'gpt-5-mini', temperature = 0.3, usageContext } = options;
-    await this.checkBudgetBeforeCall(usageContext);
+    const trace = this.buildTraceContext(messages, usageContext);
+    try {
+      await this.checkBudgetBeforeCall(usageContext);
+    } catch (error: any) {
+      opsMonitorService.recordAiTrace({
+        userId: usageContext?.userId ?? null,
+        source: usageContext?.source ?? "unknown",
+        model,
+        success: false,
+        durationMs: 0,
+        promptPreview: trace.promptPreview,
+        contextPreview: trace.contextPreview,
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
 
     // Reasoning models (o1, o3, o4-*, gpt-5-*) only support default temperature (1)
     const isReasoningModel = /^(o\d|gpt-5)/.test(model);
@@ -220,6 +278,7 @@ export class AIService {
 
     const maxRetries = 3;
     for (let attempt = 0; attempt < maxRetries; attempt++) {
+      const attemptStartedAt = Date.now();
       try {
         const completion = await this.openai.chat.completions.create({
           model,
@@ -234,7 +293,21 @@ export class AIService {
           console.warn('[AIService] usage record failed:', recordError?.message || recordError);
         }
 
-        return JSON.parse(completion.choices[0].message.content || '{}');
+        const rawResponse = completion.choices?.[0]?.message?.content || '{}';
+        opsMonitorService.recordAiTrace({
+          userId: usageContext?.userId ?? null,
+          source: usageContext?.source ?? "unknown",
+          model,
+          success: true,
+          durationMs: Date.now() - attemptStartedAt,
+          promptPreview: trace.promptPreview,
+          contextPreview: trace.contextPreview,
+          responsePreview: rawResponse,
+          promptTokens: Number(completion.usage?.prompt_tokens ?? 0),
+          completionTokens: Number(completion.usage?.completion_tokens ?? 0),
+          totalTokens: Number(completion.usage?.total_tokens ?? 0),
+        });
+        return JSON.parse(rawResponse);
       } catch (error: any) {
         const status = error?.status ?? error?.response?.status;
         if (status === 429 && attempt < maxRetries - 1) {
@@ -243,6 +316,16 @@ export class AIService {
           await new Promise(r => setTimeout(r, waitMs));
           continue;
         }
+        opsMonitorService.recordAiTrace({
+          userId: usageContext?.userId ?? null,
+          source: usageContext?.source ?? "unknown",
+          model,
+          success: false,
+          durationMs: Date.now() - attemptStartedAt,
+          promptPreview: trace.promptPreview,
+          contextPreview: trace.contextPreview,
+          errorMessage: error instanceof Error ? error.message : String(error),
+        });
         console.error(`AI completion failed (model: ${model}):`, error);
         throw new Error(`AI service error: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }

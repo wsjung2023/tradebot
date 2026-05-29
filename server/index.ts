@@ -13,6 +13,7 @@ import { setupVite, log } from "./vite";
 import { setupAuth } from "./auth";
 import { jobManager } from "./job-manager";
 import { masterSettings } from "./services/master-settings.service";
+import { opsMonitorService } from "./services/ops-monitor.service";
 
 // 전역 에러 핸들러
 process.on('uncaughtException', (err) => {
@@ -144,6 +145,7 @@ app.use((req, res, next) => {
   const start = Date.now();
   res.on("finish", () => {
     const duration = Date.now() - start;
+    opsMonitorService.recordHttpRequest(req.method, req.path, res.statusCode, duration);
     log(`${req.method} ${req.path} ${res.statusCode} in ${duration}ms`);
   });
   next();
