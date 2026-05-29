@@ -39,6 +39,8 @@ import sidebarVisual from "@assets/stock_images/dynamic_stock_market_0d6bd401.jp
 
 const menuItems = [
   { title: "대시보드", url: "/", icon: LayoutDashboard },
+  { title: "운영 상황실", url: "/monitoring", icon: Activity },
+  { title: "배치잡 관리", url: "/admin-jobs", icon: ServerCog },
   { title: "사용 가이드", url: "/guide", icon: BookOpen },
   { title: "튜토리얼", url: "/tutorial", icon: GraduationCap },
   { title: "거래", url: "/trading", icon: TrendingUp },
@@ -51,10 +53,8 @@ const menuItems = [
   { title: "계좌 관리", url: "/accounts", icon: Wallet },
   { title: "조건검색", url: "/condition-formulas", icon: Search },
   { title: "뒷차기2 스캔", url: "/backattack-scan", icon: Rainbow },
-  { title: "실시간 모니터", url: "/monitoring", icon: Activity },
   { title: "선정/탈락 이력", url: "/candidate-decisions", icon: ClipboardList },
   { title: "설정", url: "/settings", icon: Settings },
-  { title: "배치잡 관리", url: "/admin-jobs", icon: ServerCog },
 ];
 
 export function AppSidebar() {
