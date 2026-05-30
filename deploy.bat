@@ -9,7 +9,13 @@ echo.
 set DEV=D:\Projects\tradebot-dev
 set PROD=D:\Projects\tradebot
 
-echo [1] 코드 복사 중 (dev -> prod)...
+echo [1] SW 타임스탬프 주입 중...
+set TS=%date:~0,4%%date:~5,2%%date:~8,2%-%time:~0,2%%time:~3,2%%time:~6,2%
+powershell -Command "(Get-Content '%DEV%\client\public\sw.js') -replace '__BUILD_TS__', '%TS%' | Set-Content '%DEV%\client\public\sw.js'"
+echo [OK] SW 타임스탬프: %TS%
+echo.
+
+echo [1-2] 코드 복사 중 (dev -> prod)...
 robocopy %DEV%\server   %PROD%\server   /E /XD node_modules /NFL /NDL /NJS
 robocopy %DEV%\client   %PROD%\client   /E /XD node_modules /NFL /NDL /NJS
 robocopy %DEV%\shared   %PROD%\shared   /E /NFL /NDL /NJS
