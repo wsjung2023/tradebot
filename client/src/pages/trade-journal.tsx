@@ -173,7 +173,7 @@ export default function TradeJournalPage() {
               조회된 거래 내역이 없습니다.
             </div>
           ) : (
-            <div className="rounded-md border overflow-hidden">
+            <div className="rounded-md border overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow className="bg-muted/50">

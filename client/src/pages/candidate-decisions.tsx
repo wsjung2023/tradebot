@@ -203,6 +203,7 @@ export default function CandidateDecisions() {
               로그가 없습니다.
             </div>
           ) : (
+            <div className="overflow-x-auto">
             <Table data-testid="table-candidate-decisions">
               <TableHeader>
                 <TableRow>
@@ -270,6 +271,7 @@ export default function CandidateDecisions() {
                 })}
               </TableBody>
             </Table>
+            </div>
           )}
         </CardContent>
       </Card>
