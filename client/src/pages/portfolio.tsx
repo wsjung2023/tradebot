@@ -301,7 +301,7 @@ export default function Portfolio() {
                     <TableHead className="text-right">현재가</TableHead>
                     <TableHead className="text-right">손익</TableHead>
                     <TableHead className="text-right hidden sm:table-cell">수익률</TableHead>
-                    <TableHead className="text-center hidden md:table-cell">매도전략</TableHead>
+                    <TableHead className="text-center w-10"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -335,7 +335,7 @@ export default function Portfolio() {
                         <TableCell className={`text-right font-mono text-sm hidden sm:table-cell ${pnlColor}`}>
                           {formatRate(rate)}
                         </TableCell>
-                        <TableCell className="text-center hidden md:table-cell">
+                        <TableCell className="text-center w-10 px-1">
                           <Button
                             size="icon"
                             variant="ghost"
