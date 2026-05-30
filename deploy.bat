@@ -9,13 +9,7 @@ echo.
 set DEV=D:\Projects\tradebot-dev
 set PROD=D:\Projects\tradebot
 
-echo [1] SW 타임스탬프 주입 중...
-set TS=%date:~0,4%%date:~5,2%%date:~8,2%-%time:~0,2%%time:~3,2%%time:~6,2%
-powershell -Command "(Get-Content '%DEV%\client\public\sw.js') -replace '__BUILD_TS__', '%TS%' | Set-Content '%DEV%\client\public\sw.js'"
-echo [OK] SW 타임스탬프: %TS%
-echo.
-
-echo [1-2] 코드 복사 중 (dev -> prod)...
+echo [1] 코드 복사 중 (dev -> prod)...
 robocopy %DEV%\server   %PROD%\server   /E /XD node_modules /NFL /NDL /NJS
 robocopy %DEV%\client   %PROD%\client   /E /XD node_modules /NFL /NDL /NJS
 robocopy %DEV%\shared   %PROD%\shared   /E /NFL /NDL /NJS
@@ -34,6 +28,12 @@ if errorlevel 1 (
 ) else (
   echo [스킵] 변경된 파일 없음, push 생략
 )
+echo.
+
+echo [2-5] SW 타임스탬프 주입 (prod 파일만 수정)...
+set TS=%date:~0,4%%date:~5,2%%date:~8,2%-%time:~0,2%%time:~3,2%%time:~6,2%
+powershell -Command "(Get-Content '%PROD%\client\public\sw.js') -replace 'BUILD_TIMESTAMP: .*', 'BUILD_TIMESTAMP: %TS%' | Set-Content '%PROD%\client\public\sw.js'"
+echo [OK] SW 버전: %TS%
 echo.
 
 echo [3] 운영 서버 재시작 중...
