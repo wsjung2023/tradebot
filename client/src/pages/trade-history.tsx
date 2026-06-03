@@ -411,7 +411,7 @@ function StockPerformanceTab({ accountStatus, accountType, accountId }: AccountF
 }
 
 export default function TradeHistory() {
-  const [accountStatus, setAccountStatus] = useState<"active" | "all" | "archived">("active");
+  const [accountStatus, setAccountStatus] = useState<"active" | "all" | "archived">("all");
   const [accountType, setAccountType] = useState<"all" | "mock" | "real">("all");
   const [accountId, setAccountId] = useState("all");
 

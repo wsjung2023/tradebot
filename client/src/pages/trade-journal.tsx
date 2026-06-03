@@ -92,7 +92,7 @@ export default function TradeJournalPage() {
   const [endDate, setEndDate] = useState(() => format(new Date(), "yyyy-MM-dd"));
   const [stockCode, setStockCode] = useState("");
   const [tradeType, setTradeType] = useState("all");
-  const [accountStatus, setAccountStatus] = useState<"active" | "all" | "archived">("active");
+  const [accountStatus, setAccountStatus] = useState<"active" | "all" | "archived">("all");
   const [accountType, setAccountType] = useState<"all" | "mock" | "real">("all");
   const [accountId, setAccountId] = useState("all");
   const [modelId, setModelId] = useState("all");
