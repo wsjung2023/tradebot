@@ -1390,6 +1390,10 @@ export class TradeExecutorService {
     try {
       const accounts = await storage.getKiwoomAccounts(model.userId);
       const config = (model.config as any) || {};
+      if (config.buyPaused === true) {
+        console.log(`    ⏸ 매수 일시정지 ON — 신규매수 건너뜀 (${stock.code})`);
+        return;
+      }
       const targetAccountId = config.accountId;
       if (!targetAccountId) { console.log(`    ⛔ accountId 미설정 — 매수 중단`); return; }
       const activeAccount = accounts.find((a: any) => a.id === targetAccountId);
@@ -2285,6 +2289,10 @@ export class TradeExecutorService {
     console.log(`    ➕ 추가매수 검토: ${stock.name}(${stock.code}) @ ${rainbow.currentLine}% 라인`);
     try {
       const config = (model.config as any) || {};
+      if (config.buyPaused === true) {
+        console.log(`    ⏸ 매수 일시정지 ON — 추가매수 건너뜀 (${stock.code})`);
+        return;
+      }
       if (!config.accountId) return;
       const accounts = await storage.getKiwoomAccounts(model.userId);
       const activeAccount = accounts.find((a: any) => a.id === config.accountId);

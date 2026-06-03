@@ -20,6 +20,7 @@ interface ModelConfig {
   stopLossConfig?: { color: "green" | "blue"; percent: number };
   takeProfitPercent?: number;
   accountId?: number | null;
+  buyPaused?: boolean;
   [key: string]: unknown;
 }
 
@@ -138,6 +139,7 @@ export default function AutoTrading() {
     mutationFn: async ({ id, config }: { id: number; config: any }) =>
       (await apiRequest("PATCH", `/api/ai/models/${id}`, { config })).json(),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/ai/models"] }),
+    onError: (e: any) => toast({ variant: "destructive", title: "설정 변경 실패", description: e.message }),
   });
 
   const resetCreateForm = () => {
@@ -314,6 +316,13 @@ export default function AutoTrading() {
         onToggle={(id, isActive) => toggleModelMutation.mutate({ id, isActive })}
         onEdit={handleEditClick}
         onDelete={(id) => deleteModelMutation.mutate(id)}
+        onToggleBuyPaused={(model) => {
+          const currentConfig = extractConfig(model.config);
+          updateModelConfigMutation.mutate({
+            id: model.id,
+            config: { ...currentConfig, buyPaused: currentConfig.buyPaused !== true },
+          });
+        }}
       />
 
       {selectedModelId && selectedModel && (

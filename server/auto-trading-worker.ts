@@ -589,13 +589,20 @@ class AutoTradingWorker {
         console.warn(`⚠️  주문 동기화 오류 (무시):`, syncErr);
       }
 
+      const modelConfig = (model.config as any) || {};
+      const buyPaused = modelConfig.buyPaused === true;
+
       // ── 0. 보유 종목 독립 추가매수 사이클 (스캔 독립 — 뒷차기 핵심 로직) ──
       // 보유 종목이 조건검색에서 탈락해도 레인보우 라인 하락 시 추가매수를 판단한다.
       // 중복매수 방지: filledEntrySteps 영구추적 + 새 하단 라인 판별 + 24h 쿨다운
-      try {
-        await this.executor.checkHoldingsForScaleIn(model, settings, kiwoomService, this.aiService, selectedAiModel);
-      } catch (scaleInErr) {
-        console.error(`⚠️  checkHoldingsForScaleIn 오류 (무시):`, scaleInErr);
+      if (buyPaused) {
+        console.log(`  ⏸ 매수 일시정지 ON — 추가매수 사이클 건너뜀 (model ${model.id})`);
+      } else {
+        try {
+          await this.executor.checkHoldingsForScaleIn(model, settings, kiwoomService, this.aiService, selectedAiModel);
+        } catch (scaleInErr) {
+          console.error(`⚠️  checkHoldingsForScaleIn 오류 (무시):`, scaleInErr);
+        }
       }
 
       // ── 1. 포지션 청산 관리: 기존 경로 유지 ──
@@ -606,8 +613,10 @@ class AutoTradingWorker {
       }
 
       // ── 2. 신규 진입 후보 평가 ──
-      const candidates = await storage.getCandidateStocks(model.userId, model.id);
-      if (!candidates.length) {
+      const candidates = buyPaused ? [] : await storage.getCandidateStocks(model.userId, model.id);
+      if (buyPaused) {
+        console.log(`  ⏸ 매수 일시정지 ON — 후보 신규매수 평가 건너뜀 (model ${model.id})`);
+      } else if (!candidates.length) {
         console.log(`  📭 후보 종목 없음 — 30분 스캔 대기 중`);
       } else {
         console.log(`  📊 후보 종목 ${candidates.length}개 진입 평가 시작`);

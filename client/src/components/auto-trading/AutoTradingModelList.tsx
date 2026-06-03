@@ -3,7 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Loader2, Pencil, Trash2 } from "lucide-react";
+import { Loader2, PauseCircle, Pencil, Trash2 } from "lucide-react";
 import type { AiModel } from "@shared/schema";
 
 const MODEL_TYPE_LABELS: Record<string, string> = { momentum: "모멘텀", value: "가치투자", technical: "기술적분석", custom: "커스텀" };
@@ -18,9 +18,10 @@ interface Props {
   onToggle: (id: number, isActive: boolean) => void;
   onEdit: (model: AiModel) => void;
   onDelete: (id: number) => void;
+  onToggleBuyPaused: (model: AiModel) => void;
 }
 
-export function AutoTradingModelList({ models, isLoading, isToggling, isDeleting, selectedModelId, onSelect, onToggle, onEdit, onDelete }: Props) {
+export function AutoTradingModelList({ models, isLoading, isToggling, isDeleting, selectedModelId, onSelect, onToggle, onEdit, onDelete, onToggleBuyPaused }: Props) {
   if (isLoading) return <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin" /></div>;
   if (!models || models.length === 0) return (
     <Card>
@@ -55,6 +56,28 @@ export function AutoTradingModelList({ models, isLoading, isToggling, isDeleting
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
+            <div
+              className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/30 px-3 py-2"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center gap-2">
+                <PauseCircle className="h-4 w-4 text-amber-500" />
+                <div>
+                  <p className="text-xs font-semibold">매수 일시정지</p>
+                  <p className="text-[11px] text-muted-foreground">ON이면 신규매수·추가매수만 건너뛰고 매도/청산은 계속 실행</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {(model.config as any)?.buyPaused === true && (
+                  <Badge variant="secondary" className="text-[10px]">매수 차단중</Badge>
+                )}
+                <Switch
+                  checked={(model.config as any)?.buyPaused === true}
+                  onCheckedChange={() => onToggleBuyPaused(model)}
+                  data-testid={`switch-buy-paused-${model.id}`}
+                />
+              </div>
+            </div>
             <div className="grid grid-cols-3 gap-2 text-center">
               <div className="rounded-md border bg-card p-2 md:p-4">
                 <p className="text-xs text-muted-foreground">총 수익률</p>

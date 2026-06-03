@@ -203,7 +203,43 @@ export default function CandidateDecisions() {
               로그가 없습니다.
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <>
+            <div className="md:hidden space-y-3 p-3" data-testid="mobile-candidate-decisions">
+              {logs.map((log) => {
+                const aiDecision = log.aiDecision ?? {};
+                const qualitativeReason = typeof aiDecision.qualitativeReason === "string" ? aiDecision.qualitativeReason : "-";
+                const quantitativeReason = (aiDecision.quantitativeReason as Record<string, unknown> | undefined) ?? null;
+                const settingsSnapshot = (aiDecision.settingsSnapshot as Record<string, any> | undefined) ?? null;
+                const cooldownMode = settingsSnapshot?.aiEntryPolicy?.candidateDecisionCooldownMode ?? "-";
+
+                return (
+                  <div key={log.id} className="rounded-xl border bg-card p-3 space-y-2" data-testid={`mobile-row-candidate-decision-${log.id}`}>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="font-semibold truncate">{log.stockName}</div>
+                        <div className="text-xs text-muted-foreground font-mono">{log.stockCode} · {formatDateTime(log.decidedAtKst ?? log.decidedAt)}</div>
+                      </div>
+                      {log.accepted ? (
+                        <Badge className="shrink-0">선정</Badge>
+                      ) : (
+                        <Badge variant="secondary" className="shrink-0">{log.rejectReason || "탈락"}</Badge>
+                      )}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      <span className="font-medium text-foreground">{log.modelName}</span> · {log.modelType}
+                    </div>
+                    <div className="rounded-md bg-muted/40 px-3 py-2 text-sm leading-relaxed">
+                      {qualitativeReason}
+                    </div>
+                    <div className="text-xs text-muted-foreground space-y-1">
+                      <div>정량: {formatQuantitative(quantitativeReason)}</div>
+                      <div>최소 신뢰도: {String(settingsSnapshot?.minAiConfidence ?? "-")} · 쿨다운: {String(cooldownMode)}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="hidden md:block overflow-x-auto">
             <Table data-testid="table-candidate-decisions">
               <TableHeader>
                 <TableRow>
@@ -272,6 +308,7 @@ export default function CandidateDecisions() {
               </TableBody>
             </Table>
             </div>
+            </>
           )}
         </CardContent>
       </Card>

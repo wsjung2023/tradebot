@@ -368,6 +368,8 @@ export default function Portfolio() {
                     const pnl = num(h.profitLoss);
                     const rate = num(h.profitLossRate);
                     const pnlColor = pnl > 0 ? "text-green-600 dark:text-green-400" : pnl < 0 ? "text-red-600 dark:text-red-400" : "";
+                    const exitPlanModel = modelsData.find((m: AiModel) => m.config?.accountId === h.accountId);
+                    const canEditExitPlan = Boolean(exitPlanModel);
                     return (
                       <TableRow key={h.id} data-testid={`row-holding-${h.id}`}>
                         <TableCell>
@@ -399,8 +401,13 @@ export default function Portfolio() {
                             size="icon"
                             variant="ghost"
                             className="h-7 w-7"
-                            title="매도 전략 설정"
-                            onClick={() => { setExitPlanHolding(h); setExitPlanOpen(true); }}
+                            title={canEditExitPlan ? "매도 전략 설정" : "이 계좌에 연결된 자동매매 모델이 없어 매도계획을 설정할 수 없습니다"}
+                            disabled={!canEditExitPlan}
+                            onClick={() => {
+                              if (!canEditExitPlan) return;
+                              setExitPlanHolding(h);
+                              setExitPlanOpen(true);
+                            }}
                             data-testid={`button-exit-plan-${h.id}`}
                           >
                             <Target className="h-4 w-4" />
