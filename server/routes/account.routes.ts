@@ -10,9 +10,12 @@ import { getUserKiwoomService } from "../services/user-kiwoom.service";
 import { encrypt, decrypt, isEncrypted } from "../utils/crypto";
 
 export function registerAccountRoutes(app: Router) {
-  const normalizeAccountNumber = (accountNumber: string) => {
+  const normalizeAccountNumber = (accountNumber: string, productCode?: string) => {
     const digits = accountNumber.replace(/\D/g, "");
-    return digits.length === 8 ? digits + "11" : digits;
+    // 키움 계좌번호는 8자리 계좌번호 + 2자리 상품코드 형태가 될 수 있다.
+    // 사용자가 8자리만 입력하면 화면에서 선택한 상품코드(10/11)를 보완한다.
+    const normalizedProductCode = productCode === "10" || productCode === "11" ? productCode : "11";
+    return digits.length === 8 ? digits + normalizedProductCode : digits;
   };
 
   const getAuthorizedAccount = async (userId: string, accountId: number) => {
@@ -50,7 +53,7 @@ export function registerAccountRoutes(app: Router) {
       const user = getCurrentUser(req);
       const accountData = insertKiwoomAccountSchema.parse({
         ...req.body,
-        accountNumber: normalizeAccountNumber(req.body.accountNumber || ""),
+        accountNumber: normalizeAccountNumber(req.body.accountNumber || "", req.body.productCode),
         userId: user!.id,
       });
       const account = await storage.createKiwoomAccount(accountData);
@@ -64,6 +67,7 @@ export function registerAccountRoutes(app: Router) {
   const patchAccountSchema = z.object({
     accountType: z.enum(["mock", "real"]).optional(),
     accountName: z.string().min(1).optional(),
+    isActive: z.boolean().optional(),
   });
 
   app.patch("/api/accounts/:id", isAuthenticated, async (req, res) => {
@@ -400,7 +404,16 @@ export function registerAccountRoutes(app: Router) {
   app.get("/api/portfolio/holdings", isAuthenticated, async (req, res) => {
     try {
       const user = getCurrentUser(req);
-      const holdings = await storage.getAllHoldingsForUser(user!.id);
+      const accountId = req.query.accountId ? Number(req.query.accountId) : undefined;
+      const accountType = req.query.accountType === "mock" || req.query.accountType === "real"
+        ? req.query.accountType
+        : undefined;
+      const activeOnly = req.query.activeOnly !== "false";
+      const holdings = await (storage as any).getAllHoldingsForUser(user!.id, {
+        activeOnly,
+        accountType,
+        accountId: Number.isFinite(accountId) ? accountId : undefined,
+      });
       res.json({ holdings });
     } catch (error: any) {
       res.status(500).json({ error: error.message });

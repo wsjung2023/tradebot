@@ -31,7 +31,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Plus, Wallet, Trash2, TrendingUp, Pencil, Key, CheckCircle, AlertCircle, Eye, EyeOff } from "lucide-react";
+import { Plus, Wallet, Archive, RotateCcw, TrendingUp, Pencil, Key, CheckCircle, AlertCircle, Eye, EyeOff } from "lucide-react";
 
 interface KiwoomAccount {
   id: number;
@@ -39,9 +39,23 @@ interface KiwoomAccount {
   accountNumber: string;
   accountName: string;
   accountType: 'real' | 'mock';
+  isActive: boolean;
   createdAt: string;
   hasApiKey?: boolean;
   maskedApiKey?: string;
+}
+
+function formatAccountNumber(accountNumber: string) {
+  const digits = accountNumber.replace(/\D/g, "");
+  if (digits.length === 10) {
+    const productCode = digits.slice(8);
+    const productLabel = productCode === "11" ? "위탁" : productCode === "10" ? "위탁종합" : "상품코드";
+    return {
+      main: `${digits.slice(0, 8)}-${productCode}`,
+      sub: `${productLabel} ${productCode}`,
+    };
+  }
+  return { main: accountNumber, sub: "" };
 }
 
 export default function Accounts() {
@@ -50,6 +64,7 @@ export default function Accounts() {
   const [accountNumber, setAccountNumber] = useState("");
   const [accountName, setAccountName] = useState("");
   const [accountType, setAccountType] = useState<'real' | 'mock'>('mock');
+  const [productCode, setProductCode] = useState<'11' | '10'>('11');
 
   // 편집 다이얼로그 상태
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -69,7 +84,7 @@ export default function Accounts() {
   });
 
   const createAccountMutation = useMutation({
-    mutationFn: async (data: { accountNumber: string; accountName: string; accountType: 'real' | 'mock' }) => {
+    mutationFn: async (data: { accountNumber: string; accountName: string; accountType: 'real' | 'mock'; productCode: '11' | '10' }) => {
       const res = await apiRequest('POST', '/api/accounts', data);
       return res.json();
     },
@@ -83,6 +98,7 @@ export default function Accounts() {
       setAccountNumber("");
       setAccountName("");
       setAccountType('mock');
+      setProductCode('11');
     },
     onError: (error: any) => {
       toast({
@@ -153,6 +169,25 @@ export default function Accounts() {
     },
   });
 
+  const archiveAccountMutation = useMutation({
+    mutationFn: async ({ id, isActive }: { id: number; isActive: boolean }) => {
+      const res = await apiRequest('PATCH', `/api/accounts/${id}`, { isActive });
+      return res.json();
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/accounts'] });
+      toast({
+        title: variables.isActive ? "계좌 복구 완료" : "계좌 보관 완료",
+        description: variables.isActive
+          ? "계좌가 활성 목록으로 돌아왔습니다."
+          : "계좌를 보관 처리했습니다. 과거 데이터는 유지됩니다.",
+      });
+    },
+    onError: (error: any) => {
+      toast({ variant: "destructive", title: "계좌 상태 변경 실패", description: error.message });
+    },
+  });
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -169,6 +204,7 @@ export default function Accounts() {
       accountNumber,
       accountName,
       accountType,
+      productCode,
     });
   };
 
@@ -231,8 +267,26 @@ export default function Accounts() {
                     data-testid="input-account-number"
                     value={accountNumber}
                     onChange={(e) => setAccountNumber(e.target.value)}
-                    placeholder="0000000000"
+                    placeholder="81277026 또는 8127702611"
                   />
+                  <p className="text-xs text-muted-foreground">
+                    8자리만 입력하면 아래 상품구분 코드가 뒤에 붙어 저장됩니다. 10자리 입력 시 그대로 저장됩니다.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="productCode">상품구분</Label>
+                  <Select
+                    value={productCode}
+                    onValueChange={(value: '11' | '10') => setProductCode(value)}
+                  >
+                    <SelectTrigger id="productCode" data-testid="select-product-code">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="11">위탁 / 국내주식 (11)</SelectItem>
+                      <SelectItem value="10">위탁종합 (10)</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="accountName">계좌 이름</Label>
@@ -308,6 +362,7 @@ export default function Accounts() {
                   <TableHead>계좌 이름</TableHead>
                   <TableHead>계좌번호</TableHead>
                   <TableHead>유형</TableHead>
+                  <TableHead>상태</TableHead>
                   <TableHead>API 키</TableHead>
                   <TableHead>등록일</TableHead>
                   <TableHead className="text-right">작업</TableHead>
@@ -317,10 +372,22 @@ export default function Accounts() {
                 {accounts.map((account) => (
                   <TableRow key={account.id} data-testid={`row-account-${account.id}`}>
                     <TableCell className="font-medium">{account.accountName}</TableCell>
-                    <TableCell>{account.accountNumber}</TableCell>
+                    <TableCell>
+                      <div>{formatAccountNumber(account.accountNumber).main}</div>
+                      {formatAccountNumber(account.accountNumber).sub && (
+                        <div className="text-xs text-muted-foreground">
+                          {formatAccountNumber(account.accountNumber).sub}
+                        </div>
+                      )}
+                    </TableCell>
                     <TableCell>
                       <Badge variant={account.accountType === 'real' ? 'default' : 'secondary'} data-testid={`badge-type-${account.id}`}>
                         {account.accountType === 'real' ? '실전투자' : '모의투자'}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={account.isActive ? 'outline' : 'secondary'} data-testid={`badge-active-${account.id}`}>
+                        {account.isActive ? '활성' : '보관'}
                       </Badge>
                     </TableCell>
                     <TableCell>
@@ -347,10 +414,12 @@ export default function Accounts() {
                           onClick={() => openEditDialog(account)} title="계좌 수정" className="hover-elevate">
                           <Pencil className="h-4 w-4" />
                         </Button>
-                        <Button variant="ghost" size="icon" data-testid={`button-delete-${account.id}`}
-                          onClick={() => { if (confirm('정말 이 계좌를 삭제하시겠습니까?')) deleteAccountMutation.mutate(account.id); }}
-                          disabled={deleteAccountMutation.isPending} className="hover-elevate">
-                          <Trash2 className="h-4 w-4" />
+                        <Button variant="ghost" size="icon" data-testid={`button-archive-${account.id}`}
+                          onClick={() => archiveAccountMutation.mutate({ id: account.id, isActive: !account.isActive })}
+                          disabled={archiveAccountMutation.isPending}
+                          title={account.isActive ? "계좌 보관" : "계좌 복구"}
+                          className="hover-elevate">
+                          {account.isActive ? <Archive className="h-4 w-4" /> : <RotateCcw className="h-4 w-4" />}
                         </Button>
                       </div>
                     </TableCell>

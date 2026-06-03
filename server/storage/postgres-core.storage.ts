@@ -1,5 +1,5 @@
 // postgres-core.storage.ts ???듭떖 ?뷀떚???좎?/怨꾩쥖/蹂댁쑀/二쇰Ц/AI紐⑤뜽/愿?ъ쥌紐??뚮┝/?ㅼ젙/濡쒓렇) CRUD
-import { eq, and, desc, lt, gte, lte, inArray, or, sql } from 'drizzle-orm';
+import { eq, and, desc, lt, gte, lte, inArray, or, sql, getTableColumns } from 'drizzle-orm';
 import { db } from '../db';
 import * as schema from '@shared/schema';
 import type {
@@ -834,7 +834,15 @@ export class PostgreSQLCoreStorage {
     return result[0];
   }
 
-  async getAllHoldingsForUser(userId: string): Promise<(Holding & { accountName: string; accountNumber: string })[]> {
+  async getAllHoldingsForUser(
+    userId: string,
+    options?: { activeOnly?: boolean; accountType?: "mock" | "real"; accountId?: number },
+  ): Promise<(Holding & { accountName: string; accountNumber: string; accountType: string; isActive: boolean })[]> {
+    const filters: any[] = [eq(schema.kiwoomAccounts.userId, userId)];
+    if (options?.activeOnly) filters.push(eq(schema.kiwoomAccounts.isActive, true));
+    if (options?.accountType) filters.push(eq(schema.kiwoomAccounts.accountType, options.accountType));
+    if (options?.accountId) filters.push(eq(schema.kiwoomAccounts.id, options.accountId));
+
     const rows = await db
       .select({
         id: schema.holdings.id,
@@ -849,10 +857,12 @@ export class PostgreSQLCoreStorage {
         updatedAt: schema.holdings.updatedAt,
         accountName: schema.kiwoomAccounts.accountName,
         accountNumber: schema.kiwoomAccounts.accountNumber,
+        accountType: schema.kiwoomAccounts.accountType,
+        isActive: schema.kiwoomAccounts.isActive,
       })
       .from(schema.holdings)
       .innerJoin(schema.kiwoomAccounts, eq(schema.holdings.accountId, schema.kiwoomAccounts.id))
-      .where(eq(schema.kiwoomAccounts.userId, userId))
+      .where(filters.length === 1 ? filters[0] : and(filters[0], ...filters.slice(1)))
       .orderBy(desc(schema.holdings.updatedAt));
     return rows.map((row) => ({
       ...row,
@@ -1021,19 +1031,41 @@ export class PostgreSQLCoreStorage {
     endDate?: string;
     stockCode?: string;
     tradeType?: string;
+    accountId?: number;
+    accountType?: "mock" | "real";
+    accountStatus?: "active" | "all" | "archived";
+    activeOnly?: boolean;
+    modelId?: number;
     limit?: number;
-  }): Promise<TradeJournal[]> {
+  }): Promise<any[]> {
     const filters: any[] = [eq(schema.tradeJournal.userId, userId)];
     
     if (options?.startDate) filters.push(gte(schema.tradeJournal.tradeDate, options.startDate.replace(/-/g, '')));
     if (options?.endDate) filters.push(lte(schema.tradeJournal.tradeDate, options.endDate.replace(/-/g, '')));
     if (options?.stockCode) filters.push(eq(schema.tradeJournal.stockCode, options.stockCode));
     if (options?.tradeType) filters.push(eq(schema.tradeJournal.tradeType, options.tradeType));
+    if (options?.accountId) filters.push(eq(schema.tradeJournal.accountId, options.accountId));
+    if (options?.accountType) filters.push(eq(schema.kiwoomAccounts.accountType, options.accountType));
+    if (options?.accountStatus === "archived") {
+      filters.push(eq(schema.kiwoomAccounts.isActive, false));
+    } else if (options?.activeOnly !== false) {
+      filters.push(eq(schema.kiwoomAccounts.isActive, true));
+    }
+    if (options?.modelId) filters.push(eq(schema.tradeJournal.modelId, options.modelId));
 
     const whereClause = filters.length === 1 ? filters[0] : and(filters[0], ...filters.slice(1));
     
-    return db.select()
+    return db.select({
+        ...getTableColumns(schema.tradeJournal),
+        accountName: schema.kiwoomAccounts.accountName,
+        accountNumber: schema.kiwoomAccounts.accountNumber,
+        accountType: schema.kiwoomAccounts.accountType,
+        accountIsActive: schema.kiwoomAccounts.isActive,
+        modelName: schema.aiModels.modelName,
+      })
       .from(schema.tradeJournal)
+      .innerJoin(schema.kiwoomAccounts, eq(schema.tradeJournal.accountId, schema.kiwoomAccounts.id))
+      .leftJoin(schema.aiModels, eq(schema.tradeJournal.modelId, schema.aiModels.id))
       .where(whereClause)
       .orderBy(desc(schema.tradeJournal.tradeDate), desc(schema.tradeJournal.tradeTime))
       .limit(options?.limit ?? 500);

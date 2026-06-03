@@ -75,6 +75,16 @@ const CL_COLOR_LABELS: Record<'green' | 'blue', string> = {
   blue:  '파랑 CL (60~80% — 추가 매수 구간)',
 };
 
+function formatAccountNumber(accountNumber: string) {
+  const digits = accountNumber.replace(/\D/g, "");
+  if (digits.length === 10) {
+    const productCode = digits.slice(8);
+    const productLabel = productCode === "11" ? "위탁" : productCode === "10" ? "위탁종합" : "상품코드";
+    return `${digits.slice(0, 8)}-${productCode} · ${productLabel}`;
+  }
+  return accountNumber;
+}
+
 export function AutoTradingModelDialog({
   mode = 'create',
   open, modelName, modelType, description,
@@ -139,7 +149,7 @@ export function AutoTradingModelDialog({
             <SelectContent>
               {accounts.filter((a) => a.isActive).map((a) => (
                 <SelectItem key={a.id} value={String(a.id)}>
-                  {a.accountNumber} {a.accountType === "mock" ? "(모의)" : "(실전)"}
+                  {formatAccountNumber(a.accountNumber)} {a.accountType === "mock" ? "(모의)" : "(실전)"}
                 </SelectItem>
               ))}
             </SelectContent>

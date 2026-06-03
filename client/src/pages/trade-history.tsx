@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -13,6 +13,13 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { format, subDays } from "date-fns";
 import {
   TrendingUp,
@@ -42,6 +49,10 @@ import {
 interface Order {
   id: number;
   accountId: number;
+  accountName?: string | null;
+  accountNumber?: string | null;
+  accountType?: "mock" | "real" | null;
+  accountIsActive?: boolean | null;
   stockCode: string;
   stockName?: string;
   orderType: 'buy' | 'sell';
@@ -50,7 +61,8 @@ interface Order {
   orderQuantity: number;
   executedQuantity?: number;
   executedPrice?: number;
-  orderStatus: 'pending' | 'partial' | 'completed' | 'cancelled';
+  orderStatus: 'pending' | 'partial' | 'completed' | 'cancelled' | 'failed';
+  errorMessage?: string | null;
   createdAt: string;
   executedAt?: string;
 }
@@ -58,11 +70,23 @@ interface Order {
 interface TradingLog {
   id: number;
   accountId: number;
+  accountName?: string | null;
+  accountNumber?: string | null;
+  accountType?: "mock" | "real" | null;
+  accountIsActive?: boolean | null;
   action: string;
   details: any;
   success: boolean;
   errorMessage?: string;
   createdAt: string;
+}
+
+interface TradeAccount {
+  id: number;
+  accountNumber: string;
+  accountName?: string | null;
+  accountType: "mock" | "real";
+  isActive?: boolean;
 }
 
 interface PerformanceSummary {
@@ -86,18 +110,44 @@ function pnlColor(val: number): string {
   return "";
 }
 
-function buildPerfUrl(groupBy: string, startDate?: string, endDate?: string): string {
+function appendAccountFilters(
+  params: URLSearchParams,
+  accountStatus: "active" | "all" | "archived",
+  accountType: "all" | "mock" | "real",
+  accountId: string,
+) {
+  params.set("accountStatus", accountStatus);
+  params.set("activeOnly", accountStatus === "active" ? "true" : "false");
+  if (accountType !== "all") params.set("accountType", accountType);
+  if (accountId !== "all") params.set("accountId", accountId);
+}
+
+function buildPerfUrl(
+  groupBy: string,
+  startDate?: string,
+  endDate?: string,
+  accountStatus: "active" | "all" | "archived" = "active",
+  accountType: "all" | "mock" | "real" = "all",
+  accountId = "all",
+): string {
   const params = new URLSearchParams({ groupBy });
   if (startDate) params.set("startDate", startDate);
   if (endDate) params.set("endDate", endDate);
+  appendAccountFilters(params, accountStatus, accountType, accountId);
   return `/api/trading-performance/summary?${params.toString()}`;
 }
 
-function DailyPerformanceTab() {
+type AccountFilterProps = {
+  accountStatus: "active" | "all" | "archived";
+  accountType: "all" | "mock" | "real";
+  accountId: string;
+};
+
+function DailyPerformanceTab({ accountStatus, accountType, accountId }: AccountFilterProps) {
   const [startDate, setStartDate] = useState(() => format(subDays(new Date(), 30), "yyyy-MM-dd"));
   const [endDate, setEndDate] = useState(() => format(new Date(), "yyyy-MM-dd"));
 
-  const url = buildPerfUrl("day", startDate, endDate);
+  const url = buildPerfUrl("day", startDate, endDate, accountStatus, accountType, accountId);
   const { data = [], isLoading, isError } = useQuery<PerformanceSummary[]>({
     queryKey: [url],
   });
@@ -197,8 +247,8 @@ function DailyPerformanceTab() {
   );
 }
 
-function MonthlyPerformanceTab() {
-  const url = buildPerfUrl("month");
+function MonthlyPerformanceTab({ accountStatus, accountType, accountId }: AccountFilterProps) {
+  const url = buildPerfUrl("month", undefined, undefined, accountStatus, accountType, accountId);
   const { data = [], isLoading, isError } = useQuery<PerformanceSummary[]>({
     queryKey: [url],
   });
@@ -292,8 +342,8 @@ function MonthlyPerformanceTab() {
   );
 }
 
-function StockPerformanceTab() {
-  const url = buildPerfUrl("stock");
+function StockPerformanceTab({ accountStatus, accountType, accountId }: AccountFilterProps) {
+  const url = buildPerfUrl("stock", undefined, undefined, accountStatus, accountType, accountId);
   const { data = [], isLoading, isError } = useQuery<PerformanceSummary[]>({
     queryKey: [url],
   });
@@ -361,17 +411,47 @@ function StockPerformanceTab() {
 }
 
 export default function TradeHistory() {
+  const [accountStatus, setAccountStatus] = useState<"active" | "all" | "archived">("active");
+  const [accountType, setAccountType] = useState<"all" | "mock" | "real">("all");
+  const [accountId, setAccountId] = useState("all");
+
+  const { data: accounts = [] } = useQuery<TradeAccount[]>({
+    queryKey: ['/api/accounts'],
+  });
+
+  const filteredAccounts = useMemo(() => {
+    return accounts.filter((account) => {
+      if (accountStatus === "active" && account.isActive === false) return false;
+      if (accountStatus === "archived" && account.isActive !== false) return false;
+      if (accountType !== "all" && account.accountType !== accountType) return false;
+      return true;
+    });
+  }, [accounts, accountStatus, accountType]);
+
+  const accountFilterParams = useMemo(() => {
+    const params = new URLSearchParams();
+    appendAccountFilters(params, accountStatus, accountType, accountId);
+    return params.toString();
+  }, [accountStatus, accountType, accountId]);
+
+  useEffect(() => {
+    if (accountId === "all") return;
+    if (!filteredAccounts.some((account) => String(account.id) === accountId)) {
+      setAccountId("all");
+    }
+  }, [filteredAccounts, accountId]);
+
   const { data: orders = [], isLoading: ordersLoading } = useQuery<Order[]>({
-    queryKey: ['/api/all-orders'],
+    queryKey: [`/api/all-orders?${accountFilterParams}`],
   });
 
   const { data: logs = [], isLoading: logsLoading } = useQuery<TradingLog[]>({
-    queryKey: ['/api/trading-logs'],
+    queryKey: [`/api/trading-logs?${accountFilterParams}`],
   });
 
   // 헤더 요약 통계: trading_performance 기준 (실현 손익만 집계)
   const { data: perfByMonth = [] } = useQuery<PerformanceSummary[]>({
-    queryKey: [buildPerfUrl("month")],
+    queryKey: [buildPerfUrl("month", undefined, undefined, accountStatus, accountType, accountId)],
   });
 
   const completedOrders = orders.filter(o => o.orderStatus === 'completed');
@@ -417,6 +497,54 @@ export default function TradeHistory() {
           <p className="text-sm text-muted-foreground">주문 내역 및 거래 로그 분석</p>
         </div>
       </div>
+
+      <Card>
+        <CardContent className="pt-4 flex flex-wrap items-center gap-2">
+          {[
+            { value: "active", label: "활성" },
+            { value: "all", label: "전체상태" },
+            { value: "archived", label: "보관" },
+          ].map((option) => (
+            <Button
+              key={option.value}
+              variant={accountStatus === option.value ? "default" : "outline"}
+              size="sm"
+              onClick={() => setAccountStatus(option.value as "active" | "all" | "archived")}
+              data-testid={`button-trade-status-${option.value}`}
+            >
+              {option.label}
+            </Button>
+          ))}
+          {[
+            { value: "all", label: "전체유형" },
+            { value: "mock", label: "모의" },
+            { value: "real", label: "실전" },
+          ].map((option) => (
+            <Button
+              key={option.value}
+              variant={accountType === option.value ? "default" : "outline"}
+              size="sm"
+              onClick={() => setAccountType(option.value as "all" | "mock" | "real")}
+              data-testid={`button-trade-type-${option.value}`}
+            >
+              {option.label}
+            </Button>
+          ))}
+          <Select value={accountId} onValueChange={setAccountId}>
+            <SelectTrigger className="w-64" data-testid="select-trade-account">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">전체 계좌</SelectItem>
+              {filteredAccounts.map((account) => (
+                <SelectItem key={account.id} value={String(account.id)}>
+                  {account.accountName || account.accountNumber} ({account.accountType === "real" ? "실전" : "모의"}{account.isActive === false ? ", 보관" : ""})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </CardContent>
+      </Card>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>
@@ -514,6 +642,7 @@ export default function TradeHistory() {
                     <TableHeader>
                       <TableRow>
                         <TableHead>시간</TableHead>
+                        <TableHead>계좌</TableHead>
                         <TableHead>종목코드</TableHead>
                         <TableHead>종목명</TableHead>
                         <TableHead>구분</TableHead>
@@ -529,6 +658,13 @@ export default function TradeHistory() {
                         <TableRow key={order.id} data-testid={`row-order-${order.id}`}>
                           <TableCell className="text-sm">
                             {format(new Date(order.createdAt), 'yyyy-MM-dd HH:mm')}
+                          </TableCell>
+                          <TableCell>
+                            <div className="text-sm">{order.accountName || order.accountNumber || order.accountId}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {order.accountType === "real" ? "실전" : "모의"}
+                              {order.accountIsActive === false ? " · 보관" : ""}
+                            </div>
                           </TableCell>
                           <TableCell className="font-mono">{order.stockCode}</TableCell>
                           <TableCell>{order.stockName || '-'}</TableCell>
@@ -581,6 +717,7 @@ export default function TradeHistory() {
                     <TableHeader>
                       <TableRow>
                         <TableHead>시간</TableHead>
+                        <TableHead>계좌</TableHead>
                         <TableHead>액션</TableHead>
                         <TableHead>상태</TableHead>
                         <TableHead>세부정보</TableHead>
@@ -592,6 +729,13 @@ export default function TradeHistory() {
                         <TableRow key={log.id} data-testid={`row-log-${log.id}`}>
                           <TableCell className="text-sm">
                             {format(new Date(log.createdAt), 'yyyy-MM-dd HH:mm:ss')}
+                          </TableCell>
+                          <TableCell>
+                            <div className="text-sm">{log.accountName || log.accountNumber || log.accountId}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {log.accountType === "real" ? "실전" : "모의"}
+                              {log.accountIsActive === false ? " · 보관" : ""}
+                            </div>
                           </TableCell>
                           <TableCell className="font-medium">{log.action}</TableCell>
                           <TableCell>
@@ -624,15 +768,15 @@ export default function TradeHistory() {
         </TabsContent>
 
         <TabsContent value="daily" className="space-y-4">
-          <DailyPerformanceTab />
+          <DailyPerformanceTab accountStatus={accountStatus} accountType={accountType} accountId={accountId} />
         </TabsContent>
 
         <TabsContent value="monthly" className="space-y-4">
-          <MonthlyPerformanceTab />
+          <MonthlyPerformanceTab accountStatus={accountStatus} accountType={accountType} accountId={accountId} />
         </TabsContent>
 
         <TabsContent value="stock" className="space-y-4">
-          <StockPerformanceTab />
+          <StockPerformanceTab accountStatus={accountStatus} accountType={accountType} accountId={accountId} />
         </TabsContent>
       </Tabs>
     </div>

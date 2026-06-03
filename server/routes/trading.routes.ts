@@ -10,6 +10,29 @@ import { getDartService } from "../services/dart.service";
 import { extractErrorDiagnostics } from "../utils/error-diagnostics";
 
 export function registerTradingRoutes(app: Router) {
+  const pickAccountFilters = (query: any) => {
+    const accountId = query.accountId ? Number(query.accountId) : undefined;
+    const accountType = query.accountType === "mock" || query.accountType === "real" ? query.accountType : undefined;
+    const accountStatus = query.accountStatus === "all" || query.accountStatus === "archived" ? query.accountStatus : "active";
+    const activeOnly = accountStatus === "active" && query.activeOnly !== "false";
+    return {
+      accountId: Number.isFinite(accountId) ? accountId : undefined,
+      accountType,
+      accountStatus,
+      activeOnly,
+    };
+  };
+
+  const filterAccounts = (accounts: any[], filters: ReturnType<typeof pickAccountFilters>) => {
+    return accounts.filter((account) => {
+      if (filters.accountStatus === "archived" && account.isActive !== false) return false;
+      if (filters.activeOnly && account.isActive === false) return false;
+      if (filters.accountType && account.accountType !== filters.accountType) return false;
+      if (filters.accountId && account.id !== filters.accountId) return false;
+      return true;
+    });
+  };
+
   const userKiwoomService = getUserKiwoomService();
 
   type ChartSignalOverlay = {
@@ -425,7 +448,8 @@ export function registerTradingRoutes(app: Router) {
   app.get("/api/all-orders", isAuthenticated, async (req, res) => {
     try {
       const user = getCurrentUser(req);
-      const accounts = await storage.getKiwoomAccounts(user!.id);
+      const filters = pickAccountFilters(req.query);
+      const accounts = filterAccounts(await storage.getKiwoomAccounts(user!.id), filters);
       if (accounts.length === 0) return res.json([]);
 
       const requestedLimit = Number(req.query.limit ?? 1000);
@@ -433,12 +457,20 @@ export function registerTradingRoutes(app: Router) {
         ? Math.min(Math.max(Math.trunc(requestedLimit), 1), 5000)
         : 1000;
 
-      const allOrders = await Promise.all(
-        accounts.map((a) => storage.getOrders(a.id, perAccountLimit))
-      );
+      const accountById = new Map(accounts.map((account: any) => [account.id, account]));
+      const allOrders = await Promise.all(accounts.map((a) => storage.getOrders(a.id, perAccountLimit)));
       const orders = allOrders.flat().sort((a, b) =>
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-      );
+      ).map((order: any) => {
+        const account: any = accountById.get(order.accountId);
+        return {
+          ...order,
+          accountName: account?.accountName ?? null,
+          accountNumber: account?.accountNumber ?? null,
+          accountType: account?.accountType ?? null,
+          accountIsActive: account?.isActive ?? null,
+        };
+      });
       res.json(orders);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -449,13 +481,24 @@ export function registerTradingRoutes(app: Router) {
   app.get("/api/trading-logs", isAuthenticated, async (req, res) => {
     try {
       const user = getCurrentUser(req);
-      const accounts = await storage.getKiwoomAccounts(user!.id);
+      const filters = pickAccountFilters(req.query);
+      const accounts = filterAccounts(await storage.getKiwoomAccounts(user!.id), filters);
       if (accounts.length === 0) return res.json([]);
 
+      const accountById = new Map(accounts.map((account: any) => [account.id, account]));
       const allLogs = await Promise.all(accounts.map((a) => storage.getTradingLogs(a.id)));
       const logs = allLogs.flat().sort((a, b) =>
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-      );
+      ).map((log: any) => {
+        const account: any = accountById.get(log.accountId);
+        return {
+          ...log,
+          accountName: account?.accountName ?? null,
+          accountNumber: account?.accountNumber ?? null,
+          accountType: account?.accountType ?? null,
+          accountIsActive: account?.isActive ?? null,
+        };
+      });
       res.json(logs);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -466,14 +509,20 @@ export function registerTradingRoutes(app: Router) {
   app.get("/api/trade-journal", isAuthenticated, async (req, res) => {
     try {
       const user = getCurrentUser(req);
-      const { startDate, endDate, stockCode, tradeType, limit } = req.query;
+      const { startDate, endDate, stockCode, tradeType, limit, modelId } = req.query;
+      const accountFilters = pickAccountFilters(req.query);
       
-      const entries = await storage.getTradeJournalEntries(user!.id, {
+      const entries = await (storage as any).getTradeJournalEntries(user!.id, {
         startDate: startDate as string,
         endDate: endDate as string,
         stockCode: stockCode as string,
         tradeType: tradeType as string,
-        limit: limit ? parseInt(limit as string) : undefined
+        limit: limit ? parseInt(limit as string) : undefined,
+        accountId: accountFilters.accountId,
+        accountType: accountFilters.accountType,
+        accountStatus: accountFilters.accountStatus,
+        activeOnly: accountFilters.activeOnly,
+        modelId: modelId ? Number(modelId) : undefined,
       });
       
       res.json(entries);
@@ -489,6 +538,7 @@ export function registerTradingRoutes(app: Router) {
       const startDate = req.query.startDate as string | undefined;
       const endDate = req.query.endDate as string | undefined;
       const modelIdParam = req.query.modelId ? Number(req.query.modelId) : undefined;
+      const accountFilters = pickAccountFilters(req.query);
 
       if (!["day", "month", "stock"].includes(groupBy)) {
         return res.status(400).json({ error: "Invalid groupBy parameter" });
@@ -547,6 +597,8 @@ export function registerTradingRoutes(app: Router) {
             ELSE 0
           END as "avgProfitRate"
         FROM trading_performance tp
+        LEFT JOIN orders ord ON ord.id = tp.order_id
+        LEFT JOIN kiwoom_accounts acc ON acc.id = ord.account_id
         WHERE tp.model_id IN (`));
 
       chunks.push(sql.join(modelIds.map(id => sql`${id}`), sql.raw(",")));
@@ -559,6 +611,17 @@ export function registerTradingRoutes(app: Router) {
         const end = new Date(endDate);
         end.setDate(end.getDate() + 1);
         chunks.push(sql` AND tp.entry_time < ${end}`);
+      }
+      if (accountFilters.accountStatus === "archived") {
+        chunks.push(sql` AND acc.is_active = false`);
+      } else if (accountFilters.activeOnly) {
+        chunks.push(sql` AND (acc.id IS NULL OR acc.is_active = true)`);
+      }
+      if (accountFilters.accountType) {
+        chunks.push(sql` AND acc.account_type = ${accountFilters.accountType}`);
+      }
+      if (accountFilters.accountId) {
+        chunks.push(sql` AND acc.id = ${accountFilters.accountId}`);
       }
 
       chunks.push(sql.raw(`

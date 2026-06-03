@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -29,12 +29,15 @@ interface PortfolioHolding {
   updatedAt: string;
   accountName: string | null;
   accountNumber: string;
+  accountType: "mock" | "real";
+  isActive: boolean;
 }
 
 interface PortfolioAccount {
   id: number;
   accountNumber: string;
   accountType: "mock" | "real";
+  isActive?: boolean;
   accountName?: string;
   lastTotalAssets?: string | null;
 }
@@ -64,6 +67,8 @@ interface AiModel { id: number; config: any; }
 
 export default function Portfolio() {
   const [selectedAccount, setSelectedAccount] = useState<string>("all");
+  const [accountStatus, setAccountStatus] = useState<"active" | "all" | "archived">("active");
+  const [accountTypeFilter, setAccountTypeFilter] = useState<"all" | "mock" | "real">("all");
   const [exitPlanHolding, setExitPlanHolding] = useState<PortfolioHolding | null>(null);
   const [exitPlanOpen, setExitPlanOpen] = useState(false);
   const { toast } = useToast();
@@ -88,31 +93,55 @@ export default function Portfolio() {
     onError: () => toast({ title: '삭제 실패', variant: 'destructive' }),
   });
 
+  const portfolioUrl = useMemo(() => {
+    const params = new URLSearchParams();
+    params.set("activeOnly", accountStatus === "active" ? "true" : "false");
+    if (accountTypeFilter !== "all") params.set("accountType", accountTypeFilter);
+    if (selectedAccount !== "all") params.set("accountId", selectedAccount);
+    const query = params.toString();
+    return `/api/portfolio/holdings${query ? `?${query}` : ""}`;
+  }, [accountStatus, accountTypeFilter, selectedAccount]);
+
   const { data, isLoading, isError } = useQuery<{ holdings: PortfolioHolding[] }>({
-    queryKey: ["/api/portfolio/holdings"],
+    queryKey: [portfolioUrl],
     refetchInterval: 60_000,
   });
 
   const holdings = data?.holdings ?? [];
 
   const accounts = useMemo(() => {
-    const map = new Map<number, { id: number; name: string; number: string }>();
-    for (const h of holdings) {
-      if (!map.has(h.accountId)) {
-        map.set(h.accountId, {
-          id: h.accountId,
-          name: h.accountName || maskAccount(h.accountNumber),
-          number: h.accountNumber,
-        });
-      }
+    return accountsData
+      .filter((account) => {
+        if (accountStatus === "active" && account.isActive === false) return false;
+        if (accountStatus === "archived" && account.isActive !== false) return false;
+        if (accountTypeFilter !== "all" && account.accountType !== accountTypeFilter) return false;
+        return true;
+      })
+      .map((account) => ({
+        id: account.id,
+        name: account.accountName || maskAccount(account.accountNumber),
+        number: account.accountNumber,
+        accountType: account.accountType,
+        isActive: account.isActive !== false,
+      }));
+  }, [accountsData, accountStatus, accountTypeFilter]);
+
+  useEffect(() => {
+    if (selectedAccount === "all") return;
+    if (!accounts.some((account) => String(account.id) === selectedAccount)) {
+      setSelectedAccount("all");
     }
-    return Array.from(map.values());
-  }, [holdings]);
+  }, [accounts, selectedAccount]);
 
   const filtered = useMemo(() => {
-    if (selectedAccount === "all") return holdings;
-    return holdings.filter((h) => String(h.accountId) === selectedAccount);
-  }, [holdings, selectedAccount]);
+    return holdings.filter((h) => {
+      if (accountStatus === "active" && h.isActive === false) return false;
+      if (accountStatus === "archived" && h.isActive !== false) return false;
+      if (accountTypeFilter !== "all" && h.accountType !== accountTypeFilter) return false;
+      if (selectedAccount !== "all" && String(h.accountId) !== selectedAccount) return false;
+      return true;
+    });
+  }, [holdings, selectedAccount, accountStatus, accountTypeFilter]);
 
   const selectedAccountLabel = useMemo(() => {
     if (selectedAccount === "all") return "전체";
@@ -218,6 +247,36 @@ export default function Portfolio() {
       </div>
 
       <div className="flex items-center gap-2 flex-wrap">
+        {[
+          { value: "active", label: "활성" },
+          { value: "all", label: "전체상태" },
+          { value: "archived", label: "보관" },
+        ].map((option) => (
+          <Button
+            key={option.value}
+            variant={accountStatus === option.value ? "default" : "outline"}
+            size="sm"
+            onClick={() => setAccountStatus(option.value as "active" | "all" | "archived")}
+            data-testid={`button-portfolio-status-${option.value}`}
+          >
+            {option.label}
+          </Button>
+        ))}
+        {[
+          { value: "all", label: "전체유형" },
+          { value: "mock", label: "모의" },
+          { value: "real", label: "실전" },
+        ].map((option) => (
+          <Button
+            key={option.value}
+            variant={accountTypeFilter === option.value ? "default" : "outline"}
+            size="sm"
+            onClick={() => setAccountTypeFilter(option.value as "all" | "mock" | "real")}
+            data-testid={`button-portfolio-type-${option.value}`}
+          >
+            {option.label}
+          </Button>
+        ))}
         <Button
           variant={selectedAccount === "all" ? "default" : "outline"}
           size="sm"
@@ -234,7 +293,7 @@ export default function Portfolio() {
             onClick={() => setSelectedAccount(String(acc.id))}
             data-testid={`button-filter-account-${acc.id}`}
           >
-            {acc.name}
+            {acc.name} · {acc.accountType === "real" ? "실전" : "모의"}{acc.isActive ? "" : " · 보관"}
           </Button>
         ))}
       </div>
@@ -365,7 +424,12 @@ export default function Portfolio() {
             open={exitPlanOpen}
             onOpenChange={(v) => { setExitPlanOpen(v); if (!v) setExitPlanHolding(null); }}
             modelId={model.id}
-            holding={exitPlanHolding}
+            holding={{
+              ...exitPlanHolding,
+              currentPrice: exitPlanHolding.currentPrice ?? "0",
+              profitLoss: exitPlanHolding.profitLoss ?? "0",
+              profitLossRate: exitPlanHolding.profitLossRate ?? "0",
+            }}
           />
         );
       })()}

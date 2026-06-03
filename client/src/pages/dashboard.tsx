@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { TrendingUp, TrendingDown, Wallet, Target, Plus, Trash2, RefreshCw, WifiOff, ArrowLeftRight, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { TrendingUp, TrendingDown, Wallet, Target, Plus, Archive, RefreshCw, WifiOff, ArrowLeftRight, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useKiwoomBalance } from "@/hooks/use-kiwoom-balance";
@@ -18,6 +18,7 @@ interface DashboardAccount {
   id: number;
   accountNumber: string;
   accountType: "mock" | "real";
+  isActive: boolean;
   accountName?: string;
 }
 
@@ -57,6 +58,7 @@ export default function Dashboard() {
   const [accountNumber, setAccountNumber] = useState("");
   const [accountName, setAccountName] = useState("");
   const [accountType, setAccountType] = useState<"mock" | "real">("mock");
+  const [productCode, setProductCode] = useState<"11" | "10">("11");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
@@ -96,16 +98,17 @@ export default function Dashboard() {
 
   const kiwoom = useKiwoomBalance();
 
-  const selectedAccount = accounts?.find((a: any) => a.id === selectedAccountId);
+  const activeAccounts = accounts.filter((account) => account.isActive !== false);
+  const selectedAccount = activeAccounts.find((a: any) => a.id === selectedAccountId);
 
   useEffect(() => {
     if (accountsLoading) return;
-    if (!accounts || accounts.length === 0) {
+    if (!activeAccounts || activeAccounts.length === 0) {
       setSelectedAccountId(null);
       return;
     }
 
-    if (selectedAccountId != null && accounts.some((acc) => acc.id === selectedAccountId)) {
+    if (selectedAccountId != null && activeAccounts.some((acc) => acc.id === selectedAccountId)) {
       return;
     }
 
@@ -113,18 +116,18 @@ export default function Dashboard() {
     if (typeof window !== "undefined") {
       const saved = window.localStorage.getItem(DASHBOARD_ACCOUNT_STORAGE_KEY);
       const parsed = saved ? parseInt(saved, 10) : NaN;
-      if (Number.isFinite(parsed) && accounts.some((acc) => acc.id === parsed)) {
+      if (Number.isFinite(parsed) && activeAccounts.some((acc) => acc.id === parsed)) {
         nextAccountId = parsed;
       }
     }
 
     if (nextAccountId == null && settings?.tradingMode) {
-      const sameMode = accounts.find((acc) => acc.accountType === settings.tradingMode);
+      const sameMode = activeAccounts.find((acc) => acc.accountType === settings.tradingMode);
       if (sameMode) nextAccountId = sameMode.id;
     }
 
     if (nextAccountId == null) {
-      nextAccountId = accounts[0].id;
+      nextAccountId = activeAccounts[0].id;
     }
 
     setSelectedAccountId(nextAccountId);
@@ -187,7 +190,7 @@ export default function Dashboard() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/accounts'] });
       setDialogOpen(false);
-      setAccountNumber(""); setAccountName(""); setAccountType("mock");
+      setAccountNumber(""); setAccountName(""); setAccountType("mock"); setProductCode("11");
       toast({ title: "계좌 추가 완료" });
     },
     onError: (error: any) => {
@@ -211,18 +214,18 @@ export default function Dashboard() {
     },
   });
 
-  const deleteAccountMutation = useMutation({
+  const archiveAccountMutation = useMutation({
     mutationFn: async (id: number) => {
-      const res = await apiRequest('DELETE', `/api/accounts/${id}`, undefined);
+      const res = await apiRequest('PATCH', `/api/accounts/${id}`, { isActive: false });
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/accounts'] });
       setSelectedAccountId(null);
-      toast({ title: "계좌 삭제 완료" });
+      toast({ title: "계좌 보관 완료", description: "과거 데이터는 유지됩니다." });
     },
     onError: (error: any) => {
-      toast({ variant: "destructive", title: "계좌 삭제 실패", description: error.message });
+      toast({ variant: "destructive", title: "계좌 보관 실패", description: error.message });
     },
   });
 
@@ -334,8 +337,18 @@ export default function Dashboard() {
               <div className="space-y-4 py-4">
                 <div className="space-y-2">
                   <Label>계좌번호</Label>
-                  <Input placeholder="81208166 (8자리)" value={accountNumber} onChange={(e) => setAccountNumber(e.target.value)} data-testid="input-account-number" />
-                  <p className="text-xs text-muted-foreground">8자리 계좌번호를 입력하세요. 주식계좌는 상품코드(11)가 자동으로 추가됩니다.</p>
+                  <Input placeholder="81208166 또는 8120816611" value={accountNumber} onChange={(e) => setAccountNumber(e.target.value)} data-testid="input-account-number" />
+                  <p className="text-xs text-muted-foreground">8자리만 입력하면 아래 상품구분 코드가 뒤에 붙어 저장됩니다. 10자리 입력 시 그대로 저장됩니다.</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>상품구분</Label>
+                  <Select value={productCode} onValueChange={(v: "11" | "10") => setProductCode(v)}>
+                    <SelectTrigger data-testid="select-product-code"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="11">위탁 / 국내주식 (11)</SelectItem>
+                      <SelectItem value="10">위탁종합 (10)</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-2">
                   <Label>계좌명 (선택)</Label>
@@ -352,7 +365,7 @@ export default function Dashboard() {
                   </Select>
                 </div>
                 <Button
-                  onClick={() => addAccountMutation.mutate({ accountNumber, accountName, accountType })}
+                  onClick={() => addAccountMutation.mutate({ accountNumber, accountName, accountType, productCode })}
                   disabled={!accountNumber || addAccountMutation.isPending}
                   className="w-full"
                   data-testid="button-submit-account"
@@ -365,14 +378,14 @@ export default function Dashboard() {
         </div>
 
         {/* 계좌 선택 */}
-        {accounts && accounts.length > 0 && (
+        {activeAccounts && activeAccounts.length > 0 && (
           <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
             <Label className="text-sm">계좌 선택:</Label>
             <div className="flex items-center gap-2 flex-1">
               <Select value={selectedAccountId?.toString()} onValueChange={(v) => { setSelectedAccountId(parseInt(v)); }}>
                 <SelectTrigger className="w-full sm:w-64" data-testid="select-account"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {accounts.map((acc: any) => (
+                  {activeAccounts.map((acc: any) => (
                     <SelectItem key={acc.id} value={acc.id.toString()}>
                       {acc.accountName || acc.accountNumber} ({acc.accountType === "real" ? "실계좌" : "모의투자"})
                     </SelectItem>
@@ -406,8 +419,8 @@ export default function Dashboard() {
                   <Button variant="ghost" size="icon" onClick={handleRefresh} disabled={isLoading} data-testid="button-refresh-balance">
                     <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
                   </Button>
-                  <Button variant="ghost" size="icon" onClick={() => setDeleteConfirmOpen(true)} data-testid="button-delete-account">
-                    <Trash2 className="h-4 w-4" />
+                  <Button variant="ghost" size="icon" onClick={() => setDeleteConfirmOpen(true)} data-testid="button-archive-account" title="계좌 보관">
+                    <Archive className="h-4 w-4" />
                   </Button>
                 </>
               )}
@@ -651,16 +664,16 @@ export default function Dashboard() {
       <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>계좌 삭제</AlertDialogTitle>
-            <AlertDialogDescription>이 계좌를 삭제하시겠습니까? 삭제 후에는 복구할 수 없습니다.</AlertDialogDescription>
+            <AlertDialogTitle>계좌 보관</AlertDialogTitle>
+            <AlertDialogDescription>이 계좌를 보관 처리하시겠습니까? 과거 주문, 저널, 성과 데이터는 유지됩니다.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>취소</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => { if (selectedAccountId) deleteAccountMutation.mutate(selectedAccountId); }}
-              data-testid="button-confirm-delete"
+              onClick={() => { if (selectedAccountId) archiveAccountMutation.mutate(selectedAccountId); }}
+              data-testid="button-confirm-archive"
             >
-              삭제
+              보관
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -24,6 +24,13 @@ import { Search, Loader2 } from "lucide-react";
 
 interface TradeJournalEntry {
   id: number;
+  accountId: number;
+  accountName?: string | null;
+  accountNumber?: string | null;
+  accountType?: "mock" | "real" | null;
+  accountIsActive?: boolean | null;
+  modelId?: number | null;
+  modelName?: string | null;
   tradeDate: string;
   tradeTime: string;
   stockCode: string;
@@ -39,6 +46,19 @@ interface TradeJournalEntry {
   exitReason: string | null;
   isAutoTrading: boolean;
   memo: string | null;
+}
+
+interface JournalAccount {
+  id: number;
+  accountNumber: string;
+  accountName?: string | null;
+  accountType: "mock" | "real";
+  isActive?: boolean;
+}
+
+interface JournalModel {
+  id: number;
+  modelName: string;
 }
 
 function formatKRW(val: number | string): string {
@@ -72,18 +92,47 @@ export default function TradeJournalPage() {
   const [endDate, setEndDate] = useState(() => format(new Date(), "yyyy-MM-dd"));
   const [stockCode, setStockCode] = useState("");
   const [tradeType, setTradeType] = useState("all");
+  const [accountStatus, setAccountStatus] = useState<"active" | "all" | "archived">("active");
+  const [accountType, setAccountType] = useState<"all" | "mock" | "real">("all");
+  const [accountId, setAccountId] = useState("all");
+  const [modelId, setModelId] = useState("all");
   const [searchTrigger, setSearchTrigger] = useState(0);
+
+  const { data: accounts = [] } = useQuery<JournalAccount[]>({ queryKey: ["/api/accounts"] });
+  const { data: models = [] } = useQuery<JournalModel[]>({ queryKey: ["/api/ai/models"] });
+
+  const filteredAccounts = useMemo(() => {
+    return accounts.filter((account) => {
+      if (accountStatus === "active" && account.isActive === false) return false;
+      if (accountStatus === "archived" && account.isActive !== false) return false;
+      if (accountType !== "all" && account.accountType !== accountType) return false;
+      return true;
+    });
+  }, [accounts, accountStatus, accountType]);
+
+  useEffect(() => {
+    if (accountId === "all") return;
+    if (!filteredAccounts.some((account) => String(account.id) === accountId)) {
+      setAccountId("all");
+    }
+  }, [filteredAccounts, accountId]);
 
   const urlParams = new URLSearchParams();
   if (startDate) urlParams.set("startDate", startDate);
   if (endDate) urlParams.set("endDate", endDate);
   if (stockCode) urlParams.set("stockCode", stockCode);
   if (tradeType !== "all") urlParams.set("tradeType", tradeType);
+  urlParams.set("accountStatus", accountStatus);
+  urlParams.set("activeOnly", accountStatus === "active" ? "true" : "false");
+  if (accountType !== "all") urlParams.set("accountType", accountType);
+  if (accountId !== "all") urlParams.set("accountId", accountId);
+  if (modelId !== "all") urlParams.set("modelId", modelId);
+  const journalQuery = urlParams.toString();
 
   const { data: entries, isLoading } = useQuery<TradeJournalEntry[]>({
-    queryKey: ["trade-journal", searchTrigger],
+    queryKey: ["trade-journal", searchTrigger, journalQuery],
     queryFn: async () => {
-      const res = await fetch(`/api/trade-journal?${urlParams.toString()}`);
+      const res = await fetch(`/api/trade-journal?${journalQuery}`);
       if (!res.ok) throw new Error("Failed to fetch trade journal");
       return res.json();
     },
@@ -148,6 +197,81 @@ export default function TradeJournalPage() {
                 className="w-[150px]"
               />
             </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">계좌 상태</label>
+              <div className="flex gap-1">
+                {[
+                  { value: "active", label: "활성" },
+                  { value: "all", label: "전체" },
+                  { value: "archived", label: "보관" },
+                ].map((option) => (
+                  <Button
+                    key={option.value}
+                    type="button"
+                    size="sm"
+                    variant={accountStatus === option.value ? "default" : "outline"}
+                    onClick={() => setAccountStatus(option.value as "active" | "all" | "archived")}
+                    data-testid={`button-journal-status-${option.value}`}
+                  >
+                    {option.label}
+                  </Button>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">계좌 타입</label>
+              <div className="flex gap-1">
+                {[
+                  { value: "all", label: "전체" },
+                  { value: "mock", label: "모의" },
+                  { value: "real", label: "실전" },
+                ].map((option) => (
+                  <Button
+                    key={option.value}
+                    type="button"
+                    size="sm"
+                    variant={accountType === option.value ? "default" : "outline"}
+                    onClick={() => setAccountType(option.value as "all" | "mock" | "real")}
+                    data-testid={`button-journal-type-${option.value}`}
+                  >
+                    {option.label}
+                  </Button>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">계좌</label>
+              <Select value={accountId} onValueChange={setAccountId}>
+                <SelectTrigger className="w-[220px]" data-testid="select-journal-account">
+                  <SelectValue placeholder="전체 계좌" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">전체 계좌</SelectItem>
+                  {filteredAccounts.map((account) => (
+                    <SelectItem key={account.id} value={String(account.id)}>
+                      {account.accountName || account.accountNumber} · {account.accountType === "real" ? "실전" : "모의"}
+                      {account.isActive === false ? " · 보관" : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">모델</label>
+              <Select value={modelId} onValueChange={setModelId}>
+                <SelectTrigger className="w-[220px]" data-testid="select-journal-model">
+                  <SelectValue placeholder="전체 모델" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">전체 모델</SelectItem>
+                  {models.map((model) => (
+                    <SelectItem key={model.id} value={String(model.id)}>
+                      {model.modelName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <Button onClick={handleSearch} className="gap-2">
               <Search className="w-4 h-4" />
               조회
@@ -178,6 +302,8 @@ export default function TradeJournalPage() {
                 <TableHeader>
                   <TableRow className="bg-muted/50">
                     <TableHead className="w-[160px]">일시</TableHead>
+                    <TableHead>계좌</TableHead>
+                    <TableHead>모델</TableHead>
                     <TableHead>종목</TableHead>
                     <TableHead>구분</TableHead>
                     <TableHead className="text-right">단가/수량</TableHead>
@@ -192,6 +318,16 @@ export default function TradeJournalPage() {
                     <TableRow key={entry.id} className="hover:bg-muted/30 transition-colors">
                       <TableCell className="font-mono text-sm text-muted-foreground">
                         {formatTradeDate(entry.tradeDate, entry.tradeTime)}
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-sm">{entry.accountName || entry.accountNumber || entry.accountId}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {entry.accountType === "real" ? "실전" : "모의"}
+                          {entry.accountIsActive === false ? " · 보관" : ""}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-sm">{entry.modelName || (entry.modelId ? `#${entry.modelId}` : "-")}</div>
                       </TableCell>
                       <TableCell>
                         <div className="font-medium">{entry.stockName}</div>

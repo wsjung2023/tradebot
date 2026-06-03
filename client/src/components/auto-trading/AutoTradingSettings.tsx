@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { Save, Settings2, Loader2, ShieldAlert, TrendingUp, LayoutList, Layers, Brain, SlidersHorizontal, AlertTriangle, Plus, Trash2, Search } from "lucide-react";
@@ -375,6 +376,17 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
     if (num >= 10000) return `${(num / 10000).toLocaleString()}만원`;
     return `${num.toLocaleString()}원`;
   };
+  const formatAccountNumber = (accountNumber: string) => {
+    const digits = accountNumber.replace(/\D/g, "");
+    if (digits.length === 10) {
+      const productCode = digits.slice(8);
+      const productLabel = productCode === "11" ? "위탁" : productCode === "10" ? "위탁종합" : "상품코드";
+      return `${digits.slice(0, 8)}-${productCode} · ${productLabel}`;
+    }
+    return accountNumber;
+  };
+  const selectedAccount = accounts.find((account) => String(account.id) === selectedAccountId);
+  const selectedHasApiKey = !!(selectedAccount as KiwoomAccount & { hasApiKey?: boolean } | undefined)?.hasApiKey;
 
   return (
     <Card>
@@ -515,6 +527,43 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
 
         <div className="border-t pt-4 space-y-3">
           <Label className="text-sm font-semibold">매매 계좌</Label>
+          <div
+            className="rounded-md border bg-muted/30 px-3 py-3 space-y-2"
+            data-testid="card-current-model-account"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <p className="text-xs text-muted-foreground">현재 연결 계좌</p>
+                <p className="font-medium" data-testid="text-current-model-account">
+                  {selectedAccount
+                    ? `${selectedAccount.accountName || formatAccountNumber(selectedAccount.accountNumber)} (${formatAccountNumber(selectedAccount.accountNumber)})`
+                    : "연결된 계좌 없음"}
+                </p>
+              </div>
+              <div className="flex flex-wrap justify-end gap-1">
+                {selectedAccount ? (
+                  <>
+                    <Badge variant={selectedAccount.accountType === "real" ? "default" : "secondary"}>
+                      {selectedAccount.accountType === "real" ? "실전" : "모의"}
+                    </Badge>
+                    <Badge variant={selectedAccount.isActive === false ? "outline" : "secondary"}>
+                      {selectedAccount.isActive === false ? "보관" : "활성"}
+                    </Badge>
+                    <Badge variant={selectedHasApiKey ? "secondary" : "destructive"}>
+                      {selectedHasApiKey ? "API 키 등록" : "API 키 없음"}
+                    </Badge>
+                  </>
+                ) : (
+                  <Badge variant="destructive">계좌 미설정</Badge>
+                )}
+              </div>
+            </div>
+            {selectedAccount?.isActive === false && (
+              <p className="text-xs text-yellow-700 dark:text-yellow-300">
+                보관 계좌에 연결된 모델입니다. 새 계좌로 바꾼 뒤 저장하면 과거 실적은 유지되고 이후 거래만 새 계좌로 쌓입니다.
+              </p>
+            )}
+          </div>
           <Select value={selectedAccountId} onValueChange={setSelectedAccountId}>
             <SelectTrigger data-testid="select-trading-account">
               <SelectValue placeholder="계좌를 선택하세요" />
@@ -522,7 +571,8 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
             <SelectContent>
               {accounts.map((account) => (
                 <SelectItem key={account.id} value={String(account.id)}>
-                  {account.accountNumber} ({account.accountType === 'real' ? '실계좌' : '모의'})
+                  {account.accountName || formatAccountNumber(account.accountNumber)} ({account.accountType === 'real' ? '실계좌' : '모의'})
+                  {account.isActive === false ? " · 보관" : ""}
                 </SelectItem>
               ))}
             </SelectContent>
