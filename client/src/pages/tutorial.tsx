@@ -44,15 +44,18 @@ const steps: TutorialStep[] = [
     trigger: "최초 실행 또는 시스템 재시작 시",
     goal: "실제 주문 및 조회가 가능한 물리적 연결 상태를 확보한다.",
     operatorAction: [
-      "설정 > 키움증권 APP KEY/SECRET을 입력하고 '저장' 버튼 클릭",
+      "계좌관리 또는 대시보드에서 계좌번호 8자리와 상품구분(위탁 11 / 위탁종합 10)을 선택해 계좌 등록",
+      "계좌관리 > 열쇠 아이콘에서 해당 계좌의 APP KEY/SECRET을 저장",
       "설정 > 거래 모드(모의/실전)가 자신의 계좌와 맞는지 재확인",
       "집 PC에서 Kiwoom Agent를 실행하고 대시보드에서 '연결됨' 배지 확인",
     ],
     systemAction: [
+      "8자리 계좌번호에는 선택한 상품구분 코드(11/10)를 붙여 저장하고, 10자리 입력은 그대로 저장한다.",
       "DB에 암호화된 API 키를 저장하고 에이전트와 보안 터널을 형성한다.",
       "에이전트로부터 마지막 폴링 시각과 상태 값을 수신하여 UI에 표시한다.",
     ],
     checkpoints: [
+      "계좌번호가 81277026-11 또는 51342627-10처럼 상품구분과 함께 표시되는가?",
       "에이전트 상태 배지가 초록색 '연결됨'으로 표시되는가?",
       "대시보드 상단에 계좌 잔고 데이터가 로드되는가?",
     ],
@@ -73,14 +76,17 @@ const steps: TutorialStep[] = [
     operatorAction: [
       "자동매매 > 'AI 모델 생성' 버튼을 클릭",
       "전략 유형(모멘텀/가치투자 등) 선택 및 모델명 설정",
+      "모델 상세 설정의 '현재 연결 계좌' 카드에서 실행 계좌와 API 키 등록 여부 확인",
       "모델 카드의 스위치를 '작동중'으로 변경하여 엔진 가동 준비",
     ],
     systemAction: [
       "모델 고유 ID를 생성하고 기본 손절정책/가중치 프리셋을 DB에 할당한다.",
+      "모델 config.accountId에 선택 계좌를 저장하여 주문 실행 계좌를 고정한다.",
       "해당 모델이 매매 엔진의 루프에 포함되도록 대기 상태로 전환한다.",
     ],
     checkpoints: [
       "모델 목록에 카드가 정상적으로 나타나는가?",
+      "현재 연결 계좌가 보관 계좌가 아니라 활성 계좌로 표시되는가?",
       "작동중 스위치가 활성화되었는가?",
     ],
     output: "전략 모델 베이스라인 확정",
@@ -195,6 +201,7 @@ const steps: TutorialStep[] = [
     goal: "설정된 라더(Ladder)에 따라 주문을 내고 수익을 확정한다.",
     operatorAction: [
       "보유 종목 페이지에서 매수된 종목의 수익률 모니터링",
+      "거래내역/매매저널 필터에서 전체·활성·보관·모의·실전·계좌별 조회 범위를 확인",
       "AI 재량 스위치(목표초과보유 등) 작동 여부 관찰",
     ],
     systemAction: [
@@ -233,8 +240,8 @@ const steps: TutorialStep[] = [
       "선정/탈락 이력에 '단계매도[1차 익절]' 형태 로그가 발생하는가?",
     ],
     failCase: {
-      condition: "🎯 버튼이 보이지 않음",
-      action: "데스크탑 크기(md 이상) 브라우저에서만 표시됩니다. 화면을 넓히거나 줌 아웃 후 확인하세요.",
+      condition: "만료된 모의계좌의 과거 거래내역이 보이지 않음",
+      action: "거래내역/매매저널의 계좌 상태 필터를 '전체' 또는 '보관'으로 변경한다. 데이터는 삭제되지 않고 보관 계좌에 남아 있습니다.",
     },
     output: "레인보우·수익률 기반 자동 분할매도 운용",
   },
@@ -249,9 +256,10 @@ const steps: TutorialStep[] = [
     operatorAction: [
       "자동매매 > '학습 기록' 탭에서 AI의 개선 추천안 확인",
       "승률/수익률 지표를 보고 수동으로 설정을 보정하거나 자동 반영 확인",
+      "모의계좌가 갱신된 경우에도 같은 모델의 전체 거래 이력을 합산해서 해석",
     ],
     systemAction: [
-      "오늘의 매매 로그와 수익률 데이터를 AI에 전달하여 패턴 분석",
+      "모델 기준으로 과거 보관 계좌와 현재 활성 계좌의 매매 로그를 함께 분석",
       "성과가 좋은 지표의 가중치를 높이고, 나쁜 지표는 낮추는 최적화안 생성",
       "안전 조건 충족 시 모델 설정값 자동 업데이트",
     ],
@@ -340,10 +348,10 @@ export default function Tutorial() {
 
           <div className="grid md:grid-cols-2 gap-4">
             <div className="p-4 rounded-xl border border-white/5 bg-slate-950/20 hover:bg-slate-950/40 transition-colors">
-              <p className="text-xs font-bold mb-3 flex items-center gap-2">
+              <div className="text-xs font-bold mb-3 flex items-center gap-2">
                 <div className="w-1.5 h-1.5 rounded-full bg-blue-400" />
                 운영자 액션 가이드
-              </p>
+              </div>
               <div className="space-y-2.5">
                 {step.operatorAction.map((item, idx) => (
                   <div key={idx} className="flex gap-2 text-[13px] leading-relaxed">
@@ -354,10 +362,10 @@ export default function Tutorial() {
               </div>
             </div>
             <div className="p-4 rounded-xl border border-white/5 bg-slate-950/20 hover:bg-slate-950/40 transition-colors">
-              <p className="text-xs font-bold mb-3 flex items-center gap-2 text-[hsl(var(--${step.color}))]">
+              <div className="text-xs font-bold mb-3 flex items-center gap-2 text-[hsl(var(--${step.color}))]">
                 <div className={`w-1.5 h-1.5 rounded-full bg-[hsl(var(--${step.color}))]`} />
                 시스템 자동 동작
-              </p>
+              </div>
               <div className="space-y-2.5">
                 {step.systemAction.map((item, idx) => (
                   <div key={idx} className="flex gap-2 text-[13px] leading-relaxed">

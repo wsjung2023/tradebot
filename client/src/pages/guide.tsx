@@ -111,7 +111,7 @@ export default function Guide() {
       <SectionCard {...sections[0]}>
         <div className="grid md:grid-cols-2 gap-4">
           {[
-            { t: "계좌 등록", d: "설정 > 키움증권 계좌(App Key/Secret)를 반드시 DB에 저장" },
+            { t: "계좌 등록", d: "계좌번호 8자리 입력 시 상품구분(위탁 11 / 위탁종합 10)을 함께 선택" },
             { t: "에이전트 연결", d: "집 PC의 Kiwoom Agent가 '연결됨' 상태여야 실시간 주문 가능" },
             { t: "거래 모드", d: "모의투자/실전투자 스위치가 실제 계좌 타입과 일치하는지 확인" },
             { t: "모델 활성화", d: "자동매매 페이지에서 AI 모델을 생성하고 '작동중' 스위치 ON" },
@@ -124,6 +124,54 @@ export default function Guide() {
               <p className="text-xs text-muted-foreground leading-relaxed">{item.d}</p>
             </div>
           ))}
+        </div>
+      </SectionCard>
+
+      <SectionCard
+        id="account-lifecycle"
+        title="계좌·모델 이력 관리"
+        icon={Settings2}
+        color="neon-cyan"
+        badge="계좌전환"
+      >
+        <div className="space-y-4">
+          <p className="text-sm leading-relaxed">
+            TradeBot에서는 <strong>계좌는 주문 실행 단위</strong>, <strong>모델은 분석·학습 단위</strong>입니다.
+            모의계좌가 만료되어 새 계좌로 바뀌어도 같은 모델의 매매 성과는 이어서 분석해야 합니다.
+          </p>
+          <div className="grid md:grid-cols-2 gap-4">
+            <div className="p-4 bg-muted/20 rounded-xl border border-border/50">
+              <h4 className="text-sm font-bold mb-2 text-[hsl(var(--neon-cyan))]">계좌번호와 상품구분</h4>
+              <ul className="text-xs text-muted-foreground space-y-1.5 list-disc pl-4">
+                <li>8자리 계좌번호만 입력하면 화면에서 선택한 상품구분 코드가 뒤에 붙어 저장됩니다.</li>
+                <li><strong>11</strong> = 위탁 / 국내주식 계좌, <strong>10</strong> = 위탁종합 계좌입니다.</li>
+                <li>상품구분 10/11은 실전·모의 구분이 아닙니다. 실전·모의는 계좌 유형과 API 키로 구분합니다.</li>
+              </ul>
+            </div>
+            <div className="p-4 bg-muted/20 rounded-xl border border-border/50">
+              <h4 className="text-sm font-bold mb-2 text-[hsl(var(--neon-green))]">모의계좌 만료 시 처리</h4>
+              <ul className="text-xs text-muted-foreground space-y-1.5 list-disc pl-4">
+                <li>만료 계좌는 삭제하지 말고 <strong>보관</strong> 처리합니다.</li>
+                <li>새 모의계좌를 등록하고 API Key/Secret을 저장합니다.</li>
+                <li>자동매매 모델의 <strong>현재 연결 계좌</strong>를 새 계좌로 변경합니다.</li>
+                <li>과거 주문·매매저널은 보관 계좌에 남고, 이후 거래는 새 계좌에 쌓입니다.</li>
+              </ul>
+            </div>
+          </div>
+          <Code>{`조회/분석 기준
+
+화면 조회:
+- 거래내역 / 매매저널 / 포트폴리오에서 전체·활성·보관·계좌유형·계좌별 필터 사용
+- 만료 계좌의 과거 데이터가 안 보이면 "전체" 또는 "보관" 필터 확인
+
+성과 분석:
+- 계좌별이 아니라 모델별 전체 이력을 기준으로 분석
+- 예: 만료 모의계좌(id 20) + 새 모의계좌(id 24) 거래를 같은 모델(id 7)의 성과로 합산
+- 실전과 모의가 섞이는 경우에는 별도 비교 분석을 병행`}</Code>
+          <Warn title="삭제 금지">
+            계좌 삭제는 외래키로 연결된 주문, 보유종목, 매매저널, 분석 이력을 함께 흔들 수 있습니다.
+            운영에서는 삭제 대신 보관 처리하고 필터로 조회 범위를 조정하세요.
+          </Warn>
         </div>
       </SectionCard>
 
