@@ -79,6 +79,17 @@ class JobManager {
 
   private balanceRefreshRunning = false;
 
+  private defaultShouldRun(id: string): boolean {
+    if (id === "exit-plan") return false;
+    return true;
+  }
+
+  private shouldRunOnInitialize(id: string, savedState: string | null): boolean {
+    if (savedState === "running") return true;
+    if (savedState === "stopped") return false;
+    return this.defaultShouldRun(id);
+  }
+
   private minutesToCron(minutes: number): string {
     if (minutes < 60) return `*/${minutes} * * * *`;
     const hours = Math.floor(minutes / 60);
@@ -114,7 +125,10 @@ class JobManager {
       }
 
       const savedState = await storage.getSystemConfig(DB_STATE_KEY(id));
-      const shouldRun = id === "ops-monitor" ? savedState === "running" : savedState !== "stopped";
+      const shouldRun = this.shouldRunOnInitialize(id, savedState);
+      if (!savedState) {
+        await storage.setSystemConfig(DB_STATE_KEY(id), shouldRun ? "running" : "stopped");
+      }
       if (shouldRun) await this._startJob(id, false);
       console.log(`[JobManager] ${id}: ${shouldRun ? "running" : "stopped"}`);
     }
