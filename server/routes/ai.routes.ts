@@ -774,6 +774,7 @@ export function registerAiRoutes(app: Router) {
             warnBelowScore: numberField('warnBelowScore', -10, -100, 100),
             blockBelowScore: numberField('blockBelowScore', -25, -100, 100),
             blockTrapRatePct: numberField('blockTrapRatePct', 40, 0, 100),
+            minClosedTradesForApply: Math.floor(numberField('minClosedTradesForApply', 20, 0, 10000)),
             scaleInBlockTrapRatePct: numberField('scaleInBlockTrapRatePct', 35, 0, 100),
             scaleInBlockBelowScore: numberField('scaleInBlockBelowScore', -12, -100, 100),
             tightenExitAfterDays: Math.floor(numberField('tightenExitAfterDays', 20, 1, 365)),

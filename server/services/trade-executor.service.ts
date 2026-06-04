@@ -55,6 +55,7 @@ type TimeCapitalPolicy = {
   blockBelowScore: number;
   blockTrapRatePct: number;
   blockMinLineSamples: number;
+  minClosedTradesForApply: number;
   entryAdjustmentMultiplier: number;
   maxEntryPenalty: number;
   maxEntryBoost: number;
@@ -360,6 +361,7 @@ export class TradeExecutorService {
       blockBelowScore: this.toFiniteNumber(raw.blockBelowScore, -25),
       blockTrapRatePct: this.toFiniteNumber(raw.blockTrapRatePct, 40),
       blockMinLineSamples: Math.max(1, Math.floor(this.toFiniteNumber(raw.blockMinLineSamples, 2))),
+      minClosedTradesForApply: Math.max(0, Math.floor(this.toFiniteNumber(raw.minClosedTradesForApply, 20))),
       entryAdjustmentMultiplier: this.toFiniteNumber(raw.entryAdjustmentMultiplier, 0.35),
       maxEntryPenalty: Math.max(0, this.toFiniteNumber(raw.maxEntryPenalty, 12)),
       maxEntryBoost: Math.max(0, this.toFiniteNumber(raw.maxEntryBoost, 5)),
@@ -452,6 +454,20 @@ export class TradeExecutorService {
     if (!insights || insights.analyzedTrades < 5) {
       return {
         ...this.buildDefaultTimeCapitalDecision(policy, accountType, line, '누적 분석 데이터가 부족하여 Shadow 기록만 남깁니다.'),
+        applied: false,
+        summary: this.summarizeTimeCapitalInsights(insights),
+      };
+    }
+
+    if (insights.closedTrades < policy.minClosedTradesForApply) {
+      return {
+        ...this.buildDefaultTimeCapitalDecision(
+          policy,
+          accountType,
+          line,
+          `매도 완료 ${insights.closedTrades}/${policy.minClosedTradesForApply}건으로, 기준 충족 전까지 Shadow만 기록합니다.`,
+        ),
+        applied: false,
         summary: this.summarizeTimeCapitalInsights(insights),
       };
     }
@@ -460,6 +476,7 @@ export class TradeExecutorService {
     if (!lineInsight || lineInsight.total < policy.blockMinLineSamples) {
       return {
         ...this.buildDefaultTimeCapitalDecision(policy, accountType, line, '해당 레인보우 라인의 표본이 부족하여 차단하지 않습니다.'),
+        applied: false,
         summary: this.summarizeTimeCapitalInsights(insights),
       };
     }
@@ -546,6 +563,22 @@ export class TradeExecutorService {
     const insights = await this.getTimeCapitalInsights(model);
     const lineInsight = this.getLineEfficiencyInsight(insights, line);
     const summary = this.summarizeTimeCapitalInsights(insights);
+    const hasEnoughClosedTrades = (insights?.closedTrades ?? 0) >= policy.minClosedTradesForApply;
+    if (!hasEnoughClosedTrades) {
+      return {
+        ...base,
+        applied: false,
+        reason: `매도 완료 ${insights?.closedTrades ?? 0}/${policy.minClosedTradesForApply}건으로, 기준 충족 전까지 매도 보조는 Shadow만 기록합니다.`,
+        summary,
+        lineInsight: lineInsight ? {
+          line: lineInsight.line,
+          total: lineInsight.total,
+          avgHoldingDays: this.round2(lineInsight.avgHoldingDays),
+          capitalTrapRate: this.round2(lineInsight.capitalTrapRate),
+        } : null,
+        sellRatio: 0,
+      };
+    }
     const shouldTighten =
       applied
       && holdingDays >= policy.tightenExitAfterDays

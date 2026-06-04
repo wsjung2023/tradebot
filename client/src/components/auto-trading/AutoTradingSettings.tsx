@@ -200,6 +200,7 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
   const [timeCapitalWarnBelowScore, setTimeCapitalWarnBelowScore] = useState("-10");
   const [timeCapitalBlockBelowScore, setTimeCapitalBlockBelowScore] = useState("-25");
   const [timeCapitalBlockTrapRatePct, setTimeCapitalBlockTrapRatePct] = useState("40");
+  const [timeCapitalMinClosedTrades, setTimeCapitalMinClosedTrades] = useState("20");
   const [timeCapitalScaleInBlockTrapRatePct, setTimeCapitalScaleInBlockTrapRatePct] = useState("35");
   const [timeCapitalTightenExitAfterDays, setTimeCapitalTightenExitAfterDays] = useState("20");
   const [timeCapitalTightenExitMinProfitPct, setTimeCapitalTightenExitMinProfitPct] = useState("2");
@@ -281,6 +282,7 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
       setTimeCapitalWarnBelowScore(String(timeCapitalPolicy.warnBelowScore ?? -10));
       setTimeCapitalBlockBelowScore(String(timeCapitalPolicy.blockBelowScore ?? -25));
       setTimeCapitalBlockTrapRatePct(String(timeCapitalPolicy.blockTrapRatePct ?? 40));
+      setTimeCapitalMinClosedTrades(String(timeCapitalPolicy.minClosedTradesForApply ?? 20));
       setTimeCapitalScaleInBlockTrapRatePct(String(timeCapitalPolicy.scaleInBlockTrapRatePct ?? 35));
       setTimeCapitalTightenExitAfterDays(String(timeCapitalPolicy.tightenExitAfterDays ?? 20));
       setTimeCapitalTightenExitMinProfitPct(String(timeCapitalPolicy.tightenExitMinProfitPct ?? 2));
@@ -396,6 +398,7 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
           warnBelowScore: parseNumberOr(timeCapitalWarnBelowScore, -10),
           blockBelowScore: parseNumberOr(timeCapitalBlockBelowScore, -25),
           blockTrapRatePct: parseNumberOr(timeCapitalBlockTrapRatePct, 40),
+          minClosedTradesForApply: parseIntegerOr(timeCapitalMinClosedTrades, 20),
           scaleInBlockTrapRatePct: parseNumberOr(timeCapitalScaleInBlockTrapRatePct, 35),
           scaleInBlockBelowScore: -12,
           tightenExitAfterDays: parseIntegerOr(timeCapitalTightenExitAfterDays, 20),
@@ -1003,7 +1006,7 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
           <div className="rounded-md border border-cyan-200 bg-cyan-50/60 dark:bg-cyan-950/20 px-3 py-2 text-xs text-cyan-900 dark:text-cyan-100 space-y-1">
             <p className="font-medium">분석 데이터로 “빨리 수익 나는 자리”와 “돈이 오래 묶이는 자리”를 구분합니다.</p>
             <p>신규매수는 AI 신뢰도에 감점/가산을 적용하고, 위험한 추가매수 라인은 차단하며, 오래 보유한 수익 포지션은 이익실현을 보조합니다.</p>
-            <p>기본값은 모의계좌만 실제 적용입니다. 실계좌는 코드상 별도 허용 전까지 Shadow 기록만 남깁니다.</p>
+            <p>기본값은 매도 완료 20건 이상부터 모의계좌만 실제 적용입니다. 기준 전에는 모의/실계좌 모두 Shadow 기록만 남깁니다.</p>
           </div>
           <div className="flex items-center justify-between rounded-md border px-3 py-2">
             <div>
@@ -1035,6 +1038,10 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
             <div className="space-y-1">
               <Label className="text-xs text-muted-foreground">자본묶임 차단률(%)</Label>
               <Input type="number" min="0" max="100" step="1" value={timeCapitalBlockTrapRatePct} onChange={(e) => setTimeCapitalBlockTrapRatePct(e.target.value)} data-testid="input-time-capital-trap-rate" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">적용 최소 매도 완료 건수</Label>
+              <Input type="number" min="0" step="1" value={timeCapitalMinClosedTrades} onChange={(e) => setTimeCapitalMinClosedTrades(e.target.value)} data-testid="input-time-capital-min-closed-trades" />
             </div>
             <div className="space-y-1">
               <Label className="text-xs text-muted-foreground">추가매수 차단 자본묶임률(%)</Label>
