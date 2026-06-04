@@ -370,11 +370,10 @@ export class LearningService {
 
   private async buildJournalPerformanceEpisodes(userId: string, modelId: number): Promise<TradingPerformance[]> {
     const entries = await storage.getTradeJournalEntries(userId, {
-      modelId,
       accountStatus: "all",
       activeOnly: false,
       limit: 5000,
-    });
+    } as any);
     if (!entries.length) return [];
 
     const sorted = [...entries].sort((a: any, b: any) =>
@@ -449,7 +448,7 @@ export class LearningService {
             ? ((price - avgEntryPrice) / avgEntryPrice) * 100
             : 0;
         const holdingDays = Math.max(0, (occurredAt.getTime() - episode.entryTime.getTime()) / (24 * 60 * 60 * 1000));
-        const uniqueLines = Array.from(new Set(episode.lines.filter((v) => Number.isFinite(v))));
+        const uniqueLines = Array.from(new Set<number>(episode.lines.filter((v): v is number => Number.isFinite(v))));
 
         episodes.push({
           id: -episodes.length - 1,
@@ -495,8 +494,8 @@ export class LearningService {
       }
     }
 
-    for (const episode of openByKey.values()) {
-      const uniqueLines = Array.from(new Set(episode.lines.filter((v) => Number.isFinite(v))));
+    for (const episode of Array.from(openByKey.values())) {
+      const uniqueLines = Array.from(new Set<number>(episode.lines.filter((v): v is number => Number.isFinite(v))));
       const avgEntryPrice = episode.totalQuantity > 0 ? episode.totalCost / episode.totalQuantity : 0;
       episodes.push({
         id: -episodes.length - 1,

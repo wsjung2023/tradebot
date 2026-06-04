@@ -72,6 +72,29 @@ function formatQuantitative(quantitative: Record<string, unknown> | null | undef
   return entries.map(([k, v]) => `${k}:${typeof v === "number" ? v.toFixed(2) : String(v)}`).join(" | ");
 }
 
+function getTimeCapitalSummary(aiDecision: Record<string, any> | null | undefined): { label: string; detail: string; applied: boolean } | null {
+  const decision = aiDecision?.timeCapitalDecision;
+  if (!decision || typeof decision !== "object") return null;
+  const actionLabel =
+    decision.action === "block"
+      ? "차단 후보"
+      : decision.action === "warn"
+        ? "감점 후보"
+        : decision.action === "tighten_exit"
+          ? "매도 보조"
+          : "통과";
+  const applied = decision.applied === true;
+  const score = typeof decision.score === "number" ? decision.score.toFixed(1) : String(decision.score ?? "-");
+  const adjustment = typeof decision.confidenceAdjustment === "number"
+    ? `${decision.confidenceAdjustment >= 0 ? "+" : ""}${decision.confidenceAdjustment.toFixed(1)}`
+    : "-";
+  return {
+    label: `${applied ? "적용" : "Shadow"} · ${actionLabel}`,
+    detail: `점수 ${score} / AI보정 ${adjustment} / ${decision.reason ?? "-"}`,
+    applied,
+  };
+}
+
 export default function CandidateDecisions() {
   const now = useMemo(() => new Date(), []);
   const weekAgo = useMemo(() => {
@@ -211,6 +234,7 @@ export default function CandidateDecisions() {
                 const quantitativeReason = (aiDecision.quantitativeReason as Record<string, unknown> | undefined) ?? null;
                 const settingsSnapshot = (aiDecision.settingsSnapshot as Record<string, any> | undefined) ?? null;
                 const cooldownMode = settingsSnapshot?.aiEntryPolicy?.candidateDecisionCooldownMode ?? "-";
+                const timeCapitalSummary = getTimeCapitalSummary(aiDecision);
 
                 return (
                   <div key={log.id} className="rounded-xl border bg-card p-3 space-y-2" data-testid={`mobile-row-candidate-decision-${log.id}`}>
@@ -234,6 +258,11 @@ export default function CandidateDecisions() {
                     <div className="text-xs text-muted-foreground space-y-1">
                       <div>정량: {formatQuantitative(quantitativeReason)}</div>
                       <div>최소 신뢰도: {String(settingsSnapshot?.minAiConfidence ?? "-")} · 쿨다운: {String(cooldownMode)}</div>
+                      {timeCapitalSummary && (
+                        <div className="rounded-md border border-cyan-200 bg-cyan-50/60 dark:bg-cyan-950/20 px-2 py-1 text-cyan-800 dark:text-cyan-100">
+                          <span className="font-medium">{timeCapitalSummary.label}</span> · {timeCapitalSummary.detail}
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
@@ -260,6 +289,7 @@ export default function CandidateDecisions() {
                   const modelSnapshot = (aiDecision.modelSnapshot as Record<string, any> | undefined) ?? null;
                   const settingsSnapshot = (aiDecision.settingsSnapshot as Record<string, any> | undefined) ?? null;
                   const cooldownMode = settingsSnapshot?.aiEntryPolicy?.candidateDecisionCooldownMode;
+                  const timeCapitalSummary = getTimeCapitalSummary(aiDecision);
                   const cooldownModeLabel =
                     cooldownMode === "daily_three_slots"
                       ? "하루 3회 (09:10/13:30/15:10)"
@@ -295,7 +325,17 @@ export default function CandidateDecisions() {
                         )}
                       </TableCell>
                       <TableCell className="text-sm">{qualitativeReason}</TableCell>
-                      <TableCell className="text-xs text-muted-foreground">{formatQuantitative(quantitativeReason)}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        <div>{formatQuantitative(quantitativeReason)}</div>
+                        {timeCapitalSummary && (
+                          <div className="mt-1 rounded border border-cyan-200 bg-cyan-50/60 dark:bg-cyan-950/20 px-2 py-1 text-cyan-800 dark:text-cyan-100">
+                            <Badge variant={timeCapitalSummary.applied ? "default" : "outline"} className="mr-1 text-[10px]">
+                              {timeCapitalSummary.label}
+                            </Badge>
+                            {timeCapitalSummary.detail}
+                          </div>
+                        )}
+                      </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
                         <div>AI 모델: {modelSnapshot?.aiModelId ?? "-"}</div>
                         <div>최소 신뢰도: {String(settingsSnapshot?.minAiConfidence ?? "-")}</div>

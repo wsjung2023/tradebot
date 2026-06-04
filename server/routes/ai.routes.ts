@@ -741,6 +741,50 @@ export function registerAiRoutes(app: Router) {
         requestedSellRetryCooldownSec = v;
       }
 
+      const requestedTimeCapitalPolicyRaw = safeBody.aiEntryPolicy?.timeCapitalPolicy;
+      let requestedTimeCapitalPolicy: any | undefined;
+      if (requestedTimeCapitalPolicyRaw !== undefined) {
+        if (
+          requestedTimeCapitalPolicyRaw === null
+          || typeof requestedTimeCapitalPolicyRaw !== 'object'
+          || Array.isArray(requestedTimeCapitalPolicyRaw)
+        ) {
+          return res.status(400).json({ error: 'aiEntryPolicy.timeCapitalPolicy는 객체여야 합니다.' });
+        }
+        const policy = requestedTimeCapitalPolicyRaw as Record<string, unknown>;
+        const VALID_TIME_CAPITAL_MODES = ['shadow_only', 'mock_apply', 'disabled'];
+        const mode = String(policy.mode ?? 'mock_apply');
+        if (!VALID_TIME_CAPITAL_MODES.includes(mode)) {
+          return res.status(400).json({ error: `aiEntryPolicy.timeCapitalPolicy.mode는 ${VALID_TIME_CAPITAL_MODES.join(' / ')} 중 하나여야 합니다.` });
+        }
+        const numberField = (field: string, fallback: number, min: number, max: number) => {
+          const raw = policy[field];
+          const value = raw === undefined || raw === null || raw === '' ? fallback : Number(raw);
+          if (!Number.isFinite(value) || value < min || value > max) {
+            throw new Error(`aiEntryPolicy.timeCapitalPolicy.${field}는 ${min}~${max} 숫자여야 합니다.`);
+          }
+          return value;
+        };
+        try {
+          requestedTimeCapitalPolicy = {
+            ...policy,
+            enabled: policy.enabled !== false,
+            mode,
+            applyToReal: policy.applyToReal === true,
+            warnBelowScore: numberField('warnBelowScore', -10, -100, 100),
+            blockBelowScore: numberField('blockBelowScore', -25, -100, 100),
+            blockTrapRatePct: numberField('blockTrapRatePct', 40, 0, 100),
+            scaleInBlockTrapRatePct: numberField('scaleInBlockTrapRatePct', 35, 0, 100),
+            scaleInBlockBelowScore: numberField('scaleInBlockBelowScore', -12, -100, 100),
+            tightenExitAfterDays: Math.floor(numberField('tightenExitAfterDays', 20, 1, 365)),
+            tightenExitMinProfitPct: numberField('tightenExitMinProfitPct', 2, 0, 100),
+            tightenExitPartialRatio: numberField('tightenExitPartialRatio', 0.5, 0.1, 1),
+          };
+        } catch (err: any) {
+          return res.status(400).json({ error: err.message });
+        }
+      }
+
       const existing = await storage.getAutoTradingSettings(modelId);
       const existingEntryPolicy = (existing?.aiEntryPolicy ?? {}) as any;
       const envSellRetryCooldownSec = parseInt(String(process.env.AUTO_TRADING_SELL_RETRY_COOLDOWN_SEC ?? ''), 10);
@@ -752,6 +796,7 @@ export function registerAiRoutes(app: Router) {
         : {
           ...existingEntryPolicy,
           ...(safeBody.aiEntryPolicy ?? {}),
+          ...(requestedTimeCapitalPolicy !== undefined ? { timeCapitalPolicy: requestedTimeCapitalPolicy } : {}),
           candidateDecisionCooldownMode: requestedCooldownMode ?? 'interval_120m',
           disableReevaluationForBoughtToday: requestedDisableReeval ?? false,
           sellRetryCooldownSec: requestedSellRetryCooldownSec

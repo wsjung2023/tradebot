@@ -10,6 +10,7 @@ import { extractErrorDiagnostics } from '../utils/error-diagnostics';
 import { getNewsService } from './news.service';
 import { getDartService } from './dart.service';
 import { getUserKiwoomService } from './user-kiwoom.service';
+import { LearningService, TimeCapitalEfficiencyInsights } from './learning.service';
 
 // 위험 공시 키워드 → 매수 자동 차단
 const DART_DANGER_KEYWORDS = [
@@ -44,6 +45,40 @@ type CandidateDecisionCooldownMode =
   | 'daily_three_slots'
   | 'daily_once';
 
+type TimeCapitalPolicyMode = 'shadow_only' | 'mock_apply' | 'disabled';
+
+type TimeCapitalPolicy = {
+  enabled: boolean;
+  mode: TimeCapitalPolicyMode;
+  applyToReal: boolean;
+  warnBelowScore: number;
+  blockBelowScore: number;
+  blockTrapRatePct: number;
+  blockMinLineSamples: number;
+  entryAdjustmentMultiplier: number;
+  maxEntryPenalty: number;
+  maxEntryBoost: number;
+  scaleInBlockTrapRatePct: number;
+  scaleInBlockBelowScore: number;
+  tightenExitAfterDays: number;
+  tightenExitMinProfitPct: number;
+  tightenExitPartialRatio: number;
+};
+
+type TimeCapitalDecision = {
+  source: 'time-capital-v1';
+  enabled: boolean;
+  mode: TimeCapitalPolicyMode;
+  applied: boolean;
+  action: 'allow' | 'warn' | 'block' | 'tighten_exit';
+  score: number;
+  confidenceAdjustment: number;
+  reason: string;
+  line: number | null;
+  lineInsight: Record<string, unknown> | null;
+  summary: Record<string, unknown> | null;
+};
+
 // CL선 색 기준: 파랑(blue)=10~20, 초록(green)=30~50, 노랑(yellow)=60~70, 빨강(red)=80~100
 function getRainbowColor(line: number): 'blue' | 'green' | 'yellow' | 'red' {
   if (line <= 20) return 'blue';
@@ -52,6 +87,9 @@ function getRainbowColor(line: number): 'blue' | 'green' | 'yellow' | 'red' {
   return 'red';
 }
 export class TradeExecutorService {
+  private learningService = new LearningService();
+  private timeCapitalCache = new Map<number, { expiresAt: number; insights: TimeCapitalEfficiencyInsights | null }>();
+
   private normalizeStockCode(code: string | null | undefined): string {
     return String(code ?? "").trim().replace(/^A/i, "");
   }
@@ -297,6 +335,259 @@ export class TradeExecutorService {
     return `${intervalKeyPrefix}:${dayKey}:market_b${bucket}`;
   }
 
+  private toFiniteNumber(value: unknown, fallback = 0): number {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : fallback;
+  }
+
+  private round2(value: number): number {
+    return Number(value.toFixed(2));
+  }
+
+  private getTimeCapitalPolicy(settings: AutoTradingSettings): TimeCapitalPolicy {
+    const raw = ((settings.aiEntryPolicy as any)?.timeCapitalPolicy ?? {}) as Record<string, unknown>;
+    const rawMode = String(raw.mode ?? 'mock_apply');
+    const mode: TimeCapitalPolicyMode =
+      rawMode === 'shadow_only' || rawMode === 'mock_apply' || rawMode === 'disabled'
+        ? rawMode
+        : 'mock_apply';
+
+    return {
+      enabled: raw.enabled !== false && mode !== 'disabled',
+      mode,
+      applyToReal: raw.applyToReal === true,
+      warnBelowScore: this.toFiniteNumber(raw.warnBelowScore, -10),
+      blockBelowScore: this.toFiniteNumber(raw.blockBelowScore, -25),
+      blockTrapRatePct: this.toFiniteNumber(raw.blockTrapRatePct, 40),
+      blockMinLineSamples: Math.max(1, Math.floor(this.toFiniteNumber(raw.blockMinLineSamples, 2))),
+      entryAdjustmentMultiplier: this.toFiniteNumber(raw.entryAdjustmentMultiplier, 0.35),
+      maxEntryPenalty: Math.max(0, this.toFiniteNumber(raw.maxEntryPenalty, 12)),
+      maxEntryBoost: Math.max(0, this.toFiniteNumber(raw.maxEntryBoost, 5)),
+      scaleInBlockTrapRatePct: this.toFiniteNumber(raw.scaleInBlockTrapRatePct, 35),
+      scaleInBlockBelowScore: this.toFiniteNumber(raw.scaleInBlockBelowScore, -12),
+      tightenExitAfterDays: Math.max(1, Math.floor(this.toFiniteNumber(raw.tightenExitAfterDays, 20))),
+      tightenExitMinProfitPct: this.toFiniteNumber(raw.tightenExitMinProfitPct, 2),
+      tightenExitPartialRatio: Math.min(1, Math.max(0.1, this.toFiniteNumber(raw.tightenExitPartialRatio, 0.5))),
+    };
+  }
+
+  private shouldApplyTimeCapitalPolicy(policy: TimeCapitalPolicy, accountType: string | null | undefined): boolean {
+    if (!policy.enabled || policy.mode === 'shadow_only' || policy.mode === 'disabled') return false;
+    if (accountType === 'mock') return true;
+    return accountType === 'real' && policy.applyToReal === true;
+  }
+
+  private getLineEfficiencyInsight(insights: TimeCapitalEfficiencyInsights | null, line: number | null) {
+    if (!insights || line == null || !Array.isArray(insights.lineEfficiency) || insights.lineEfficiency.length === 0) {
+      return null;
+    }
+    return insights.lineEfficiency.reduce((best, row) =>
+      Math.abs(row.line - line) < Math.abs(best.line - line) ? row : best
+    );
+  }
+
+  private summarizeTimeCapitalInsights(insights: TimeCapitalEfficiencyInsights | null): Record<string, unknown> | null {
+    if (!insights) return null;
+    return {
+      analyzedTrades: insights.analyzedTrades,
+      closedTrades: insights.closedTrades,
+      openTrades: insights.openTrades,
+      fastWinRate: this.round2(insights.fastWinRate),
+      capitalTrapRate: this.round2(insights.capitalTrapRate),
+      avgHoldingDays: this.round2(insights.avgHoldingDays),
+      avgUnitsUsed: this.round2(insights.avgUnitsUsed),
+    };
+  }
+
+  private async getTimeCapitalInsights(model: AiModel): Promise<TimeCapitalEfficiencyInsights | null> {
+    const cached = this.timeCapitalCache.get(model.id);
+    if (cached && cached.expiresAt > Date.now()) return cached.insights;
+
+    try {
+      const patterns = await this.learningService.findPatterns(model.id, model.userId);
+      const insights = patterns.timeCapitalEfficiency ?? null;
+      this.timeCapitalCache.set(model.id, { expiresAt: Date.now() + 5 * 60 * 1000, insights });
+      return insights;
+    } catch (err: any) {
+      console.warn(`[TimeCapital] insights load failed model=${model.id}: ${err?.message ?? err}`);
+      this.timeCapitalCache.set(model.id, { expiresAt: Date.now() + 60 * 1000, insights: null });
+      return null;
+    }
+  }
+
+  private buildDefaultTimeCapitalDecision(
+    policy: TimeCapitalPolicy,
+    accountType: string | null | undefined,
+    line: number | null,
+    reason: string,
+  ): TimeCapitalDecision {
+    return {
+      source: 'time-capital-v1',
+      enabled: policy.enabled,
+      mode: policy.mode,
+      applied: this.shouldApplyTimeCapitalPolicy(policy, accountType),
+      action: 'allow',
+      score: 0,
+      confidenceAdjustment: 0,
+      reason,
+      line,
+      lineInsight: null,
+      summary: null,
+    };
+  }
+
+  private async evaluateTimeCapitalForBuy(
+    model: AiModel,
+    settings: AutoTradingSettings,
+    accountType: string | null | undefined,
+    line: number,
+    decisionKind: 'entry' | 'scale_in',
+  ): Promise<TimeCapitalDecision> {
+    const policy = this.getTimeCapitalPolicy(settings);
+    if (!policy.enabled || policy.mode === 'disabled') {
+      return this.buildDefaultTimeCapitalDecision(policy, accountType, line, '시간·자본 효율 정책이 비활성화되어 있습니다.');
+    }
+
+    const insights = await this.getTimeCapitalInsights(model);
+    if (!insights || insights.analyzedTrades < 5) {
+      return {
+        ...this.buildDefaultTimeCapitalDecision(policy, accountType, line, '누적 분석 데이터가 부족하여 Shadow 기록만 남깁니다.'),
+        summary: this.summarizeTimeCapitalInsights(insights),
+      };
+    }
+
+    const lineInsight = this.getLineEfficiencyInsight(insights, line);
+    if (!lineInsight || lineInsight.total < policy.blockMinLineSamples) {
+      return {
+        ...this.buildDefaultTimeCapitalDecision(policy, accountType, line, '해당 레인보우 라인의 표본이 부족하여 차단하지 않습니다.'),
+        summary: this.summarizeTimeCapitalInsights(insights),
+      };
+    }
+
+    const speedComponent = this.toFiniteNumber(lineInsight.avgSpeedReturn);
+    const capitalComponent = this.toFiniteNumber(lineInsight.avgCapitalEfficiency);
+    const fastComponent = this.toFiniteNumber(lineInsight.fastWinRate) / 8;
+    const trapPenalty = this.toFiniteNumber(lineInsight.capitalTrapRate) / 4;
+    const longHoldPenalty = Math.max(0, this.toFiniteNumber(lineInsight.avgHoldingDays) - 20) / 2;
+    const score = this.round2(speedComponent + capitalComponent + fastComponent - trapPenalty - longHoldPenalty);
+    const applied = this.shouldApplyTimeCapitalPolicy(policy, accountType);
+
+    let action: TimeCapitalDecision['action'] = 'allow';
+    if (
+      decisionKind === 'scale_in'
+      && (
+        lineInsight.capitalTrapRate >= policy.scaleInBlockTrapRatePct
+        || score <= policy.scaleInBlockBelowScore
+      )
+    ) {
+      action = 'block';
+    } else if (
+      lineInsight.capitalTrapRate >= policy.blockTrapRatePct
+      || score <= policy.blockBelowScore
+    ) {
+      action = 'block';
+    } else if (score <= policy.warnBelowScore) {
+      action = 'warn';
+    }
+
+    const rawAdjustment = score * policy.entryAdjustmentMultiplier;
+    const confidenceAdjustment = this.round2(Math.min(
+      policy.maxEntryBoost,
+      Math.max(-policy.maxEntryPenalty, rawAdjustment),
+    ));
+    const lineLabel = `${lineInsight.line}% 라인`;
+    const reason =
+      action === 'block'
+        ? `${lineLabel} 시간·자본 효율 점수 ${score} / 자본묶임 ${this.round2(lineInsight.capitalTrapRate)}%로 매수 차단 후보입니다.`
+        : action === 'warn'
+          ? `${lineLabel} 시간·자본 효율 점수 ${score}로 감점 적용 후보입니다.`
+          : `${lineLabel} 시간·자본 효율 점수 ${score}로 통과 후보입니다.`;
+
+    return {
+      source: 'time-capital-v1',
+      enabled: policy.enabled,
+      mode: policy.mode,
+      applied,
+      action,
+      score,
+      confidenceAdjustment,
+      reason,
+      line,
+      lineInsight: {
+        line: lineInsight.line,
+        total: lineInsight.total,
+        avgHoldingDays: this.round2(lineInsight.avgHoldingDays),
+        avgReturn: this.round2(lineInsight.avgReturn),
+        avgSpeedReturn: this.round2(lineInsight.avgSpeedReturn),
+        avgCapitalEfficiency: this.round2(lineInsight.avgCapitalEfficiency),
+        fastWinRate: this.round2(lineInsight.fastWinRate),
+        capitalTrapRate: this.round2(lineInsight.capitalTrapRate),
+      },
+      summary: this.summarizeTimeCapitalInsights(insights),
+    };
+  }
+
+  private async evaluateTimeCapitalForExit(
+    model: AiModel,
+    settings: AutoTradingSettings,
+    accountType: string | null | undefined,
+    line: number | null,
+    holdingDays: number,
+    profitRate: number,
+  ): Promise<TimeCapitalDecision & { sellRatio: number }> {
+    const policy = this.getTimeCapitalPolicy(settings);
+    const applied = this.shouldApplyTimeCapitalPolicy(policy, accountType);
+    const base = this.buildDefaultTimeCapitalDecision(policy, accountType, line, '시간·자본 효율 매도 보조 조건을 충족하지 않습니다.');
+
+    if (!policy.enabled || policy.mode === 'disabled') {
+      return { ...base, applied, sellRatio: 0 };
+    }
+
+    const insights = await this.getTimeCapitalInsights(model);
+    const lineInsight = this.getLineEfficiencyInsight(insights, line);
+    const summary = this.summarizeTimeCapitalInsights(insights);
+    const shouldTighten =
+      applied
+      && holdingDays >= policy.tightenExitAfterDays
+      && profitRate >= policy.tightenExitMinProfitPct;
+
+    if (!shouldTighten) {
+      return {
+        ...base,
+        applied,
+        summary,
+        lineInsight: lineInsight ? {
+          line: lineInsight.line,
+          total: lineInsight.total,
+          avgHoldingDays: this.round2(lineInsight.avgHoldingDays),
+          capitalTrapRate: this.round2(lineInsight.capitalTrapRate),
+        } : null,
+        sellRatio: 0,
+      };
+    }
+
+    const sellRatio = profitRate >= policy.tightenExitMinProfitPct * 2 ? 1 : policy.tightenExitPartialRatio;
+    return {
+      source: 'time-capital-v1',
+      enabled: policy.enabled,
+      mode: policy.mode,
+      applied,
+      action: 'tighten_exit',
+      score: this.round2(profitRate / Math.max(1, holdingDays)),
+      confidenceAdjustment: 0,
+      reason: `${holdingDays}일 보유 +${profitRate.toFixed(1)}% 수익으로 시간·자본 효율 청산 보조가 발동했습니다.`,
+      line,
+      lineInsight: lineInsight ? {
+        line: lineInsight.line,
+        total: lineInsight.total,
+        avgHoldingDays: this.round2(lineInsight.avgHoldingDays),
+        capitalTrapRate: this.round2(lineInsight.capitalTrapRate),
+      } : null,
+      summary,
+      sellRatio,
+    };
+  }
+
   // ── 신규 진입: 최대 보유 종목 체크 + AI/레인보우 평가 ──
   async evaluateStock(
     model: AiModel,
@@ -505,6 +796,53 @@ export class TradeExecutorService {
       return;
     }
     const { currentLine } = rainbowEval;
+    const timeCapitalDecision = await this.evaluateTimeCapitalForBuy(
+      model,
+      settings,
+      activeAccount.accountType,
+      currentLine,
+      'scale_in',
+    );
+    if (timeCapitalDecision.applied && timeCapitalDecision.action === 'block') {
+      const blockNow = new Date();
+      const blockCooldownKey = `scaleIn:${model.id}:${stockCode}:line${currentLine}`;
+      await storage.createCandidateDecisionLog({
+        modelId: model.id,
+        stockCode,
+        stockName,
+        scorecard: null,
+        aiDecision: {
+          accepted: false,
+          decisionType: 'time_capital_scale_in_blocked',
+          qualitativeReason: timeCapitalDecision.reason,
+          quantitativeReason: {
+            currentLine,
+            score: timeCapitalDecision.score,
+            confidenceAdjustment: timeCapitalDecision.confidenceAdjustment,
+            lineInsight: timeCapitalDecision.lineInsight,
+          },
+          timeCapitalDecision,
+          cooldownKey: blockCooldownKey,
+          cooldownMode: 'scaleIn_24h' as any,
+          cooldownWindowLabel: 'scaleIn_24h',
+          cooldownSince: blockNow.toISOString(),
+          decidedAt: blockNow.toISOString(),
+          dailyKey: this.todayKST(),
+          modelSnapshot: { id: model.id, modelName: model.modelName, modelType: model.modelType, aiModelId: aiModel, accountId: config.accountId, config },
+          settingsSnapshot: { aiEntryPolicy: settings.aiEntryPolicy ?? null },
+          currentLine,
+          unitCount: null,
+          marketAnalysis: null,
+          candidateContext: { candidateId: null, source: 'scale-in-independent-cycle', scannedLine: null },
+        },
+        accepted: false,
+        rejectReason: 'time_capital_scale_in_blocked',
+        strategyVersion: 'v2',
+        ladderPlan: null,
+      });
+      console.log(`    ⏱️ [TimeCapital] ${stockCode} 추가매수 차단: ${timeCapitalDecision.reason}`);
+      return;
+    }
 
     // ── [가드 1] 라더 설정에서 해당 라인 유닛 확인 ──────────────────────
     if (hasLadderConfig) {
@@ -631,6 +969,7 @@ export class TradeExecutorService {
           const avg = parseFloat(holding.averagePrice?.toString() || '0');
           return avg > 0 ? (((currentPrice - avg) / avg) * 100).toFixed(2) : '0';
         })() },
+        timeCapitalDecision,
         cooldownKey: scaleInCooldownKey,
         cooldownMode: 'scaleIn_24h' as any,
         cooldownWindowLabel: 'scaleIn_24h',
@@ -807,6 +1146,47 @@ export class TradeExecutorService {
             } else {
               console.log(`    ⏸️  [물타기중] ${holding.stockCode} +${profitRate.toFixed(1)}% < 목표 ${effectiveScaleInTp}% (${scaleInUnitCount}유닛, 평단가: ${avgPrice.toLocaleString()}원)`);
             }
+          }
+        }
+
+        if (!shouldSell && profitRate > 0) {
+          try {
+            if (currentLineForDecision === null) {
+              currentLineForDecision = await this.getCurrentRainbowLine(holding.stockCode, currentPrice, kiwoomService);
+            }
+            const perfEntryForExit = await storage.getTradingPerformanceByStock(model.id, holding.stockCode);
+            const holdingDays = perfEntryForExit?.createdAt
+              ? Math.max(0, Math.floor((Date.now() - new Date(perfEntryForExit.createdAt).getTime()) / 86400000))
+              : 0;
+            const timeCapitalExit = await this.evaluateTimeCapitalForExit(
+              model,
+              settings,
+              activeAccount.accountType,
+              currentLineForDecision,
+              holdingDays,
+              profitRate,
+            );
+            if (timeCapitalExit.applied && timeCapitalExit.action === 'tighten_exit') {
+              shouldSell = true;
+              sellRatio = holding.quantity >= 2 ? timeCapitalExit.sellRatio : 1;
+              exitReason = `${timeCapitalExit.reason} (${sellRatio >= 1 ? '전량' : `${Math.round(sellRatio * 100)}%`} 청산)`;
+              await storage.createTradingLog({
+                accountId: activeAccount.id,
+                action: 'time_capital_exit_assist',
+                success: true,
+                details: {
+                  stockCode: holding.stockCode,
+                  stockName: holding.stockName,
+                  profitRate,
+                  holdingDays,
+                  currentLine: currentLineForDecision,
+                  sellRatio,
+                  timeCapitalExit,
+                },
+              });
+            }
+          } catch (timeCapitalExitErr: any) {
+            console.warn(`[TimeCapital] exit assist skipped ${holding.stockCode}: ${timeCapitalExitErr?.message ?? timeCapitalExitErr}`);
           }
         }
 
@@ -1790,6 +2170,7 @@ export class TradeExecutorService {
       marketAnalysis?: AiAnalysisResult;
       currentLine?: number;
       unitCount?: number;
+      timeCapitalDecision?: TimeCapitalDecision | null;
     }) => {
       await storage.createCandidateDecisionLog({
         modelId: model.id,
@@ -1811,6 +2192,7 @@ export class TradeExecutorService {
           cooldownSince: cooldown.since.toISOString(),
           modelSnapshot,
           settingsSnapshot,
+          timeCapitalDecision: params.timeCapitalDecision ?? null,
           currentLine: params.currentLine ?? null,
           unitCount: params.unitCount ?? null,
           marketAnalysis: params.marketAnalysis ?? null,
@@ -1830,6 +2212,7 @@ export class TradeExecutorService {
         decisionType: params.decisionType,
         qualitativeReason: params.qualitativeReason,
         quantitativeReason: params.quantitativeReason ?? null,
+        timeCapitalDecision: params.timeCapitalDecision ?? null,
       });
     };
 
@@ -1875,6 +2258,13 @@ export class TradeExecutorService {
 
       const rainbowEval = await this.evaluate10LineRainbow(stock, settings, kiwoomService, model.userId);
       const { currentLine } = rainbowEval;
+      const timeCapitalDecision = await this.evaluateTimeCapitalForBuy(
+        model,
+        settings,
+        activeAccount.accountType,
+        currentLine,
+        existingHolding ? 'scale_in' : 'entry',
+      );
       console.log(`    🌈 ${stock.name}(${stock.code}): currentLine=${currentLine}`);
 
       type PrecheckResult =
@@ -1955,6 +2345,7 @@ export class TradeExecutorService {
           qualitativeReason: resolvedPrecheck.qualitativeReason,
           quantitativeReason: resolvedPrecheck.quantitativeReason,
           currentLine,
+          timeCapitalDecision,
         });
         return;
       }
@@ -1970,6 +2361,7 @@ export class TradeExecutorService {
             qualitativeReason: '일일 최대 거래 횟수에 도달하여 신규/추가 매수를 중단합니다.',
             quantitativeReason: { todayCount, maxDailyTrades },
             currentLine,
+            timeCapitalDecision,
           });
           return;
         }
@@ -1996,12 +2388,32 @@ export class TradeExecutorService {
             qualitativeReason: '당일 매수된 종목은 재평가 금지 설정으로 후보 재평가를 건너뜁니다.',
             quantitativeReason: { todayAutoBuyCount: todayAutoBuys.length },
             currentLine,
+            timeCapitalDecision,
           });
           return;
         }
       }
 
       // ── 시장 이슈 종목 필터 ──────────────────────────────────────────────
+      if (timeCapitalDecision.applied && timeCapitalDecision.action === 'block') {
+        await logDecision({
+          accepted: false,
+          rejectReason: resolvedPrecheck.isAdditionalBuy ? 'time_capital_scale_in_blocked' : 'time_capital_entry_blocked',
+          decisionType: resolvedPrecheck.isAdditionalBuy ? 'time_capital_scale_in_blocked' : 'time_capital_entry_blocked',
+          qualitativeReason: timeCapitalDecision.reason,
+          quantitativeReason: {
+            currentLine,
+            score: timeCapitalDecision.score,
+            confidenceAdjustment: timeCapitalDecision.confidenceAdjustment,
+            lineInsight: timeCapitalDecision.lineInsight,
+          },
+          currentLine,
+          timeCapitalDecision,
+        });
+        console.log(`    ⏱️ [TimeCapital] ${stock.code} 매수 차단: ${timeCapitalDecision.reason}`);
+        return;
+      }
+
       if (settings.requireMarketIssue) {
         const today = this.todayKST();
         const issues = await storage.getMarketIssuesByStock(stock.code);
@@ -2015,6 +2427,8 @@ export class TradeExecutorService {
             decisionType: 'filter_market_issue',
             qualitativeReason: '당일 장 이슈 종목 조건을 충족하지 못했습니다.',
             quantitativeReason: { issueDate: today, issueCount: issues.length },
+            currentLine,
+            timeCapitalDecision,
           });
           return;
         }
@@ -2045,25 +2459,39 @@ export class TradeExecutorService {
           quantitativeReason: { liquidityScore: marketAnalysis.liquidityScore },
           marketAnalysis,
           currentLine,
+          timeCapitalDecision,
         });
         return;
+      }
+      const originalConfidence = marketAnalysis.confidence;
+      const adjustedConfidence =
+        timeCapitalDecision.applied
+          ? Math.min(100, Math.max(0, originalConfidence + timeCapitalDecision.confidenceAdjustment))
+          : originalConfidence;
+      const effectiveMarketAnalysis: AiAnalysisResult =
+        adjustedConfidence === originalConfidence
+          ? marketAnalysis
+          : { ...marketAnalysis, confidence: this.round2(adjustedConfidence) };
+      if (effectiveMarketAnalysis !== marketAnalysis) {
+        console.log(`    ⏱️ [TimeCapital] AI신뢰도 보정 ${originalConfidence.toFixed(1)}% → ${effectiveMarketAnalysis.confidence.toFixed(1)}% (${timeCapitalDecision.reason})`);
       }
       console.log(`    📊 AI분석 신뢰도: ${marketAnalysis.confidence.toFixed(1)}% (테마:${marketAnalysis.themeScore} 뉴스:${marketAnalysis.newsScore} 재무:${marketAnalysis.financialsScore} 유동성:${marketAnalysis.liquidityScore})`);
 
       // ── 최소 신뢰도 필터 ─────────────────────────────────────────────────
       const minConf = parseFloat(settings.minAiConfidence?.toString() ?? '0');
-      if (minConf > 0 && marketAnalysis.confidence < minConf) {
-        const confidenceBreakdown = this.buildConfidenceBreakdown(settings, marketAnalysis);
-        console.log(`    ⚠️  종합 점수 ${marketAnalysis.confidence.toFixed(1)}% < 최솟값 ${minConf}% - 스킵`);
-        storage.createEngineNotification({ userId: model.userId, severity: 'info', type: 'SKIP', message: `[스킵] ${candidate.stockName} — AI신뢰도 미달 (${marketAnalysis.confidence.toFixed(1)}% < ${minConf}%)`, payload: { stockCode: candidate.stockCode, stockName: candidate.stockName, skipReason: 'minAiConf미달', confidence: marketAnalysis.confidence, themeScore: marketAnalysis.themeScore, newsScore: marketAnalysis.newsScore, financialsScore: marketAnalysis.financialsScore, liquidityScore: marketAnalysis.liquidityScore, institutionalScore: marketAnalysis.institutionalScore, confidenceBreakdown } }).catch(e => console.error('[Notification]', e));
+      if (minConf > 0 && effectiveMarketAnalysis.confidence < minConf) {
+        const confidenceBreakdown = this.buildConfidenceBreakdown(settings, effectiveMarketAnalysis);
+        console.log(`    ⚠️  종합 점수 ${effectiveMarketAnalysis.confidence.toFixed(1)}% < 최솟값 ${minConf}% - 스킵`);
+        storage.createEngineNotification({ userId: model.userId, severity: 'info', type: 'SKIP', message: `[스킵] ${candidate.stockName} — AI신뢰도 미달 (${effectiveMarketAnalysis.confidence.toFixed(1)}% < ${minConf}%)`, payload: { stockCode: candidate.stockCode, stockName: candidate.stockName, skipReason: 'minAiConf미달', confidence: effectiveMarketAnalysis.confidence, originalConfidence, themeScore: effectiveMarketAnalysis.themeScore, newsScore: effectiveMarketAnalysis.newsScore, financialsScore: effectiveMarketAnalysis.financialsScore, liquidityScore: effectiveMarketAnalysis.liquidityScore, institutionalScore: effectiveMarketAnalysis.institutionalScore, confidenceBreakdown, timeCapitalDecision } }).catch(e => console.error('[Notification]', e));
         await logDecision({
           accepted: false,
           rejectReason: 'min_ai_confidence_not_met',
           decisionType: 'filter_min_ai_confidence',
           qualitativeReason: 'AI 종합 점수가 최소 신뢰도 기준을 충족하지 못했습니다.',
-          quantitativeReason: { confidence: marketAnalysis.confidence, minConfidence: minConf },
-          marketAnalysis,
+          quantitativeReason: { confidence: effectiveMarketAnalysis.confidence, originalConfidence, minConfidence: minConf },
+          marketAnalysis: effectiveMarketAnalysis,
           currentLine,
+          timeCapitalDecision,
         });
         return;
       }
@@ -2071,42 +2499,44 @@ export class TradeExecutorService {
       const allowSpeculativeLeaderTrades = settings.allowSpeculativeLeaderTrades === true;
       const speculativeMinConfidence = Math.max(minConf + 10, 85);
       const canUseSpeculativeOverride =
-        allowSpeculativeLeaderTrades && marketAnalysis.confidence >= speculativeMinConfidence;
+        allowSpeculativeLeaderTrades && effectiveMarketAnalysis.confidence >= speculativeMinConfidence;
 
       // ── 재무건전성 필터 ──────────────────────────────────────────────────
-      if (settings.requireGoodFinancials && !marketAnalysis.hasGoodFinancials) {
+      if (settings.requireGoodFinancials && !effectiveMarketAnalysis.hasGoodFinancials) {
         if (canUseSpeculativeOverride) {
-          console.log(`    ⚠️  재무건전성 미충족이지만 '세력/급등주 투자 허용' + 고신뢰(${marketAnalysis.confidence.toFixed(1)}%)로 진입 평가 계속`);
+          console.log(`    ⚠️  재무건전성 미충족이지만 '세력/급등주 투자 허용' + 고신뢰(${effectiveMarketAnalysis.confidence.toFixed(1)}%)로 진입 평가 계속`);
         } else {
-        console.log(`    ⚠️  재무건전성 미충족 (financialsScore=${marketAnalysis.financialsScore} < 60) - 스킵`);
-        storage.createEngineNotification({ userId: model.userId, severity: 'info', type: 'SKIP', message: `[스킵] ${candidate.stockName} — 재무건전성 미충족 (${marketAnalysis.financialsScore})`, payload: { stockCode: candidate.stockCode, stockName: candidate.stockName, skipReason: '재무필터', financialsScore: marketAnalysis.financialsScore } }).catch(e => console.error('[Notification]', e));
+        console.log(`    ⚠️  재무건전성 미충족 (financialsScore=${effectiveMarketAnalysis.financialsScore} < 60) - 스킵`);
+        storage.createEngineNotification({ userId: model.userId, severity: 'info', type: 'SKIP', message: `[스킵] ${candidate.stockName} — 재무건전성 미충족 (${effectiveMarketAnalysis.financialsScore})`, payload: { stockCode: candidate.stockCode, stockName: candidate.stockName, skipReason: '재무필터', financialsScore: effectiveMarketAnalysis.financialsScore, timeCapitalDecision } }).catch(e => console.error('[Notification]', e));
         await logDecision({
           accepted: false,
           rejectReason: 'financials_not_met',
           decisionType: 'filter_financials',
           qualitativeReason: '재무건전성 조건을 충족하지 못했습니다.',
-          quantitativeReason: { financialsScore: marketAnalysis.financialsScore, threshold: 60 },
-          marketAnalysis,
+          quantitativeReason: { financialsScore: effectiveMarketAnalysis.financialsScore, threshold: 60, originalConfidence },
+          marketAnalysis: effectiveMarketAnalysis,
           currentLine,
+          timeCapitalDecision,
         });
         return;
         }
       }
       // ── 유동성 필터 ─────────────────────────────────────────────────────
-      if (settings.requireHighLiquidity && !marketAnalysis.hasHighLiquidity) {
+      if (settings.requireHighLiquidity && !effectiveMarketAnalysis.hasHighLiquidity) {
         if (canUseSpeculativeOverride) {
-          console.log(`    ⚠️  유동성 미충족이지만 '세력/급등주 투자 허용' + 고신뢰(${marketAnalysis.confidence.toFixed(1)}%)로 진입 평가 계속`);
+          console.log(`    ⚠️  유동성 미충족이지만 '세력/급등주 투자 허용' + 고신뢰(${effectiveMarketAnalysis.confidence.toFixed(1)}%)로 진입 평가 계속`);
         } else {
-        console.log(`    ⚠️  유동성 미충족 (liquidityScore=${marketAnalysis.liquidityScore} < 40) - 스킵`);
-        storage.createEngineNotification({ userId: model.userId, severity: 'info', type: 'SKIP', message: `[스킵] ${candidate.stockName} — 유동성 미충족 (${marketAnalysis.liquidityScore})`, payload: { stockCode: candidate.stockCode, stockName: candidate.stockName, skipReason: '유동성필터', liquidityScore: marketAnalysis.liquidityScore } }).catch(e => console.error('[Notification]', e));
+        console.log(`    ⚠️  유동성 미충족 (liquidityScore=${effectiveMarketAnalysis.liquidityScore} < 40) - 스킵`);
+        storage.createEngineNotification({ userId: model.userId, severity: 'info', type: 'SKIP', message: `[스킵] ${candidate.stockName} — 유동성 미충족 (${effectiveMarketAnalysis.liquidityScore})`, payload: { stockCode: candidate.stockCode, stockName: candidate.stockName, skipReason: '유동성필터', liquidityScore: effectiveMarketAnalysis.liquidityScore, timeCapitalDecision } }).catch(e => console.error('[Notification]', e));
         await logDecision({
           accepted: false,
           rejectReason: 'liquidity_not_met',
           decisionType: 'filter_liquidity',
           qualitativeReason: '유동성 조건을 충족하지 못했습니다.',
-          quantitativeReason: { liquidityScore: marketAnalysis.liquidityScore, threshold: 40 },
-          marketAnalysis,
+          quantitativeReason: { liquidityScore: effectiveMarketAnalysis.liquidityScore, threshold: 40, originalConfidence },
+          marketAnalysis: effectiveMarketAnalysis,
           currentLine,
+          timeCapitalDecision,
         });
         return;
         }
@@ -2121,7 +2551,9 @@ export class TradeExecutorService {
           decisionType: 'filter_dart_danger',
           qualitativeReason: 'DART 위험 공시가 감지되어 매수를 차단했습니다.',
           quantitativeReason: { dartDangerKeyword: marketAnalysis.dartDangerKeyword },
-          marketAnalysis,
+          marketAnalysis: effectiveMarketAnalysis,
+          currentLine,
+          timeCapitalDecision,
         });
         return;
       }
@@ -2131,12 +2563,13 @@ export class TradeExecutorService {
           rejectReason: null,
           decisionType: 'entry_selected',
           qualitativeReason: '진입 조건을 충족해 매수 대상으로 선정되었습니다.',
-          quantitativeReason: { currentLine, unitCount: resolvedPrecheck.unitCount, confidence: marketAnalysis.confidence },
-          marketAnalysis,
+          quantitativeReason: { currentLine, unitCount: resolvedPrecheck.unitCount, confidence: effectiveMarketAnalysis.confidence, originalConfidence },
+          marketAnalysis: effectiveMarketAnalysis,
           currentLine,
           unitCount: resolvedPrecheck.unitCount,
+          timeCapitalDecision,
         });
-        await this.executeBuy(model, settings, stock, rainbowEval, marketAnalysis, kiwoomService);
+        await this.executeBuy(model, settings, stock, rainbowEval, effectiveMarketAnalysis, kiwoomService);
       } else {
         await logDecision({
           accepted: true,
@@ -2147,9 +2580,12 @@ export class TradeExecutorService {
             entryLine: resolvedPrecheck.entryLine,
             nextLowerLine: resolvedPrecheck.nextLowerLine,
             currentLine,
+            confidence: effectiveMarketAnalysis.confidence,
+            originalConfidence,
           },
-          marketAnalysis,
+          marketAnalysis: effectiveMarketAnalysis,
           currentLine,
+          timeCapitalDecision,
         });
         await this.executeAdditionalBuy(model, settings, stock, existingHolding!, rainbowEval, kiwoomService);
       }

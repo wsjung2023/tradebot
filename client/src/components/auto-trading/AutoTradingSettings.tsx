@@ -42,6 +42,8 @@ type CandidateDecisionCooldownMode =
   | "daily_three_slots"
   | "daily_once";
 
+type TimeCapitalPolicyMode = "shadow_only" | "mock_apply" | "disabled";
+
 function clampUnit(value: unknown): number {
   const n = Number.parseInt(String(value ?? ""), 10);
   if (!Number.isFinite(n)) return 0;
@@ -193,6 +195,14 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
   const [allowSpeculativeLeaderTrades, setAllowSpeculativeLeaderTrades] = useState(false);
   const [candidateDecisionCooldownMode, setCandidateDecisionCooldownMode] = useState<CandidateDecisionCooldownMode>("interval_120m");
   const [disableReevaluationForBoughtToday, setDisableReevaluationForBoughtToday] = useState(false);
+  const [timeCapitalEnabled, setTimeCapitalEnabled] = useState(true);
+  const [timeCapitalMode, setTimeCapitalMode] = useState<TimeCapitalPolicyMode>("mock_apply");
+  const [timeCapitalWarnBelowScore, setTimeCapitalWarnBelowScore] = useState("-10");
+  const [timeCapitalBlockBelowScore, setTimeCapitalBlockBelowScore] = useState("-25");
+  const [timeCapitalBlockTrapRatePct, setTimeCapitalBlockTrapRatePct] = useState("40");
+  const [timeCapitalScaleInBlockTrapRatePct, setTimeCapitalScaleInBlockTrapRatePct] = useState("35");
+  const [timeCapitalTightenExitAfterDays, setTimeCapitalTightenExitAfterDays] = useState("20");
+  const [timeCapitalTightenExitMinProfitPct, setTimeCapitalTightenExitMinProfitPct] = useState("2");
   const [conditionSequences, setConditionSequences] = useState<{ conditionId: string; name: string }[]>([]);
 
   useEffect(() => {
@@ -259,6 +269,21 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
         setCandidateDecisionCooldownMode(storedCooldownMode);
       }
       setDisableReevaluationForBoughtToday((settings.aiEntryPolicy as any)?.disableReevaluationForBoughtToday === true);
+      const timeCapitalPolicy = (settings.aiEntryPolicy as any)?.timeCapitalPolicy ?? {};
+      setTimeCapitalEnabled(timeCapitalPolicy.enabled !== false && timeCapitalPolicy.mode !== "disabled");
+      if (
+        timeCapitalPolicy.mode === "shadow_only"
+        || timeCapitalPolicy.mode === "mock_apply"
+        || timeCapitalPolicy.mode === "disabled"
+      ) {
+        setTimeCapitalMode(timeCapitalPolicy.mode);
+      }
+      setTimeCapitalWarnBelowScore(String(timeCapitalPolicy.warnBelowScore ?? -10));
+      setTimeCapitalBlockBelowScore(String(timeCapitalPolicy.blockBelowScore ?? -25));
+      setTimeCapitalBlockTrapRatePct(String(timeCapitalPolicy.blockTrapRatePct ?? 40));
+      setTimeCapitalScaleInBlockTrapRatePct(String(timeCapitalPolicy.scaleInBlockTrapRatePct ?? 35));
+      setTimeCapitalTightenExitAfterDays(String(timeCapitalPolicy.tightenExitAfterDays ?? 20));
+      setTimeCapitalTightenExitMinProfitPct(String(timeCapitalPolicy.tightenExitMinProfitPct ?? 2));
       if (settings.conditionSearchSequences && Array.isArray(settings.conditionSearchSequences)) {
         setConditionSequences(settings.conditionSearchSequences as any);
       }
@@ -303,6 +328,14 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
     }
 
     const syncedLineUnits = entryLadderToLineUnits(entryLadder);
+    const parseNumberOr = (value: string, fallback: number) => {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : fallback;
+    };
+    const parseIntegerOr = (value: string, fallback: number) => {
+      const parsed = Number.parseInt(value, 10);
+      return Number.isFinite(parsed) ? parsed : fallback;
+    };
     setCfgLineUnits(syncedLineUnits);
     void apiRequest("PATCH", `/api/ai/models/${modelId}`, {
       config: {
@@ -355,6 +388,20 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
         ...((settings?.aiEntryPolicy as any) ?? {}),
         candidateDecisionCooldownMode,
         disableReevaluationForBoughtToday,
+        timeCapitalPolicy: {
+          ...(((settings?.aiEntryPolicy as any)?.timeCapitalPolicy as any) ?? {}),
+          enabled: timeCapitalEnabled,
+          mode: timeCapitalEnabled ? timeCapitalMode : "disabled",
+          applyToReal: false,
+          warnBelowScore: parseNumberOr(timeCapitalWarnBelowScore, -10),
+          blockBelowScore: parseNumberOr(timeCapitalBlockBelowScore, -25),
+          blockTrapRatePct: parseNumberOr(timeCapitalBlockTrapRatePct, 40),
+          scaleInBlockTrapRatePct: parseNumberOr(timeCapitalScaleInBlockTrapRatePct, 35),
+          scaleInBlockBelowScore: -12,
+          tightenExitAfterDays: parseIntegerOr(timeCapitalTightenExitAfterDays, 20),
+          tightenExitMinProfitPct: parseNumberOr(timeCapitalTightenExitMinProfitPct, 2),
+          tightenExitPartialRatio: 0.5,
+        },
       },
       conditionSearchSequences: conditionSequences,
     });
@@ -946,6 +993,61 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
               onCheckedChange={setDisableReevaluationForBoughtToday}
               data-testid="switch-disable-reeval-bought-today"
             />
+          </div>
+        </div>
+
+        <div className="border-t pt-4 space-y-3">
+          <Label className="text-sm font-semibold flex items-center gap-1.5">
+            <TrendingUp className="h-4 w-4" />시간·자본 효율 알고리즘
+          </Label>
+          <div className="rounded-md border border-cyan-200 bg-cyan-50/60 dark:bg-cyan-950/20 px-3 py-2 text-xs text-cyan-900 dark:text-cyan-100 space-y-1">
+            <p className="font-medium">분석 데이터로 “빨리 수익 나는 자리”와 “돈이 오래 묶이는 자리”를 구분합니다.</p>
+            <p>신규매수는 AI 신뢰도에 감점/가산을 적용하고, 위험한 추가매수 라인은 차단하며, 오래 보유한 수익 포지션은 이익실현을 보조합니다.</p>
+            <p>기본값은 모의계좌만 실제 적용입니다. 실계좌는 코드상 별도 허용 전까지 Shadow 기록만 남깁니다.</p>
+          </div>
+          <div className="flex items-center justify-between rounded-md border px-3 py-2">
+            <div>
+              <p className="text-sm font-medium">시간·자본 효율 사용</p>
+              <p className="text-xs text-muted-foreground">끄면 판단 로그에도 비활성으로 기록되고 매매에는 반영되지 않습니다.</p>
+            </div>
+            <Switch checked={timeCapitalEnabled} onCheckedChange={setTimeCapitalEnabled} data-testid="switch-time-capital-enabled" />
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">적용 모드</Label>
+              <Select value={timeCapitalMode} onValueChange={(value) => setTimeCapitalMode(value as TimeCapitalPolicyMode)} disabled={!timeCapitalEnabled}>
+                <SelectTrigger data-testid="select-time-capital-mode"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="mock_apply">모의계좌 적용 + 실계좌 Shadow</SelectItem>
+                  <SelectItem value="shadow_only">Shadow 기록만</SelectItem>
+                  <SelectItem value="disabled">비활성</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">신규매수 경고 점수 이하</Label>
+              <Input type="number" step="1" value={timeCapitalWarnBelowScore} onChange={(e) => setTimeCapitalWarnBelowScore(e.target.value)} data-testid="input-time-capital-warn-score" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">신규매수 차단 점수 이하</Label>
+              <Input type="number" step="1" value={timeCapitalBlockBelowScore} onChange={(e) => setTimeCapitalBlockBelowScore(e.target.value)} data-testid="input-time-capital-block-score" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">자본묶임 차단률(%)</Label>
+              <Input type="number" min="0" max="100" step="1" value={timeCapitalBlockTrapRatePct} onChange={(e) => setTimeCapitalBlockTrapRatePct(e.target.value)} data-testid="input-time-capital-trap-rate" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">추가매수 차단 자본묶임률(%)</Label>
+              <Input type="number" min="0" max="100" step="1" value={timeCapitalScaleInBlockTrapRatePct} onChange={(e) => setTimeCapitalScaleInBlockTrapRatePct(e.target.value)} data-testid="input-time-capital-scale-trap-rate" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">매도 보조 보유일 기준</Label>
+              <Input type="number" min="1" step="1" value={timeCapitalTightenExitAfterDays} onChange={(e) => setTimeCapitalTightenExitAfterDays(e.target.value)} data-testid="input-time-capital-exit-days" />
+            </div>
+            <div className="space-y-1 md:col-span-2">
+              <Label className="text-xs text-muted-foreground">매도 보조 최소 수익률(%)</Label>
+              <Input type="number" min="0" step="0.1" value={timeCapitalTightenExitMinProfitPct} onChange={(e) => setTimeCapitalTightenExitMinProfitPct(e.target.value)} data-testid="input-time-capital-exit-profit" />
+            </div>
           </div>
         </div>
 
