@@ -55,7 +55,6 @@ type TimeCapitalPolicy = {
   blockBelowScore: number;
   blockTrapRatePct: number;
   blockMinLineSamples: number;
-  minClosedTradesForApply: number;
   entryAdjustmentMultiplier: number;
   maxEntryPenalty: number;
   maxEntryBoost: number;
@@ -361,7 +360,6 @@ export class TradeExecutorService {
       blockBelowScore: this.toFiniteNumber(raw.blockBelowScore, -25),
       blockTrapRatePct: this.toFiniteNumber(raw.blockTrapRatePct, 40),
       blockMinLineSamples: Math.max(1, Math.floor(this.toFiniteNumber(raw.blockMinLineSamples, 2))),
-      minClosedTradesForApply: Math.max(0, Math.floor(this.toFiniteNumber(raw.minClosedTradesForApply, 20))),
       entryAdjustmentMultiplier: this.toFiniteNumber(raw.entryAdjustmentMultiplier, 0.35),
       maxEntryPenalty: Math.max(0, this.toFiniteNumber(raw.maxEntryPenalty, 12)),
       maxEntryBoost: Math.max(0, this.toFiniteNumber(raw.maxEntryBoost, 5)),
@@ -377,6 +375,12 @@ export class TradeExecutorService {
     if (!policy.enabled || policy.mode === 'shadow_only' || policy.mode === 'disabled') return false;
     if (accountType === 'mock') return true;
     return accountType === 'real' && policy.applyToReal === true;
+  }
+
+  private getMinTradesForTimeCapitalAnalysis(settings: AutoTradingSettings): number {
+    const learningPolicy = ((settings as any).learningPolicy ?? {}) as Record<string, unknown>;
+    const minTrades = this.toFiniteNumber(learningPolicy.minTradesForAnalysis, 20);
+    return Math.max(0, Math.floor(minTrades));
   }
 
   private getLineEfficiencyInsight(insights: TimeCapitalEfficiencyInsights | null, line: number | null) {
@@ -459,13 +463,14 @@ export class TradeExecutorService {
       };
     }
 
-    if (insights.closedTrades < policy.minClosedTradesForApply) {
+    const minTradesForAnalysis = this.getMinTradesForTimeCapitalAnalysis(settings);
+    if (insights.closedTrades < minTradesForAnalysis) {
       return {
         ...this.buildDefaultTimeCapitalDecision(
           policy,
           accountType,
           line,
-          `매도 완료 ${insights.closedTrades}/${policy.minClosedTradesForApply}건으로, 기준 충족 전까지 Shadow만 기록합니다.`,
+          `매도 완료 ${insights.closedTrades}/${minTradesForAnalysis}건으로, 학습 정책의 분석 시작 최소 거래 수 충족 전까지 Shadow만 기록합니다.`,
         ),
         applied: false,
         summary: this.summarizeTimeCapitalInsights(insights),
@@ -563,12 +568,13 @@ export class TradeExecutorService {
     const insights = await this.getTimeCapitalInsights(model);
     const lineInsight = this.getLineEfficiencyInsight(insights, line);
     const summary = this.summarizeTimeCapitalInsights(insights);
-    const hasEnoughClosedTrades = (insights?.closedTrades ?? 0) >= policy.minClosedTradesForApply;
+    const minTradesForAnalysis = this.getMinTradesForTimeCapitalAnalysis(settings);
+    const hasEnoughClosedTrades = (insights?.closedTrades ?? 0) >= minTradesForAnalysis;
     if (!hasEnoughClosedTrades) {
       return {
         ...base,
         applied: false,
-        reason: `매도 완료 ${insights?.closedTrades ?? 0}/${policy.minClosedTradesForApply}건으로, 기준 충족 전까지 매도 보조는 Shadow만 기록합니다.`,
+        reason: `매도 완료 ${insights?.closedTrades ?? 0}/${minTradesForAnalysis}건으로, 학습 정책의 분석 시작 최소 거래 수 충족 전까지 매도 보조는 Shadow만 기록합니다.`,
         summary,
         lineInsight: lineInsight ? {
           line: lineInsight.line,
