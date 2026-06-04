@@ -613,7 +613,16 @@ class AutoTradingWorker {
       }
 
       // ── 2. 신규 진입 후보 평가 ──
-      const candidates = buyPaused ? [] : await storage.getCandidateStocks(model.userId, model.id);
+      const rawCandidates = buyPaused ? [] : await storage.getCandidateStocks(model.userId, model.id);
+      const candidateFreshnessMs = 60 * 60 * 1000;
+      const nowMs = Date.now();
+      const candidates = rawCandidates.filter((candidate: any) => {
+        const scannedAt = candidate.scannedAt ? new Date(candidate.scannedAt).getTime() : 0;
+        return Number.isFinite(scannedAt) && nowMs - scannedAt <= candidateFreshnessMs;
+      });
+      if (!buyPaused && rawCandidates.length !== candidates.length) {
+        console.log(`  ⏱️ 오래된 후보 ${rawCandidates.length - candidates.length}건 스킵 — 1시간 이내 스캔 후보만 매수 평가`);
+      }
       if (buyPaused) {
         console.log(`  ⏸ 매수 일시정지 ON — 후보 신규매수 평가 건너뜀 (model ${model.id})`);
       } else if (!candidates.length) {
