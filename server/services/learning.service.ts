@@ -32,11 +32,59 @@ export interface UnitPerformance {
   avgReturn: number;
 }
 
+export interface LineEfficiencyPerformance {
+  line: number;
+  total: number;
+  avgHoldingDays: number;
+  avgReturn: number;
+  avgSpeedReturn: number;
+  avgCapitalEfficiency: number;
+  fastWinRate: number;
+  capitalTrapRate: number;
+}
+
+export interface TimeCapitalEfficiencyInsights {
+  analyzedTrades: number;
+  closedTrades: number;
+  openTrades: number;
+  fastWins: number;
+  highVelocityWins: number;
+  slowWins: number;
+  megaTrendWins: number;
+  deepScaleRecoveries: number;
+  capitalTraps: number;
+  fastWinRate: number;
+  capitalTrapRate: number;
+  avgHoldingDays: number;
+  avgUnitsUsed: number;
+  avgSpeedReturn: number;
+  avgCapitalEfficiency: number;
+  bestFastEntryLines: Array<{ line: number; score: number; fastWinRate: number; avgHoldingDays: number; avgReturn: number; total: number }>;
+  dangerEntryLines: Array<{ line: number; score: number; capitalTrapRate: number; avgHoldingDays: number; avgReturn: number; total: number }>;
+  lineEfficiency: LineEfficiencyPerformance[];
+  episodes: Array<{
+    stockCode: string;
+    stockName: string;
+    category: string;
+    returnPct: number;
+    holdingDays: number;
+    unitsUsed: number;
+    capitalDays: number;
+    speedReturn: number;
+    capitalEfficiency: number;
+    qualityScore: number;
+    entryLine: number;
+    exitLine: number | null;
+    isOpen: boolean;
+  }>;
+}
+
 export interface PatternInsights {
   bestEntryLines: { line: number; winRate: number; avgReturn: number }[];
   bestExitLines: { line: number; winRate: number; avgReturn: number }[];
   linePerformance: LinePerformance[];
   unitPerformance: UnitPerformance[];
+  timeCapitalEfficiency: TimeCapitalEfficiencyInsights;
   suggestedLadderPlan: { line: number; units: number }[];
   suggestedStopLossMode: string;
   optimalWeights: {
@@ -141,13 +189,20 @@ export class LearningService {
   /**
    * Find successful patterns in trading data
    */
-  async findPatterns(modelId: number): Promise<PatternInsights> {
+  async findPatterns(modelId: number, userId?: string): Promise<PatternInsights> {
     const performances = await storage.getTradingPerformance(modelId);
     const completedTrades = performances.filter((p: TradingPerformance) => p.exitPrice !== null);
+    const journalEpisodes = userId ? await this.buildJournalPerformanceEpisodes(userId, modelId) : [];
+    const timeCapitalEfficiency = this.analyzeTimeCapitalEfficiency(
+      journalEpisodes.length > 0 ? journalEpisodes : performances,
+    );
 
     if (completedTrades.length < 10) {
       // Not enough data to find patterns
-      return this.getDefaultPatterns();
+      return {
+        ...this.getDefaultPatterns(),
+        timeCapitalEfficiency,
+      };
     }
 
     // Analyze best entry lines (rainbow chart)
@@ -209,6 +264,7 @@ export class LearningService {
       bestExitLines,
       linePerformance,
       unitPerformance,
+      timeCapitalEfficiency,
       suggestedLadderPlan,
       suggestedStopLossMode,
       optimalWeights,
@@ -262,6 +318,400 @@ export class LearningService {
       winRate: s.total > 0 ? (s.wins / s.total) * 100 : 0,
       avgReturn: s.returns.reduce((a, b) => a + b, 0) / (s.returns.length || 1),
     })).sort((a, b) => a.units - b.units);
+  }
+
+  private safeNumber(value: unknown, fallback = 0): number {
+    const n = Number.parseFloat(String(value ?? ""));
+    return Number.isFinite(n) ? n : fallback;
+  }
+
+  private clamp(value: number, min: number, max: number): number {
+    return Math.max(min, Math.min(max, value));
+  }
+
+  private round(value: number, digits = 2): number {
+    const factor = Math.pow(10, digits);
+    return Math.round(value * factor) / factor;
+  }
+
+  private getTradeHoldingDays(trade: TradingPerformance, isOpen: boolean): number {
+    const entryTime = trade.entryTime ? new Date(trade.entryTime).getTime() : 0;
+    const exitTime = trade.exitTime ? new Date(trade.exitTime).getTime() : 0;
+    const endTime = isOpen ? Date.now() : exitTime;
+    if (entryTime > 0 && endTime > 0 && endTime >= entryTime) {
+      return Math.max(0, (endTime - entryTime) / (24 * 60 * 60 * 1000));
+    }
+    if (trade.holdingDays != null) return Math.max(0, Number(trade.holdingDays) || 0);
+    return 0;
+  }
+
+  private getUnitsUsed(trade: TradingPerformance): number {
+    const filledSteps = Array.isArray(trade.filledEntrySteps)
+      ? (trade.filledEntrySteps as unknown[]).filter((v) => Number.isFinite(Number(v))).length
+      : 0;
+    const candidates = [
+      Number(trade.maxUnitsReached ?? 0),
+      Number(trade.filledUnits ?? 0),
+      filledSteps,
+    ].filter((v) => Number.isFinite(v) && v > 0);
+    return Math.max(1, Math.round(candidates[0] ?? 1));
+  }
+
+  private parseJournalDateTime(entry: any): Date {
+    const date = String(entry.tradeDate || "").replace(/\D/g, "");
+    const time = String(entry.tradeTime || "00:00:00");
+    if (date.length === 8) {
+      const iso = `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}T${time}+09:00`;
+      const parsed = new Date(iso);
+      if (!Number.isNaN(parsed.getTime())) return parsed;
+    }
+    return entry.createdAt ? new Date(entry.createdAt) : new Date();
+  }
+
+  private async buildJournalPerformanceEpisodes(userId: string, modelId: number): Promise<TradingPerformance[]> {
+    const entries = await storage.getTradeJournalEntries(userId, {
+      modelId,
+      accountStatus: "all",
+      activeOnly: false,
+      limit: 5000,
+    });
+    if (!entries.length) return [];
+
+    const sorted = [...entries].sort((a: any, b: any) =>
+      this.parseJournalDateTime(a).getTime() - this.parseJournalDateTime(b).getTime()
+    );
+
+    type OpenEpisode = {
+      accountId: number;
+      stockCode: string;
+      stockName: string;
+      entryTime: Date;
+      totalQuantity: number;
+      remainingQuantity: number;
+      totalCost: number;
+      buyCount: number;
+      lines: number[];
+      firstLine: number | null;
+    };
+
+    const openByKey = new Map<string, OpenEpisode>();
+    const episodes: TradingPerformance[] = [];
+
+    for (const entry of sorted as any[]) {
+      const tradeType = String(entry.tradeType || "");
+      const stockCode = String(entry.stockCode || "");
+      if (!stockCode) continue;
+      const accountId = Number(entry.accountId ?? 0);
+      const key = `${accountId}:${stockCode}`;
+      const quantity = Math.max(0, Number(entry.quantity || 0));
+      const price = this.safeNumber(entry.price, 0);
+      const line = entry.rainbowLine == null ? null : Number(entry.rainbowLine);
+      const occurredAt = this.parseJournalDateTime(entry);
+
+      if ((tradeType === "buy" || tradeType === "additional_buy") && quantity > 0 && price > 0) {
+        let episode = openByKey.get(key);
+        if (!episode) {
+          episode = {
+            accountId,
+            stockCode,
+            stockName: entry.stockName || stockCode,
+            entryTime: occurredAt,
+            totalQuantity: 0,
+            remainingQuantity: 0,
+            totalCost: 0,
+            buyCount: 0,
+            lines: [],
+            firstLine: line,
+          };
+          openByKey.set(key, episode);
+        }
+        episode.totalQuantity += quantity;
+        episode.remainingQuantity += quantity;
+        episode.totalCost += price * quantity;
+        episode.buyCount += 1;
+        if (line != null && Number.isFinite(line)) episode.lines.push(line);
+        if (episode.firstLine == null && line != null && Number.isFinite(line)) episode.firstLine = line;
+        continue;
+      }
+
+      if ((tradeType === "sell" || tradeType === "exit_sell") && quantity > 0 && price > 0) {
+        const episode = openByKey.get(key);
+        if (!episode) continue;
+        episode.remainingQuantity = Math.max(0, episode.remainingQuantity - quantity);
+        const shouldClose = episode.remainingQuantity <= 0 || tradeType === "exit_sell";
+        if (!shouldClose) continue;
+
+        const avgEntryPrice = episode.totalQuantity > 0 ? episode.totalCost / episode.totalQuantity : price;
+        const journalProfitRate = this.safeNumber(entry.profitRate, NaN);
+        const returnPct = Number.isFinite(journalProfitRate)
+          ? journalProfitRate
+          : avgEntryPrice > 0
+            ? ((price - avgEntryPrice) / avgEntryPrice) * 100
+            : 0;
+        const holdingDays = Math.max(0, (occurredAt.getTime() - episode.entryTime.getTime()) / (24 * 60 * 60 * 1000));
+        const uniqueLines = Array.from(new Set(episode.lines.filter((v) => Number.isFinite(v))));
+
+        episodes.push({
+          id: -episodes.length - 1,
+          modelId,
+          orderId: null,
+          stockCode: episode.stockCode,
+          stockName: episode.stockName,
+          entryPrice: avgEntryPrice.toFixed(2) as any,
+          exitPrice: price.toFixed(2) as any,
+          quantity: episode.totalQuantity,
+          profitLoss: entry.profitLoss ?? null,
+          profitLossRate: returnPct.toFixed(4) as any,
+          holdingDays: Math.round(holdingDays),
+          isWin: returnPct > 0,
+          entryRainbowLine: episode.firstLine ?? uniqueLines[0] ?? 50,
+          entryAiConfidence: null,
+          entryConditions: null,
+          exitReason: entry.exitReason ?? null,
+          exitRainbowLine: line ?? null,
+          exitConditions: null,
+          themeScore: null,
+          newsScore: null,
+          financialsScore: null,
+          liquidityScore: null,
+          institutionalScore: null,
+          strategyVersion: "journal-episode-v1",
+          entryDecisionSnapshot: null,
+          entryScorecard: null,
+          entryLadderPlan: null,
+          filledEntrySteps: uniqueLines as any,
+          filledUnits: Math.max(1, episode.buyCount),
+          maxUnitsReached: Math.max(1, episode.buyCount),
+          avgEntryLine: uniqueLines.length > 0 ? Math.round(uniqueLines.reduce((a, b) => a + b, 0) / uniqueLines.length) : null,
+          holdDecisionSnapshots: null,
+          exitDecisionSnapshot: null,
+          scaleOutHistory: null,
+          plannedExitPolicy: null,
+          entryTime: episode.entryTime,
+          exitTime: occurredAt,
+          createdAt: episode.entryTime,
+        } as TradingPerformance);
+        openByKey.delete(key);
+      }
+    }
+
+    for (const episode of openByKey.values()) {
+      const uniqueLines = Array.from(new Set(episode.lines.filter((v) => Number.isFinite(v))));
+      const avgEntryPrice = episode.totalQuantity > 0 ? episode.totalCost / episode.totalQuantity : 0;
+      episodes.push({
+        id: -episodes.length - 1,
+        modelId,
+        orderId: null,
+        stockCode: episode.stockCode,
+        stockName: episode.stockName,
+        entryPrice: avgEntryPrice.toFixed(2) as any,
+        exitPrice: null,
+        quantity: episode.totalQuantity,
+        profitLoss: null,
+        profitLossRate: "0" as any,
+        holdingDays: Math.round(Math.max(0, (Date.now() - episode.entryTime.getTime()) / (24 * 60 * 60 * 1000))),
+        isWin: null,
+        entryRainbowLine: episode.firstLine ?? uniqueLines[0] ?? 50,
+        entryAiConfidence: null,
+        entryConditions: null,
+        exitReason: null,
+        exitRainbowLine: null,
+        exitConditions: null,
+        themeScore: null,
+        newsScore: null,
+        financialsScore: null,
+        liquidityScore: null,
+        institutionalScore: null,
+        strategyVersion: "journal-episode-v1",
+        entryDecisionSnapshot: null,
+        entryScorecard: null,
+        entryLadderPlan: null,
+        filledEntrySteps: uniqueLines as any,
+        filledUnits: Math.max(1, episode.buyCount),
+        maxUnitsReached: Math.max(1, episode.buyCount),
+        avgEntryLine: uniqueLines.length > 0 ? Math.round(uniqueLines.reduce((a, b) => a + b, 0) / uniqueLines.length) : null,
+        holdDecisionSnapshots: null,
+        exitDecisionSnapshot: null,
+        scaleOutHistory: null,
+        plannedExitPolicy: null,
+        entryTime: episode.entryTime,
+        exitTime: null,
+        createdAt: episode.entryTime,
+      } as TradingPerformance);
+    }
+
+    return episodes;
+  }
+
+  private classifyEfficiencyEpisode(params: {
+    isOpen: boolean;
+    isWin: boolean;
+    returnPct: number;
+    holdingDays: number;
+    unitsUsed: number;
+  }): string {
+    const { isOpen, isWin, returnPct, holdingDays, unitsUsed } = params;
+    if (isOpen && (holdingDays >= 30 || unitsUsed >= 4)) return "CAPITAL_TRAP_OPEN";
+    if (isOpen) return "OPEN_MONITOR";
+    if (returnPct >= 100) return "MEGA_TREND_WIN";
+    if (returnPct >= 20 && holdingDays <= 20) return "HIGH_VELOCITY_WIN";
+    if (isWin && holdingDays <= 3) return "FAST_WIN";
+    if (isWin && unitsUsed >= 4) return "DEEP_SCALE_RECOVERY";
+    if (isWin && holdingDays >= 30) return "SLOW_WIN";
+    if (!isWin && holdingDays >= 20) return "FAILED_HOLD";
+    if (!isWin) return "LOSS";
+    return "NORMAL_WIN";
+  }
+
+  private calculateTradeQualityScore(params: {
+    returnPct: number;
+    holdingDays: number;
+    unitsUsed: number;
+    speedReturn: number;
+    capitalEfficiency: number;
+    isOpen: boolean;
+  }): number {
+    const { returnPct, holdingDays, unitsUsed, speedReturn, capitalEfficiency, isOpen } = params;
+    const absoluteReturnScore = this.clamp(returnPct * 1.8, -80, 220);
+    const speedScore = Math.sign(speedReturn) * Math.log1p(Math.abs(speedReturn)) * 18;
+    const capitalScore = Math.sign(capitalEfficiency) * Math.log1p(Math.abs(capitalEfficiency)) * 18;
+    const megaTrendBonus = returnPct >= 100 ? this.clamp(Math.sqrt(returnPct) * 4, 25, 90) : 0;
+    const longHoldPenalty = returnPct >= 100
+      ? Math.max(0, holdingDays - 120) * 0.04
+      : Math.max(0, holdingDays - 20) * 0.35;
+    const scalePenalty = Math.max(0, unitsUsed - 2) * (returnPct >= 50 ? 2 : 6);
+    const openPenalty = isOpen ? Math.min(60, holdingDays * 0.4 + Math.max(0, unitsUsed - 2) * 8) : 0;
+    return this.round(absoluteReturnScore + speedScore + capitalScore + megaTrendBonus - longHoldPenalty - scalePenalty - openPenalty, 2);
+  }
+
+  private analyzeTimeCapitalEfficiency(trades: TradingPerformance[]): TimeCapitalEfficiencyInsights {
+    if (trades.length === 0) return this.getDefaultTimeCapitalEfficiency();
+
+    const episodes = trades.map((trade) => {
+      const isOpen = trade.exitPrice === null;
+      const holdingDaysRaw = this.getTradeHoldingDays(trade, isOpen);
+      const holdingDaysForMath = Math.max(holdingDaysRaw, 0.25);
+      const unitsUsed = this.getUnitsUsed(trade);
+      const returnPct = this.safeNumber(trade.profitLossRate, 0);
+      const capitalDays = unitsUsed * holdingDaysForMath;
+      const speedReturn = returnPct / holdingDaysForMath;
+      const capitalEfficiency = returnPct / Math.max(capitalDays, 0.25);
+      const entryLine = Number(trade.entryRainbowLine ?? trade.avgEntryLine ?? 50) || 50;
+      const exitLine = trade.exitRainbowLine == null ? null : Number(trade.exitRainbowLine);
+      const isWin = trade.isWin === true || returnPct > 0;
+      const category = this.classifyEfficiencyEpisode({
+        isOpen,
+        isWin,
+        returnPct,
+        holdingDays: holdingDaysRaw,
+        unitsUsed,
+      });
+
+      return {
+        stockCode: trade.stockCode,
+        stockName: trade.stockName,
+        category,
+        returnPct: this.round(returnPct, 4),
+        holdingDays: this.round(holdingDaysRaw, 2),
+        unitsUsed,
+        capitalDays: this.round(capitalDays, 2),
+        speedReturn: this.round(speedReturn, 4),
+        capitalEfficiency: this.round(capitalEfficiency, 4),
+        qualityScore: this.calculateTradeQualityScore({
+          returnPct,
+          holdingDays: holdingDaysRaw,
+          unitsUsed,
+          speedReturn,
+          capitalEfficiency,
+          isOpen,
+        }),
+        entryLine,
+        exitLine,
+        isOpen,
+      };
+    });
+
+    const closedEpisodes = episodes.filter((e) => !e.isOpen);
+    const avg = (values: number[]) => values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0;
+    const countBy = (category: string) => episodes.filter((e) => e.category === category).length;
+    const fastWins = episodes.filter((e) => e.category === "FAST_WIN" || e.category === "HIGH_VELOCITY_WIN").length;
+    const highVelocityWins = countBy("HIGH_VELOCITY_WIN");
+    const slowWins = countBy("SLOW_WIN");
+    const megaTrendWins = countBy("MEGA_TREND_WIN");
+    const deepScaleRecoveries = countBy("DEEP_SCALE_RECOVERY");
+    const capitalTraps = episodes.filter((e) => e.category === "CAPITAL_TRAP_OPEN" || e.category === "FAILED_HOLD").length;
+
+    const lineGroups = new Map<number, typeof episodes>();
+    for (const episode of episodes) {
+      const line = episode.entryLine || 50;
+      if (!lineGroups.has(line)) lineGroups.set(line, []);
+      lineGroups.get(line)!.push(episode);
+    }
+
+    const lineEfficiency = Array.from(lineGroups.entries()).map(([line, group]) => {
+      const lineFastWins = group.filter((e) => e.category === "FAST_WIN" || e.category === "HIGH_VELOCITY_WIN").length;
+      const lineTraps = group.filter((e) => e.category === "CAPITAL_TRAP_OPEN" || e.category === "FAILED_HOLD").length;
+      return {
+        line,
+        total: group.length,
+        avgHoldingDays: this.round(avg(group.map((e) => e.holdingDays)), 2),
+        avgReturn: this.round(avg(group.map((e) => e.returnPct)), 4),
+        avgSpeedReturn: this.round(avg(group.map((e) => e.speedReturn)), 4),
+        avgCapitalEfficiency: this.round(avg(group.map((e) => e.capitalEfficiency)), 4),
+        fastWinRate: this.round((lineFastWins / group.length) * 100, 2),
+        capitalTrapRate: this.round((lineTraps / group.length) * 100, 2),
+      };
+    }).sort((a, b) => a.line - b.line);
+
+    const bestFastEntryLines = lineEfficiency
+      .filter((line) => line.total >= 2)
+      .map((line) => ({
+        line: line.line,
+        score: this.round(line.avgSpeedReturn + line.avgCapitalEfficiency + line.fastWinRate / 10 - line.capitalTrapRate / 10, 4),
+        fastWinRate: line.fastWinRate,
+        avgHoldingDays: line.avgHoldingDays,
+        avgReturn: line.avgReturn,
+        total: line.total,
+      }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5);
+
+    const dangerEntryLines = lineEfficiency
+      .filter((line) => line.total >= 2)
+      .map((line) => ({
+        line: line.line,
+        score: this.round(line.capitalTrapRate + Math.max(0, line.avgHoldingDays - 20) - Math.max(0, line.avgReturn), 4),
+        capitalTrapRate: line.capitalTrapRate,
+        avgHoldingDays: line.avgHoldingDays,
+        avgReturn: line.avgReturn,
+        total: line.total,
+      }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5);
+
+    return {
+      analyzedTrades: episodes.length,
+      closedTrades: closedEpisodes.length,
+      openTrades: episodes.length - closedEpisodes.length,
+      fastWins,
+      highVelocityWins,
+      slowWins,
+      megaTrendWins,
+      deepScaleRecoveries,
+      capitalTraps,
+      fastWinRate: episodes.length ? this.round((fastWins / episodes.length) * 100, 2) : 0,
+      capitalTrapRate: episodes.length ? this.round((capitalTraps / episodes.length) * 100, 2) : 0,
+      avgHoldingDays: this.round(avg(episodes.map((e) => e.holdingDays)), 2),
+      avgUnitsUsed: this.round(avg(episodes.map((e) => e.unitsUsed)), 2),
+      avgSpeedReturn: this.round(avg(closedEpisodes.map((e) => e.speedReturn)), 4),
+      avgCapitalEfficiency: this.round(avg(closedEpisodes.map((e) => e.capitalEfficiency)), 4),
+      bestFastEntryLines,
+      dangerEntryLines,
+      lineEfficiency,
+      episodes: episodes
+        .sort((a, b) => b.qualityScore - a.qualityScore)
+        .slice(0, 30),
+    };
   }
 
   private suggestLadderPlan(linePerf: LinePerformance[]): { line: number; units: number }[] {
@@ -525,7 +975,7 @@ export class LearningService {
 
     const [stats, patterns] = await Promise.all([
       this.analyzePerformance(modelId),
-      this.findPatterns(modelId),
+      this.findPatterns(modelId, userId),
     ]);
 
     const recommendations: string[] = [];
@@ -541,6 +991,25 @@ export class LearningService {
     }
     if (rejectionAnalysis && rejectionAnalysis.totalEvaluated > 0) {
       recommendations.push(`🔍 거부 분석 (최근 30일): 수락률 ${rejectionAnalysis.acceptRate}% — ${rejectionAnalysis.insight}`);
+    }
+
+    const efficiency = patterns.timeCapitalEfficiency;
+    if (efficiency.analyzedTrades > 0) {
+      recommendations.push(
+        `⏱️ 시간·자본 효율: 빠른수익 ${efficiency.fastWinRate.toFixed(1)}%, 자본묶임 ${efficiency.capitalTrapRate.toFixed(1)}%, 평균보유 ${efficiency.avgHoldingDays.toFixed(1)}일`,
+      );
+      const bestFastLine = efficiency.bestFastEntryLines[0];
+      if (bestFastLine) {
+        recommendations.push(
+          `⚡ 빠른 수익 우수 라인: ${bestFastLine.line}% (빠른수익률 ${bestFastLine.fastWinRate.toFixed(1)}%, 평균 ${bestFastLine.avgHoldingDays.toFixed(1)}일)`,
+        );
+      }
+      const dangerLine = efficiency.dangerEntryLines[0];
+      if (dangerLine && dangerLine.capitalTrapRate >= 30) {
+        recommendations.push(
+          `🪨 자본 묶임 주의 라인: ${dangerLine.line}% (묶임률 ${dangerLine.capitalTrapRate.toFixed(1)}%, 평균 ${dangerLine.avgHoldingDays.toFixed(1)}일)`,
+        );
+      }
     }
 
     // Only optimize if we have enough data
@@ -800,6 +1269,7 @@ export class LearningService {
       ],
       linePerformance: [],
       unitPerformance: [],
+      timeCapitalEfficiency: this.getDefaultTimeCapitalEfficiency(),
       suggestedLadderPlan: [
         { line: 50, units: 1 }, { line: 40, units: 1 }, { line: 30, units: 1 },
         { line: 20, units: 1 }, { line: 10, units: 1 },
@@ -817,6 +1287,30 @@ export class LearningService {
         requireGoodFinancials: true,
         requireHighLiquidity: true,
       },
+    };
+  }
+
+  private getDefaultTimeCapitalEfficiency(): TimeCapitalEfficiencyInsights {
+    return {
+      analyzedTrades: 0,
+      closedTrades: 0,
+      openTrades: 0,
+      fastWins: 0,
+      highVelocityWins: 0,
+      slowWins: 0,
+      megaTrendWins: 0,
+      deepScaleRecoveries: 0,
+      capitalTraps: 0,
+      fastWinRate: 0,
+      capitalTrapRate: 0,
+      avgHoldingDays: 0,
+      avgUnitsUsed: 0,
+      avgSpeedReturn: 0,
+      avgCapitalEfficiency: 0,
+      bestFastEntryLines: [],
+      dangerEntryLines: [],
+      lineEfficiency: [],
+      episodes: [],
     };
   }
 }
