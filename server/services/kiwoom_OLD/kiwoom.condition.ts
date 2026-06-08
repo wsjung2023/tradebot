@@ -33,7 +33,7 @@ export class KiwoomCondition extends KiwoomBase {
       : "wss://mockapi.kiwoom.com:10000";
   }
 
-  private async wsRequest(apiId: string, payload: Record<string, string>): Promise<any> {
+  private async wsRequest(apiId: string, payload: Record<string, string>, retried = false): Promise<any> {
     await this.ensureValidToken();
 
     // CNSRREQ는 같은 WS 연결에서 CNSRLST를 먼저 보내야 응답에 종목 데이터가 포함됨
@@ -97,7 +97,26 @@ export class KiwoomCondition extends KiwoomBase {
           if (!loginDone) {
             const rc = msg.return_code;
             if (rc !== undefined && rc !== null && rc !== 0 && String(rc) !== "0") {
-              fail(new Error(`WS 로그인 실패 ${rc}: ${msg.return_msg ?? "unknown"}`));
+              const errMsg = msg.return_msg ?? "unknown";
+              const isTokenError =
+                String(rc).includes("8005") ||
+                errMsg.includes("8005") ||
+                errMsg.includes("Token이 유효하지 않습니다") ||
+                errMsg.includes("인증에 실패했습니다");
+              if (isTokenError && !retried) {
+                console.warn(`⚠️  WS 로그인 토큰 오류(${rc}) — 토큰 강제 갱신 후 1회 재시도`);
+                settled = true;
+                clearTimeout(timer);
+                ws.close();
+                this.accessToken = "";
+                this.tokenExpiry = 0;
+                this.ensureValidToken()
+                  .then(() => this.wsRequest(apiId, payload, true))
+                  .then(resolve)
+                  .catch(reject);
+                return;
+              }
+              fail(new Error(`WS 로그인 실패 ${rc}: ${errMsg}`));
               return;
             }
             loginDone = true;
