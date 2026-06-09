@@ -89,6 +89,9 @@ function getRainbowColor(line: number): 'blue' | 'green' | 'yellow' | 'red' {
 export class TradeExecutorService {
   private learningService = new LearningService();
   private timeCapitalCache = new Map<number, { expiresAt: number; insights: TimeCapitalEfficiencyInsights | null }>();
+  // CL 레벨별 매도 히스토리: key=`${modelId}_${stockCode}`, value=마지막으로 매도한 CL 레벨
+  // 같은 CL 레벨에서 1분마다 반복 매도 방지 (더 높은 레벨 진입 시만 새로 매도)
+  private clSellHistory = new Map<string, number>();
 
   private normalizeStockCode(code: string | null | undefined): string {
     return String(code ?? "").trim().replace(/^A/i, "");
@@ -1335,7 +1338,7 @@ export class TradeExecutorService {
 
 
         // ── CL선 기반 분할매도 (rainbowLineSettings.sellWeight) ─────────────────────────
-        // 1분 사이클에서 보유 종목의 현재 CL이 매도 구간(>=60)이고 sellWeight > 0이면 분할 매도
+        // 더 높은 CL 레벨 최초 진입 시 1회만 매도 (같은 레벨에서 1분마다 반복 매도 방지)
         if (!shouldSell) {
           const clRainbowSettings = settings.rainbowLineSettings as { line: number; buyWeight: number; sellWeight: number }[] | null | undefined;
           if (Array.isArray(clRainbowSettings) && clRainbowSettings.length > 0) {
@@ -1343,16 +1346,28 @@ export class TradeExecutorService {
               currentLineForDecision = await this.getCurrentRainbowLine(holding.stockCode, currentPrice, kiwoomService);
             }
             const clLine = currentLineForDecision;
+            const clKey = `${model.id}_${holding.stockCode}`;
+
+            // 매도 구간(>=60) 이탈 시 히스토리 초기화 → 재진입 시 다시 매도 가능
+            if (clLine < 60) {
+              this.clSellHistory.delete(clKey);
+            }
+
             if (clLine >= 60) {
               const matched = clRainbowSettings.find(r => r.line === clLine)
                 ?? clRainbowSettings.reduce((prev, curr) =>
                   Math.abs(curr.line - clLine) < Math.abs(prev.line - clLine) ? curr : prev);
               const sw = matched?.sellWeight ?? 0;
-              if (sw > 0) {
+              const lastCLSold = this.clSellHistory.get(clKey) ?? 0;
+
+              if (sw > 0 && clLine > lastCLSold) {
                 shouldSell = true;
                 sellRatio = sw / 100;
                 exitReason = `CL${clLine}% 분할매도: sellWeight=${sw}% (${matched.line}선 기준)`;
-                console.log(`    🌈 [CL매도] ${holding.stockCode} CL=${clLine}%, sellWeight=${sw}% → sellRatio=${sellRatio.toFixed(2)}`);
+                this.clSellHistory.set(clKey, clLine);
+                console.log(`    🌈 [CL매도] ${holding.stockCode} CL=${clLine}%, sellWeight=${sw}% → sellRatio=${sellRatio.toFixed(2)} (신규 레벨, lastSold=${lastCLSold})`);
+              } else if (sw > 0) {
+                console.log(`    ⏭️ [CL매도 스킵] ${holding.stockCode} CL=${clLine}% 이미 매도 완료 (lastSold=${lastCLSold})`);
               }
             }
           }
@@ -1541,6 +1556,7 @@ export class TradeExecutorService {
         orderQuantity: quantity,
         isAutoTrading: true,
         aiModelId: model.id,
+        details: { exitReason },
       });
 
       let exitSellResp: any;
