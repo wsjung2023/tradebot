@@ -1447,7 +1447,7 @@ export class TradeExecutorService {
       const result = RainbowChartAnalyzer.analyze(stockCode, ohlcv, 240);
       const range = result.highest - result.lowest;
       const currentPercent = range > 0 ? ((currentPrice - result.lowest) / range) * 100 : 50;
-      return Math.min(100, Math.max(10, Math.round(currentPercent / 10) * 10));
+      return Math.min(100, Math.max(10, Math.floor(currentPercent / 10) * 10));
     } catch {
       return 50;
     }
