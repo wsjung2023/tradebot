@@ -1154,5 +1154,102 @@ export class PostgreSQLCoreStorage {
       .returning();
     return row;
   }
+
+  // ==================== Learning Suggestions Methods ====================
+
+  async createLearningSuggestions(suggestions: schema.InsertLearningSuggestion[]): Promise<schema.LearningSuggestion[]> {
+    if (suggestions.length === 0) return [];
+    return db.insert(schema.learningSuggestions).values(suggestions).returning();
+  }
+
+  async getLearningSuggestions(modelId: number, status?: string): Promise<schema.LearningSuggestion[]> {
+    const conditions = [eq(schema.learningSuggestions.modelId, modelId)];
+    if (status) conditions.push(eq(schema.learningSuggestions.status, status));
+    return db.select()
+      .from(schema.learningSuggestions)
+      .where(and(...conditions))
+      .orderBy(desc(schema.learningSuggestions.createdAt));
+  }
+
+  async countPendingLearningSuggestions(userId: string): Promise<number> {
+    const models = await db.select({ id: schema.aiModels.id })
+      .from(schema.aiModels)
+      .where(eq(schema.aiModels.userId, userId));
+    if (models.length === 0) return 0;
+    const modelIds = models.map(m => m.id);
+    const rows = await db.select({ count: sql<number>`count(*)` })
+      .from(schema.learningSuggestions)
+      .where(and(
+        inArray(schema.learningSuggestions.modelId, modelIds),
+        eq(schema.learningSuggestions.status, 'pending'),
+      ));
+    return Number(rows[0]?.count ?? 0);
+  }
+
+  async updateLearningSuggestionStatus(id: number, status: 'applied' | 'dismissed'): Promise<schema.LearningSuggestion | undefined> {
+    const [row] = await db.update(schema.learningSuggestions)
+      .set({ status, reviewedAt: new Date() })
+      .where(eq(schema.learningSuggestions.id, id))
+      .returning();
+    return row;
+  }
+
+  async applyLearningSuggestion(id: number, userId: string): Promise<schema.LearningSuggestion | undefined> {
+    const [suggestion] = await db.select()
+      .from(schema.learningSuggestions)
+      .where(eq(schema.learningSuggestions.id, id));
+    if (!suggestion || suggestion.status !== 'pending') return suggestion;
+
+    // 모델 소유권 확인 후 파라미터 적용
+    const [model] = await db.select()
+      .from(schema.aiModels)
+      .where(and(
+        eq(schema.aiModels.id, suggestion.modelId),
+        eq(schema.aiModels.userId, userId),
+      ));
+    if (!model) return undefined;
+
+    const [settings] = await db.select()
+      .from(schema.autoTradingSettings)
+      .where(eq(schema.autoTradingSettings.modelId, suggestion.modelId));
+
+    if (settings) {
+      const numericValue = parseFloat(suggestion.suggestedValue);
+      const updateMap: Record<string, unknown> = {};
+      if (suggestion.paramKey === 'takeProfitPercent') updateMap.takeProfitPercent = suggestion.suggestedValue;
+      else if (suggestion.paramKey === 'stopLossPercent') updateMap.stopLossPercent = suggestion.suggestedValue;
+      else if (suggestion.paramKey === 'minAiConfidence') updateMap.minAiConfidence = suggestion.suggestedValue;
+      else if (suggestion.paramKey === 'maxUnitsPerStock') updateMap.maxUnitsPerStock = isNaN(numericValue) ? undefined : Math.round(numericValue);
+
+      if (Object.keys(updateMap).length > 0) {
+        await db.update(schema.autoTradingSettings)
+          .set(updateMap)
+          .where(eq(schema.autoTradingSettings.modelId, suggestion.modelId));
+      }
+    }
+
+    // aiModels config JSON 파라미터 업데이트 (weights, entryLadder 등)
+    const configKeys = ['themeWeight', 'newsWeight', 'financialsWeight', 'liquidityWeight', 'institutionalWeight',
+      'requireGoodFinancials', 'requireHighLiquidity', 'stopLossMode', 'entryLadderEnabled'];
+    if (configKeys.includes(suggestion.paramKey)) {
+      const currentConfig = (model.config as Record<string, unknown>) ?? {};
+      let parsedValue: unknown = suggestion.suggestedValue;
+      try { parsedValue = JSON.parse(suggestion.suggestedValue); } catch {}
+      await db.update(schema.aiModels)
+        .set({ config: { ...currentConfig, [suggestion.paramKey]: parsedValue } })
+        .where(eq(schema.aiModels.id, suggestion.modelId));
+    }
+
+    return this.updateLearningSuggestionStatus(id, 'applied');
+  }
+
+  async dismissAllLearningSuggestions(modelId: number): Promise<void> {
+    await db.update(schema.learningSuggestions)
+      .set({ status: 'dismissed', reviewedAt: new Date() })
+      .where(and(
+        eq(schema.learningSuggestions.modelId, modelId),
+        eq(schema.learningSuggestions.status, 'pending'),
+      ));
+  }
 }
 

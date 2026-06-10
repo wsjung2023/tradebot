@@ -1,4 +1,4 @@
-// interface.ts ???�토리�? ?�이??공통 ?�터?�이???�의 (PostgreSQL/InMemory 구현�?공유)
+// interface.ts ???�토리�? ?�이??공통 ?�터?�이???�의 (PostgreSQL/InMemory 구현�?공유)
 import {
   type User, type InsertUser,
   type KiwoomAccount, type InsertKiwoomAccount,
@@ -40,17 +40,18 @@ import {
   type StockStatus, type InsertStockStatus,
   type InsertConditionScanLog,
   type HoldingExitPlan, type InsertHoldingExitPlan,
+  type LearningSuggestion, type InsertLearningSuggestion,
 } from "@shared/schema";
 
 export interface IStorage {
-  // ?�용??
+  // ?�용??
   getUser(id: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
   getUserByAuthProvider(provider: string, providerId: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   updateUser(id: string, updates: Partial<User>): Promise<User | undefined>;
 
-  // ?��? 계좌
+  // ?��? 계좌
   getKiwoomAccounts(userId: string): Promise<KiwoomAccount[]>;
   getAllRealKiwoomAccounts(): Promise<KiwoomAccount[]>;
   getAllActiveKiwoomAccounts(): Promise<KiwoomAccount[]>;
@@ -88,21 +89,21 @@ export interface IStorage {
   updateAiRecommendation(id: number, updates: Partial<AiRecommendation>): Promise<AiRecommendation | undefined>;
   deleteAiRecommendation(id: number): Promise<void>;
 
-  // 관?�종�?
+  // 관?�종�?
   getWatchlist(userId: string): Promise<WatchlistItem[]>;
   createWatchlistItem(item: InsertWatchlistItem): Promise<WatchlistItem>;
   deleteWatchlistItem(id: number): Promise<void>;
   getWatchlistSyncSnapshots(userId: string): Promise<WatchlistSyncSnapshot[]>;
   upsertWatchlistSyncSnapshot(snapshot: InsertWatchlistSyncSnapshot): Promise<WatchlistSyncSnapshot>;
 
-  // ?�림
+  // ?�림
   getAlerts(userId: string): Promise<Alert[]>;
   createAlert(alert: InsertAlert): Promise<Alert>;
   updateAlert(id: number, updates: Partial<Alert>): Promise<Alert | undefined>;
   deleteAlert(id: number): Promise<void>;
   getAllActiveAlerts(): Promise<Alert[]>;
 
-  // ?�용???�정
+  // ?�용???�정
   getUserSettings(userId: string): Promise<UserSettings | undefined>;
   createUserSettings(settings: InsertUserSettings): Promise<UserSettings>;
   updateUserSettings(userId: string, updates: Partial<UserSettings>): Promise<UserSettings | undefined>;
@@ -123,58 +124,58 @@ export interface IStorage {
   createConditionResult(result: InsertConditionResult): Promise<ConditionResult>;
   deleteConditionResults(conditionId: number): Promise<void>;
 
-  // 차트 ?�식
+  // 차트 ?�식
   getChartFormulas(userId: string): Promise<ChartFormula[]>;
   getChartFormula(id: number): Promise<ChartFormula | undefined>;
   createChartFormula(formula: InsertChartFormula): Promise<ChartFormula>;
   updateChartFormula(id: number, updates: Partial<ChartFormula>): Promise<ChartFormula | undefined>;
   deleteChartFormula(id: number): Promise<void>;
 
-  // 관?�종�??�그??
+  // 관?�종�??�그??
   getWatchlistSignals(watchlistId: number): Promise<WatchlistSignal[]>;
   getAllUserWatchlistSignals(userId: string): Promise<(WatchlistSignal & { stockCode: string; stockName: string })[]>;
   createWatchlistSignal(signal: InsertWatchlistSignal): Promise<WatchlistSignal>;
   updateWatchlistSignal(id: number, updates: Partial<WatchlistSignal>): Promise<WatchlistSignal | undefined>;
   deleteWatchlistSignal(id: number): Promise<void>;
 
-  // ?�무 ?�냅??
+  // ?�무 ?�냅??
   getFinancialSnapshots(stockCode: string): Promise<FinancialSnapshot[]>;
   getFinancialSnapshot(stockCode: string, fiscalYear: number): Promise<FinancialSnapshot | undefined>;
   createFinancialSnapshot(snapshot: InsertFinancialSnapshot): Promise<FinancialSnapshot>;
   updateFinancialSnapshot(id: number, updates: Partial<FinancialSnapshot>): Promise<FinancialSnapshot | undefined>;
 
-  // ?�이??종목
+  // ?�이??종목
   getMarketIssues(issueDate: string): Promise<MarketIssue[]>;
   getMarketIssuesByStock(stockCode: string): Promise<MarketIssue[]>;
   createMarketIssue(issue: InsertMarketIssue): Promise<MarketIssue>;
   deleteMarketIssue(id: number): Promise<void>;
   deleteMarketIssues(issueDate: string): Promise<void>;
 
-  // ?�동매매 ?�정
+  // ?�동매매 ?�정
   getAutoTradingSettings(modelId: number): Promise<AutoTradingSettings | undefined>;
   createAutoTradingSettings(settings: InsertAutoTradingSettings): Promise<AutoTradingSettings>;
   updateAutoTradingSettings(modelId: number, updates: Partial<AutoTradingSettings>): Promise<AutoTradingSettings | undefined>;
 
-  // 매매 ?�과
+  // 매매 ?�과
   getTradingPerformance(modelId: number, limit?: number): Promise<TradingPerformance[]>;
   getTradingPerformanceByStock(modelId: number, stockCode: string): Promise<TradingPerformance | undefined>;
   createTradingPerformance(performance: InsertTradingPerformance): Promise<TradingPerformance>;
   updateTradingPerformance(id: number, updates: Partial<TradingPerformance>): Promise<TradingPerformance | undefined>;
 
-  // AI 모델 ?�펙
+  // AI 모델 ?�펙
   getAiModelSpecs(activeOnly?: boolean): Promise<AiModelSpec[]>;
   createAiModelSpec(spec: InsertAiModelSpec): Promise<AiModelSpec>;
   updateAiModelSpec(id: number, updates: Partial<AiModelSpec>): Promise<AiModelSpec | undefined>;
 
-  // AI Council ?�션
+  // AI Council ?�션
   getAiCouncilSessions(userId: string, limit?: number): Promise<AiCouncilSession[]>;
   createAiCouncilSession(session: InsertAiCouncilSession): Promise<AiCouncilSession>;
 
-  // ?�??기록
+  // ?�??기록
   getEntryPoints(stockCode: string, limit?: number): Promise<EntryPoint[]>;
   createEntryPoint(entryPoint: InsertEntryPoint): Promise<EntryPoint>;
 
-  // ?�습 기록
+  // ?�습 기록
   getLearningRecords(modelId: number, limit?: number): Promise<LearningRecord[]>;
   createLearningRecord(record: InsertLearningRecord): Promise<LearningRecord>;
 
@@ -182,15 +183,15 @@ export interface IStorage {
   getCompanyFilings(stockCode: string, limit?: number): Promise<CompanyFiling[]>;
   upsertCompanyFiling(filing: InsertCompanyFiling): Promise<CompanyFiling>;
 
-  // ?�스(?�속)
+  // ?�스(?�속)
   getNewsArticles(stockCode: string, limit?: number): Promise<NewsArticleRecord[]>;
   upsertNewsArticle(article: InsertNewsArticleRecord): Promise<NewsArticleRecord>;
 
-  // 분석 ?�료 ?�냅??
+  // 분석 ?�료 ?�냅??
   getAnalysisMaterialSnapshots(userId: string, stockCode: string, limit?: number): Promise<AnalysisMaterialSnapshot[]>;
   createAnalysisMaterialSnapshot(snapshot: InsertAnalysisMaterialSnapshot): Promise<AnalysisMaterialSnapshot>;
 
-  // ?��? ?�이?�트 ?�업 ??
+  // ?��? ?�이?�트 ?�업 ??
   createKiwoomJob(job: InsertKiwoomJob): Promise<KiwoomJob>;
   getNextPendingJob(agentId: string, supportedJobTypes?: string[]): Promise<KiwoomJob | undefined>;
   cleanupExpiredJobs(): Promise<void>;
@@ -201,7 +202,7 @@ export interface IStorage {
   getKiwoomJobByIdInternal(id: number): Promise<KiwoomJob | undefined>;
   hasPendingJobForAccount(userId: string, jobType: string, accountNumber: string): Promise<boolean>;
 
-  // ?�동매매 ?�태 머신 / ?�림
+  // ?�동매매 ?�태 머신 / ?�림
   upsertAutoTradingRun(userId: string, updates: Partial<AutoTradingRun> & { state: string }): Promise<AutoTradingRun>;
   getAutoTradingRun(userId: string): Promise<AutoTradingRun | undefined>;
   createEngineNotification(notification: InsertEngineNotification): Promise<EngineNotification>;
@@ -222,7 +223,7 @@ export interface IStorage {
     unreadWarn: number;
   }>;
 
-  // ?�보 종목 (candidate_stocks)
+  // ?�보 종목 (candidate_stocks)
   getAllCandidateStocksForUser(userId: string): Promise<CandidateStock[]>;
   upsertCandidateStock(data: InsertCandidateStock): Promise<CandidateStock>;
   getCandidateStocks(userId: string, modelId: number): Promise<CandidateStock[]>;
@@ -230,10 +231,10 @@ export interface IStorage {
   updateCandidateStock(id: number, updates: Partial<CandidateStock>): Promise<CandidateStock | undefined>;
   updateCandidateEvaluation(candidateId: number, updates: Pick<CandidateStock, 'evaluationResult' | 'skipReason' | 'evaluatedAt'>): Promise<CandidateStock | undefined>;
 
-  // 조건검???�캔 ?�스?�리
+  // 조건검???�캔 ?�스?�리
   createConditionScanLog(data: InsertConditionScanLog): Promise<void>;
 
-  // ?�사결정 로그
+  // ?�사결정 로그
   createCandidateDecisionLog(data: InsertCandidateDecisionLog): Promise<CandidateDecisionLog>;
   getCandidateDecisionLogsForUser(
     userId: string,
@@ -258,14 +259,14 @@ export interface IStorage {
   ): Promise<CandidateDecisionLog | undefined>;
   createPositionDecisionLog(data: InsertPositionDecisionLog): Promise<PositionDecisionLog>;
 
-  // ?�계�?보유종목
+  // ?�계�?보유종목
   getAllHoldingsForUser(userId: string): Promise<(Holding & { accountName: string; accountNumber: string })[]>;
 
-  // ?�산 ?�냅??
+  // ?�산 ?�냅??
   createAssetSnapshot(data: InsertAssetSnapshot): Promise<AssetSnapshot>;
   getAssetSnapshots(accountId: number, days?: number): Promise<AssetSnapshot[]>;
 
-  // AI ?�별 ?�용??비용 ?�치
+  // AI ?�별 ?�용??비용 ?�치
   recordAiUsageDaily(data: {
     userId: string;
     accountId?: number | null;
@@ -281,33 +282,33 @@ export interface IStorage {
     options?: { fromDate?: string; toDate?: string; scopeType?: 'login' | 'account'; accountId?: number; limit?: number },
   ): Promise<AiUsageDaily[]>;
 
-  // ?�퍼
+  // ?�퍼
   getActiveAiModels(): Promise<AiModel[]>;
   getAllAiModels(): Promise<AiModel[]>;
 
-  // ?�이???�리
+  // ?�이???�리
   deleteConditionResultsOlderThan(cutoffDate: Date): Promise<number>;
   deleteTradingLogsOlderThan(cutoffDate: Date): Promise<number>;
   deleteMarketIssuesOlderThan(cutoffDate: Date): Promise<number>;
   deleteFinancialSnapshotsOlderThan(cutoffDate: Date): Promise<number>;
   deleteTriggeredAlertsOlderThan(cutoffDate: Date): Promise<number>;
 
-  // ?�이?�트 ?�데?�트 ?�력
+  // ?�이?�트 ?�데?�트 ?�력
   createAgentUpdateLog(log: InsertAgentUpdateLog): Promise<AgentUpdateLog>;
   getAgentUpdateLogs(limit?: number, offset?: number): Promise<AgentUpdateLog[]>;
   countAgentUpdateLogs(): Promise<number>;
   deleteAgentUpdateLog(id: number): Promise<void>;
   deleteAllAgentUpdateLogs(): Promise<void>;
 
-  // ?�이?�트 ?�림 ?�력
+  // ?�이?�트 ?�림 ?�력
   createAgentAlertLog(log: InsertAgentAlertLog): Promise<AgentAlertLog>;
   getAgentAlertLogs(userId: string, limit?: number): Promise<AgentAlertLog[]>;
 
-  // ?�스???�정 (???�태 ?�속??????�??�?�소)
+  // ?�스???�정 (???�태 ?�속??????�??�?�소)
   getSystemConfig(key: string): Promise<string | null>;
   setSystemConfig(key: string, value: string): Promise<void>;
 
-  // �Ÿ� ����
+  // �Ÿ� ����
   createTradeJournal(entry: InsertTradeJournal): Promise<TradeJournal>;
   getTradeJournalEntries(userId: string, options?: {
     startDate?: string;
@@ -321,10 +322,18 @@ export interface IStorage {
   upsertStockStatus(status: InsertStockStatus): Promise<StockStatus>;
   getStockStatus(stockCode: string): Promise<StockStatus | null>;
 
-  // ���� ���Ҹŵ� ��ȹ
+  // ���� ���Ҹŵ� ��ȹ
   getHoldingExitPlan(modelId: number, stockCode: string): Promise<HoldingExitPlan | undefined>;
   upsertHoldingExitPlan(data: InsertHoldingExitPlan & { modelId: number; stockCode: string }): Promise<HoldingExitPlan>;
   deleteHoldingExitPlan(modelId: number, stockCode: string): Promise<void>;
   getHoldingExitPlansForModel(modelId: number): Promise<HoldingExitPlan[]>;
   markExitStageFulfilled(modelId: number, stockCode: string, priority: number): Promise<HoldingExitPlan | undefined>;
+
+  // 학습잡 파라미터 제안
+  createLearningSuggestions(suggestions: InsertLearningSuggestion[]): Promise<LearningSuggestion[]>;
+  getLearningSuggestions(modelId: number, status?: string): Promise<LearningSuggestion[]>;
+  countPendingLearningSuggestions(userId: string): Promise<number>;
+  updateLearningSuggestionStatus(id: number, status: 'applied' | 'dismissed'): Promise<LearningSuggestion | undefined>;
+  applyLearningSuggestion(id: number, userId: string): Promise<LearningSuggestion | undefined>;
+  dismissAllLearningSuggestions(modelId: number): Promise<void>;
 }

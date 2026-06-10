@@ -824,7 +824,9 @@ class AutoTradingWorker {
     try {
       const settings = await storage.getAutoTradingSettings(model.id);
       const learningPolicy = (settings?.learningPolicy as Record<string, any> | null) ?? undefined;
-      const result = await this.learningService.optimizeModel(model.id, true, model.userId, learningPolicy);
+      // autoApply: learningPolicy.autoApply가 true일 때만 자동 적용, 기본은 pending 제안 저장
+      const autoApply = learningPolicy?.autoApply === true;
+      const result = await this.learningService.optimizeModel(model.id, autoApply, model.userId, learningPolicy);
       const s = result.stats;
       console.log(`  📈 Stats: ${s.totalTrades} trades | winRate ${s.winRate.toFixed(1)}% | return ${s.totalReturn.toFixed(2)}%`);
       if (result.appliedChanges) console.log(`  ✅ Optimized parameters applied automatically`);

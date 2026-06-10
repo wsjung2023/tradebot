@@ -2,15 +2,15 @@
   "cookies": [
     {
       "name": "connect.sid",
-      "value": "s%3A_iljmekthi0LDwzFNwupRkXTEuAoL1lF.xfeTtOwA3Kzhn3lxiPYEeFc%2FBfTgiJ8WaZXEeFIRNOI",
+      "value": "s%3AdCeGokxWsJQQfVl7j_ed-ltPJQcI3I4E.cN9ORrFn6ULwk0iEJAIxa%2B%2Bi15B39ohTxLG92nNyYHE",
       "domain": "127.0.0.1",
       "path": "/",
-      "expires": 1783697474,
+      "expires": 1783697852,
       "httpOnly": true,
       "secure": false,
       "sameSite": "Lax"
     }
   ],
   "origins": [],
-  "_savedAt": 1781105474394
+  "_savedAt": 1781105852750
 }

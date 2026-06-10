@@ -32,7 +32,7 @@ import {
   SidebarFooter,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import sidebarVisual from "@assets/stock_images/dynamic_stock_market_0d6bd401.jpg";
@@ -60,6 +60,17 @@ const menuItems = [
 export function AppSidebar() {
   const [location] = useLocation();
   const { toast } = useToast();
+
+  const { data: pendingData } = useQuery<{ count: number }>({
+    queryKey: ["/api/auto-trading/suggestions/pending-count"],
+    queryFn: async () => {
+      const resp = await apiRequest("GET", "/api/auto-trading/suggestions/pending-count");
+      return resp.json();
+    },
+    refetchInterval: 5 * 60 * 1000, // 5분마다 갱신
+    staleTime: 2 * 60 * 1000,
+  });
+  const pendingCount = pendingData?.count ?? 0;
 
   const logoutMutation = useMutation({
     mutationFn: async () => {
@@ -109,6 +120,11 @@ export function AppSidebar() {
                     <Link href={item.url}>
                       <item.icon className="h-4 w-4" />
                       <span>{item.title}</span>
+                      {item.url === "/auto-trading" && pendingCount > 0 && (
+                        <span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-blue-500 px-1 text-[10px] font-bold text-white">
+                          {pendingCount}
+                        </span>
+                      )}
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>

@@ -651,4 +651,76 @@ export function registerAutoTradingRoutes(app: Router) {
       res.json({ ok: true, deleted: plans.length });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
+
+  // ==================== Learning Suggestions ====================
+
+  // GET /api/auto-trading/suggestions/:modelId — 제안 목록
+  app.get('/api/auto-trading/suggestions/:modelId', isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req)!;
+      const modelId = parseInt(req.params.modelId);
+      if (!await verifyModelOwnership(user.id, modelId)) return res.status(403).json({ error: 'forbidden' });
+      const status = req.query.status as string | undefined;
+      const suggestions = await storage.getLearningSuggestions(modelId, status);
+      res.json(suggestions);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/auto-trading/suggestions/pending-count — 사용자 전체 pending 제안 수
+  app.get('/api/auto-trading/suggestions/pending-count', isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req)!;
+      const count = await storage.countPendingLearningSuggestions(user.id);
+      res.json({ count });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/auto-trading/suggestions/:id/apply — 개별 제안 적용
+  app.post('/api/auto-trading/suggestions/:id/apply', isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req)!;
+      const id = parseInt(req.params.id);
+      const suggestion = await storage.applyLearningSuggestion(id, user.id);
+      if (!suggestion) return res.status(404).json({ error: 'not found or forbidden' });
+      res.json(suggestion);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/auto-trading/suggestions/:id/dismiss — 개별 제안 무시
+  app.post('/api/auto-trading/suggestions/:id/dismiss', isAuthenticated, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const updated = await storage.updateLearningSuggestionStatus(id, 'dismissed');
+      if (!updated) return res.status(404).json({ error: 'not found' });
+      res.json(updated);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/auto-trading/suggestions/:modelId/dismiss-all — 모델 전체 pending 제안 무시
+  app.post('/api/auto-trading/suggestions/:modelId/dismiss-all', isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req)!;
+      const modelId = parseInt(req.params.modelId);
+      if (!await verifyModelOwnership(user.id, modelId)) return res.status(403).json({ error: 'forbidden' });
+      await storage.dismissAllLearningSuggestions(modelId);
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // PATCH /api/auto-trading/settings/:modelId/auto-apply-toggle — 자동적용 모드 토글
+  app.patch('/api/auto-trading/settings/:modelId/auto-apply-toggle', isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req)!;
+      const modelId = parseInt(req.params.modelId);
+      if (!await verifyModelOwnership(user.id, modelId)) return res.status(403).json({ error: 'forbidden' });
+      const { autoApply } = req.body as { autoApply: boolean };
+      const settings = await storage.getAutoTradingSettings(modelId);
+      if (!settings) return res.status(404).json({ error: 'settings not found' });
+      const currentPolicy = (settings.learningPolicy as Record<string, any>) ?? {};
+      await storage.updateAutoTradingSettings(modelId, {
+        learningPolicy: { ...currentPolicy, autoApply: Boolean(autoApply) },
+      });
+      res.json({ ok: true, autoApply: Boolean(autoApply) });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
 }

@@ -1194,6 +1194,138 @@ export class LearningService {
       }
     } else if (autoApply && stats.totalTrades < 50) {
       recommendations.push(`⚠️  자동 적용 최소 거래 수 미달 (현재 ${stats.totalTrades}건, 필요 50건)`);
+    } else if (!autoApply && stats.totalTrades >= minTradesForAnalysis) {
+      // pending 제안 모드: 변경 사항을 DB에 저장하고 사용자가 검토
+      try {
+        const [settings, model] = await Promise.all([
+          storage.getAutoTradingSettings(modelId),
+          storage.getAiModel(modelId),
+        ]);
+        if (settings) {
+          const pendingSuggestions: Array<{ paramKey: string; currentValue: string; suggestedValue: string; reasoning: string; source: 'ai' | 'rule_based' }> = [];
+
+          // 규칙 기반 제안
+          const suggestIfDifferent = (paramKey: string, current: string | number | null | undefined, suggested: string | number, reasoning: string, src: 'ai' | 'rule_based' = 'rule_based') => {
+            const curr = String(current ?? '');
+            const sugg = String(suggested);
+            if (curr !== sugg) pendingSuggestions.push({ paramKey, currentValue: curr, suggestedValue: sugg, reasoning, source: src });
+          };
+
+          suggestIfDifferent('themeWeight', settings.themeWeight, patterns.optimalWeights.theme.toFixed(2),
+            `테마 가중치: 최근 ${stats.totalTrades}건 성과 분석 기반`);
+          suggestIfDifferent('newsWeight', settings.newsWeight, patterns.optimalWeights.news.toFixed(2),
+            `뉴스 가중치: 뉴스 분석 기반 진입 승률 최적화`);
+          suggestIfDifferent('financialsWeight', settings.financialsWeight, patterns.optimalWeights.financials.toFixed(2),
+            `재무 가중치: 재무 필터 성과 분석`);
+          suggestIfDifferent('liquidityWeight', settings.liquidityWeight, patterns.optimalWeights.liquidity.toFixed(2),
+            `유동성 가중치: 유동성 필터 성과 분석`);
+          suggestIfDifferent('institutionalWeight', settings.institutionalWeight, patterns.optimalWeights.institutional.toFixed(2),
+            `기관 가중치: 기관매수 포함 종목 승률 분석`);
+          suggestIfDifferent('minAiConfidence', settings.minAiConfidence, patterns.optimalThresholds.minAiConfidence.toFixed(2),
+            `AI 신뢰도 임계치: ${calibration.recommendation}`);
+          if (String(settings.requireGoodFinancials) !== String(patterns.optimalThresholds.requireGoodFinancials)) {
+            pendingSuggestions.push({
+              paramKey: 'requireGoodFinancials',
+              currentValue: String(settings.requireGoodFinancials),
+              suggestedValue: String(patterns.optimalThresholds.requireGoodFinancials),
+              reasoning: `재무 필터 여부: 재무 양호 종목 승률이 전체 대비 ${patterns.optimalThresholds.requireGoodFinancials ? '높아' : '낮아'} 변경 권장`,
+              source: 'rule_based',
+            });
+          }
+
+          const currentStopPolicy = (settings.stopLossPolicy as any) ?? {};
+          if (currentStopPolicy.mode !== patterns.suggestedStopLossMode && currentStopPolicy.mode !== 'hard') {
+            pendingSuggestions.push({
+              paramKey: 'stopLossMode',
+              currentValue: currentStopPolicy.mode ?? 'soft_ai_first',
+              suggestedValue: patterns.suggestedStopLossMode,
+              reasoning: `손절 모드: 최근 거래 패턴 분석 결과 ${patterns.suggestedStopLossMode} 모드가 손실 최소화에 유리`,
+              source: 'rule_based',
+            });
+          }
+
+          // AI 기반 추가 제안
+          try {
+            const modelType = (model?.config as any)?.modelType ?? 'custom';
+            const aiModel = (model?.config as any)?.aiModel ?? 'claude-haiku-4-5-20251001';
+            const aiEvolution = await getAIService().suggestStrategyEvolution({
+              modelType,
+              stats: {
+                totalTrades: stats.totalTrades,
+                winRate: stats.winRate,
+                avgReturn: stats.totalTrades > 0 ? stats.totalReturn / stats.totalTrades : 0,
+                maxDrawdown: stats.maxDrawdown,
+              },
+              linePerformance: patterns.linePerformance,
+              unitPerformance: patterns.unitPerformance,
+              currentLadder: (settings.entryLadderSettings as any) ?? patterns.suggestedLadderPlan,
+              currentStopLossMode: currentStopPolicy.mode ?? 'soft_ai_first',
+            }, aiModel, model?.userId ? {
+              userId: model.userId,
+              accountId: Number((model.config as any)?.accountId ?? 0) || null,
+              source: 'learning:strategy-evolution',
+            } : undefined);
+
+            if (aiEvolution.suggestedMaxUnits && aiEvolution.suggestedMaxUnits > 0) {
+              suggestIfDifferent('maxUnitsPerStock', String(settings.maxUnitsPerStock ?? ''), String(aiEvolution.suggestedMaxUnits),
+                `AI 추천 최대 유닛 수: ${aiEvolution.reasoning ?? '성과 분석 기반'}`, 'ai');
+            }
+            if (aiEvolution.suggestedLadder?.length >= 2) {
+              const currentLadder = JSON.stringify(settings.entryLadderSettings ?? []);
+              const suggestedLadder = JSON.stringify(aiEvolution.suggestedLadder);
+              if (currentLadder !== suggestedLadder) {
+                pendingSuggestions.push({
+                  paramKey: 'entryLadderSettings',
+                  currentValue: currentLadder,
+                  suggestedValue: suggestedLadder,
+                  reasoning: `AI 추천 분할매수 라더: ${aiEvolution.reasoning ?? '성과 분석 기반'}`,
+                  source: 'ai',
+                });
+              }
+            }
+            if (aiEvolution.suggestedStopLossMode && aiEvolution.suggestedStopLossMode !== currentStopPolicy.mode && currentStopPolicy.mode !== 'hard') {
+              const existing = pendingSuggestions.find(s => s.paramKey === 'stopLossMode');
+              if (existing) {
+                existing.suggestedValue = aiEvolution.suggestedStopLossMode;
+                existing.reasoning = `AI 손절 모드 제안: ${aiEvolution.reasoning ?? '성과 분석 기반'}`;
+                existing.source = 'ai';
+              } else {
+                pendingSuggestions.push({
+                  paramKey: 'stopLossMode',
+                  currentValue: currentStopPolicy.mode ?? 'soft_ai_first',
+                  suggestedValue: aiEvolution.suggestedStopLossMode,
+                  reasoning: `AI 손절 모드 제안: ${aiEvolution.reasoning ?? '성과 분석 기반'}`,
+                  source: 'ai',
+                });
+              }
+            }
+            if (aiEvolution.reasoning) recommendations.push(`🤖 AI 분석: ${aiEvolution.reasoning}`);
+          } catch (aiErr) {
+            console.error('[LearningService] suggestStrategyEvolution failed:', aiErr);
+            recommendations.push('⚠️  AI 전략 제안 실패 (규칙 기반 제안만 저장)');
+          }
+
+          if (pendingSuggestions.length > 0) {
+            // 기존 pending 제안 삭제 후 새로 저장
+            await storage.dismissAllLearningSuggestions(modelId);
+            await storage.createLearningSuggestions(pendingSuggestions.map(s => ({
+              modelId,
+              paramKey: s.paramKey,
+              currentValue: s.currentValue,
+              suggestedValue: s.suggestedValue,
+              reasoning: s.reasoning,
+              status: 'pending',
+              source: s.source,
+            })));
+            recommendations.push(`💡 ${pendingSuggestions.length}개 파라미터 변경 제안 생성 — 앱에서 검토 후 적용하세요`);
+          } else {
+            recommendations.push('✅ 현재 파라미터가 최적 상태입니다 (변경 제안 없음)');
+          }
+        }
+      } catch (error) {
+        console.error('[LearningService] pending suggestion generation failed:', error);
+        recommendations.push('❌ 제안 생성 실패');
+      }
     }
 
     await storage.createLearningRecord({

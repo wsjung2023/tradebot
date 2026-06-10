@@ -9,6 +9,7 @@ import { AutoTradingSettings } from "@/components/auto-trading/AutoTradingSettin
 import { AutoTradingRecommendations } from "@/components/auto-trading/AutoTradingRecommendations";
 import { AutoTradingLearningRecords } from "@/components/auto-trading/AutoTradingLearningRecords";
 import { MarketIssuesManager } from "@/components/auto-trading/MarketIssuesManager";
+import { LearningSuggestionsPanel } from "@/components/auto-trading/LearningSuggestionsPanel";
 import type { AiModel, AiRecommendation, KiwoomAccount, LearningRecord } from "@shared/schema";
 import { Bot } from "lucide-react";
 
@@ -326,11 +327,14 @@ export default function AutoTrading() {
       />
 
       {selectedModelId && selectedModel && (
-        <AutoTradingSettings
-          modelId={selectedModelId}
-          modelConfig={selectedModel.config}
-          onAccountChange={handleAccountChange}
-        />
+        <>
+          <LearningSuggestionsPanel modelId={selectedModelId} />
+          <AutoTradingSettings
+            modelId={selectedModelId}
+            modelConfig={selectedModel.config}
+            onAccountChange={handleAccountChange}
+          />
+        </>
       )}
 
       <MarketIssuesManager />

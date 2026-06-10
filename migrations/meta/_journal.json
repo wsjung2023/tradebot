@@ -57,6 +57,13 @@
       "when": 1748390400000,
       "tag": "0007_holding_exit_plans",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1749571200000,
+      "tag": "0008_learning_suggestions",
+      "breakpoints": true
     }
   ]
 }

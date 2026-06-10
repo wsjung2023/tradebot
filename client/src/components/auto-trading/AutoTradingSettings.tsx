@@ -204,6 +204,7 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
   const [timeCapitalTightenExitAfterDays, setTimeCapitalTightenExitAfterDays] = useState("20");
   const [timeCapitalTightenExitMinProfitPct, setTimeCapitalTightenExitMinProfitPct] = useState("2");
   const [conditionSequences, setConditionSequences] = useState<{ conditionId: string; name: string }[]>([]);
+  const [autoApplyLearning, setAutoApplyLearning] = useState(false);
 
   useEffect(() => {
     setCfgLineUnits(entryLadderToLineUnits(entryLadder));
@@ -287,6 +288,8 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
       if (settings.conditionSearchSequences && Array.isArray(settings.conditionSearchSequences)) {
         setConditionSequences(settings.conditionSearchSequences as any);
       }
+      const lp = settings.learningPolicy as any;
+      setAutoApplyLearning(lp?.autoApply === true);
     }
   }, [settings, modelConfig]);
 
@@ -306,6 +309,24 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
       toast({ title: "자동매매 설정 저장 완료" });
     },
     onError: (e: any) => toast({ variant: "destructive", title: "저장 실패", description: e.message }),
+  });
+
+  const autoApplyToggleMutation = useMutation({
+    mutationFn: async (autoApply: boolean) => {
+      const resp = await apiRequest("PATCH", `/api/auto-trading/settings/${modelId}/auto-apply-toggle`, { autoApply });
+      return resp.json();
+    },
+    onSuccess: (data) => {
+      setAutoApplyLearning(data.autoApply);
+      queryClient.invalidateQueries({ queryKey: ["/api/ai/models", modelId, "trading-settings"] });
+      toast({
+        title: data.autoApply ? "자동 적용 모드 활성화" : "제안 검토 모드 활성화",
+        description: data.autoApply
+          ? "학습잡 결과가 자동으로 파라미터에 반영됩니다"
+          : "학습잡 결과를 앱에서 검토 후 직접 적용합니다",
+      });
+    },
+    onError: (e: any) => toast({ variant: "destructive", title: "설정 변경 실패", description: e.message }),
   });
 
   const handleSave = () => {
@@ -1132,6 +1153,29 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
           >
             <Plus className="h-3.5 w-3.5" />조건검색식 추가
           </Button>
+        </div>
+
+        {/* ── 학습잡 자동적용 토글 ── */}
+        <div className="border-t pt-4 space-y-2">
+          <Label className="text-sm font-semibold flex items-center gap-1.5">
+            <SlidersHorizontal className="h-4 w-4" />학습 파라미터 적용 방식
+          </Label>
+          <div className="flex items-center justify-between rounded-md border px-3 py-2">
+            <div>
+              <p className="text-xs font-medium">{autoApplyLearning ? "자동 적용" : "제안 검토"}</p>
+              <p className="text-xs text-muted-foreground">
+                {autoApplyLearning
+                  ? "04:00 학습잡 실행 후 파라미터 변경을 자동으로 적용합니다"
+                  : "04:00 학습잡 결과를 자동매매 화면에서 검토 후 직접 적용합니다"}
+              </p>
+            </div>
+            <Switch
+              checked={autoApplyLearning}
+              onCheckedChange={(v) => autoApplyToggleMutation.mutate(v)}
+              disabled={autoApplyToggleMutation.isPending}
+              data-testid="switch-auto-apply-learning"
+            />
+          </div>
         </div>
 
         {/* ── AI 재량 설정 ── */}

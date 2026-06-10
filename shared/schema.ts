@@ -1081,3 +1081,21 @@ export const holdingExitPlans = pgTable("holding_exit_plans", {
 export const insertHoldingExitPlanSchema = createInsertSchema(holdingExitPlans).omit({ id: true, createdAt: true, updatedAt: true });
 export type HoldingExitPlan = typeof holdingExitPlans.$inferSelect;
 export type InsertHoldingExitPlan = z.infer<typeof insertHoldingExitPlanSchema>;
+
+// Learning suggestions — daily learning job이 생성하는 파라미터 변경 제안
+export const learningSuggestions = pgTable("learning_suggestions", {
+  id: serial("id").primaryKey(),
+  modelId: integer("model_id").notNull().references(() => aiModels.id, { onDelete: 'cascade' }),
+  paramKey: text("param_key").notNull(),         // e.g. "takeProfitPercent", "minAiConfidence"
+  currentValue: text("current_value").notNull(),
+  suggestedValue: text("suggested_value").notNull(),
+  reasoning: text("reasoning").notNull(),
+  status: text("status").notNull().default('pending'), // 'pending' | 'applied' | 'dismissed'
+  source: text("source").notNull().default('ai'),      // 'ai' | 'rule_based'
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  reviewedAt: timestamp("reviewed_at"),
+});
+
+export const insertLearningSuggestionSchema = createInsertSchema(learningSuggestions).omit({ id: true, createdAt: true, reviewedAt: true });
+export type LearningSuggestion = typeof learningSuggestions.$inferSelect;
+export type InsertLearningSuggestion = z.infer<typeof insertLearningSuggestionSchema>;
