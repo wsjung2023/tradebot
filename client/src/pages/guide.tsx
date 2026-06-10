@@ -112,7 +112,7 @@ export default function Guide() {
         <div className="grid md:grid-cols-2 gap-4">
           {[
             { t: "계좌 등록", d: "계좌번호 8자리 입력 시 상품구분(위탁 11 / 위탁종합 10)을 함께 선택" },
-            { t: "에이전트 연결", d: "집 PC의 Kiwoom Agent가 '연결됨' 상태여야 실시간 주문 가능" },
+            { t: "에이전트 실행", d: "Windows 작업 스케줄러의 'TradeBot-Agent'가 실행 중인지 확인 (작업 관리자에서 python 프로세스 확인)" },
             { t: "거래 모드", d: "모의투자/실전투자 스위치가 실제 계좌 타입과 일치하는지 확인" },
             { t: "모델 활성화", d: "자동매매 페이지에서 AI 모델을 생성하고 '작동중' 스위치 ON" },
           ].map(item => (
@@ -280,7 +280,7 @@ Position(%) = ((현재가 - 240일 저점) / (240일 고점 - 240일 저점)) * 
         </div>
       </SectionCard>
 
-      <SectionCard {...sections[4]}>
+      <SectionCard {...sections[5]}>
         <p className="text-sm leading-relaxed mb-4">
           DART API를 통해 실시간으로 재무 지표를 가져와 분석합니다. 데이터가 부족한 신규 상장주나 관리 종목은 보수적으로 점수를 깎습니다.
         </p>
@@ -356,7 +356,7 @@ Position(%) = ((현재가 - 240일 저점) / (240일 고점 - 240일 저점)) * 
         </div>
       </SectionCard>
 
-      <SectionCard {...sections[5]}>
+      <SectionCard {...sections[6]}>
         <Code>{`배치잡 목록 (배치잡 관리 페이지에서 시작/중지/시각 변경 가능)
 
 [스캔 잡]      : 30분마다 조건검색식으로 후보 종목 발굴 → condition_scan_logs에 영구 저장
@@ -375,7 +375,7 @@ Position(%) = ((현재가 - 240일 저점) / (240일 고점 - 240일 저점)) * 
 - 선정/탈락 이력 페이지에서 AI 판단 이유 및 매도 발동 로그 확인 가능`}</Code>
       </SectionCard>
 
-      <SectionCard {...sections[6]}>
+      <SectionCard {...sections[7]}>
         <div className="space-y-4">
           <Warn title="429 Too Many Requests (API 요청 제한)">
             최근 키움증권 및 기타 API에서 요청 횟수 제한을 강화했습니다. 
@@ -389,7 +389,7 @@ Position(%) = ((현재가 - 240일 저점) / (240일 고점 - 240일 저점)) * 
             </h4>
             <ul className="text-xs space-y-1.5 text-muted-foreground list-decimal pl-4">
               <li>'설정' 페이지에서 API 키가 정확히 등록되어 있고 '저장' 되었는지 확인</li>
-              <li>집 PC의 키움 에이전트가 실행 중이며 '연결됨' 상태인지 확인</li>
+              <li>작업 스케줄러에서 'TradeBot-Agent'가 실행 중인지 확인 (작업 관리자 &gt; python 프로세스)</li>
               <li>거래 모드(모의/실전)를 변경했다면 에이전트와 서버를 한 번 재시작하는 것이 안전합니다.</li>
             </ul>
           </div>
@@ -398,7 +398,7 @@ Position(%) = ((현재가 - 240일 저점) / (240일 고점 - 240일 저점)) * 
 
       <div className="pt-8 text-center">
         <p className="text-xs text-muted-foreground italic">
-          최종 업데이트: 2026년 5월 28일 (매도 전략 우선순위 / 종목별 분할매도 계획 추가)
+          최종 업데이트: 2026년 6월 11일 (에이전트 연결 → Task Scheduler 표현 변경 / 섹션 오매핑 수정)
         </p>
       </div>
     </div>

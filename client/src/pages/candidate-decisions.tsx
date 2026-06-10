@@ -14,6 +14,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ClipboardList, Loader2 } from "lucide-react";
+import { TablePagination } from "@/components/ui/table-pagination";
 
 interface AiModelSummary {
   id: number;
@@ -107,6 +108,8 @@ export default function CandidateDecisions() {
   const [toDate, setToDate] = useState(toDateInputValue(now));
   const [modelId, setModelId] = useState("all");
   const [acceptedFilter, setAcceptedFilter] = useState<"all" | "accepted" | "rejected">("all");
+  const [cdPage, setCdPage] = useState(1);
+  const CD_PAGE_SIZE = 30;
 
   const { data: models = [] } = useQuery<AiModelSummary[]>({
     queryKey: ["/api/ai/models"],
@@ -131,6 +134,7 @@ export default function CandidateDecisions() {
 
   const logs = data?.logs ?? [];
   const dailySummary = data?.dailySummary ?? [];
+  const pagedLogs = logs.slice((cdPage - 1) * CD_PAGE_SIZE, cdPage * CD_PAGE_SIZE);
 
   return (
     <div className="p-3 md:p-6 space-y-4 md:space-y-6">
@@ -228,7 +232,7 @@ export default function CandidateDecisions() {
           ) : (
             <>
             <div className="md:hidden space-y-3 p-3" data-testid="mobile-candidate-decisions">
-              {logs.map((log) => {
+              {pagedLogs.map((log) => {
                 const aiDecision = log.aiDecision ?? {};
                 const qualitativeReason = typeof aiDecision.qualitativeReason === "string" ? aiDecision.qualitativeReason : "-";
                 const quantitativeReason = (aiDecision.quantitativeReason as Record<string, unknown> | undefined) ?? null;
@@ -282,7 +286,7 @@ export default function CandidateDecisions() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {logs.map((log) => {
+                {pagedLogs.map((log) => {
                   const aiDecision = log.aiDecision ?? {};
                   const qualitativeReason = typeof aiDecision.qualitativeReason === "string" ? aiDecision.qualitativeReason : "-";
                   const quantitativeReason = (aiDecision.quantitativeReason as Record<string, unknown> | undefined) ?? null;
@@ -347,6 +351,14 @@ export default function CandidateDecisions() {
                 })}
               </TableBody>
             </Table>
+            </div>
+            <div className="p-4">
+              <TablePagination
+                page={cdPage}
+                totalItems={logs.length}
+                pageSize={CD_PAGE_SIZE}
+                onPageChange={(p) => { setCdPage(p); }}
+              />
             </div>
             </>
           )}

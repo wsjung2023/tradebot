@@ -191,7 +191,11 @@ function NewsCard({ article }: { article: NewsArticle }) {
 }
 
 // ─── 메인 컴포넌트 ────────────────────────────────────────────────────────
-export function IntegratedAnalysis() {
+interface IntegratedAnalysisProps {
+  externalStock?: SelectedStock | null;
+}
+
+export function IntegratedAnalysis({ externalStock }: IntegratedAnalysisProps = {}) {
   const { toast } = useToast();
   const [selectedStock, setSelectedStock] = useState<SelectedStock | null>(null);
   const [currentPrice, setCurrentPrice] = useState('');
@@ -201,6 +205,13 @@ export function IntegratedAnalysis() {
 
   const stockCode = selectedStock?.stockCode?.trim() || '';
   const stockName = selectedStock?.stockName?.trim() || '';
+
+  // 외부에서 종목이 주입되면 내부 상태 업데이트
+  useEffect(() => {
+    if (externalStock?.stockCode) {
+      setSelectedStock(externalStock);
+    }
+  }, [externalStock?.stockCode]);
 
   useEffect(() => {
     if (typeof selectedStock?.currentPrice === "number" && selectedStock.currentPrice > 0) {

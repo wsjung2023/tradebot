@@ -15,6 +15,7 @@ import { ConnectionStatus } from "@/components/connection-status";
 import type { KiwoomAccount } from "@shared/schema";
 import { StockSelector } from "@/components/stocks/StockSelector";
 import { StockCandleChart } from "@/components/stocks/StockCandleChart";
+import { AccountHoldingPicker } from "@/components/stocks/AccountHoldingPicker";
 import type { SelectedStock } from "@/lib/stocks";
 
 type ChartSignal = {
@@ -255,6 +256,10 @@ export default function Trading() {
             onReconnect={forceReconnect}
           />
         </div>
+        <AccountHoldingPicker
+          accountId={selectedAccountId ?? accounts[0]?.id ?? null}
+          onSelect={setSelectedStock}
+        />
       </div>
 
       {stockPrice && (

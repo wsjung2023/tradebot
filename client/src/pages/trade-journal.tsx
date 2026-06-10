@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/select";
 import { format, subDays } from "date-fns";
 import { Search, Loader2 } from "lucide-react";
+import { TablePagination } from "@/components/ui/table-pagination";
 
 interface TradeJournalEntry {
   id: number;
@@ -87,6 +88,8 @@ function getTradeTypeBadge(type: string) {
   }
 }
 
+const JOURNAL_PAGE_SIZE = 20;
+
 export default function TradeJournalPage() {
   const [startDate, setStartDate] = useState(() => format(subDays(new Date(), 7), "yyyy-MM-dd"));
   const [endDate, setEndDate] = useState(() => format(new Date(), "yyyy-MM-dd"));
@@ -97,6 +100,7 @@ export default function TradeJournalPage() {
   const [accountId, setAccountId] = useState("all");
   const [modelId, setModelId] = useState("all");
   const [searchTrigger, setSearchTrigger] = useState(0);
+  const [journalPage, setJournalPage] = useState(1);
 
   const { data: accounts = [] } = useQuery<JournalAccount[]>({ queryKey: ["/api/accounts"] });
   const { data: models = [] } = useQuery<JournalModel[]>({ queryKey: ["/api/ai/models"] });
@@ -314,7 +318,7 @@ export default function TradeJournalPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {entries.map((entry) => (
+                  {entries.slice((journalPage - 1) * JOURNAL_PAGE_SIZE, journalPage * JOURNAL_PAGE_SIZE).map((entry) => (
                     <TableRow key={entry.id} className="hover:bg-muted/30 transition-colors">
                       <TableCell className="font-mono text-sm text-muted-foreground">
                         {formatTradeDate(entry.tradeDate, entry.tradeTime)}
@@ -374,6 +378,12 @@ export default function TradeJournalPage() {
                   ))}
                 </TableBody>
               </Table>
+              <TablePagination
+                page={journalPage}
+                totalItems={entries?.length ?? 0}
+                pageSize={JOURNAL_PAGE_SIZE}
+                onPageChange={(p) => { setJournalPage(p); }}
+              />
             </div>
           )}
         </CardContent>

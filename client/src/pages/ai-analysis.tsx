@@ -2,10 +2,13 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { AIStockAnalysis } from "@/components/ai-analysis/AIStockAnalysis";
 import { AIPortfolioAnalysis } from "@/components/ai-analysis/AIPortfolioAnalysis";
 import { IntegratedAnalysis } from "@/components/ai-analysis/IntegratedAnalysis";
+import { AccountHoldingPicker } from "@/components/stocks/AccountHoldingPicker";
 import { Zap } from "lucide-react";
 import type { SelectedStock } from "@/lib/stocks";
 
@@ -13,6 +16,7 @@ export default function AIAnalysis() {
   const { toast } = useToast();
   const [selectedStock, setSelectedStock] = useState<SelectedStock | null>(null);
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
+  const [pickerAccountId, setPickerAccountId] = useState<number | null>(null);
   const [analysis, setAnalysis] = useState<any>(null);
   const [portfolioAnalysis, setPortfolioAnalysis] = useState<any>(null);
 
@@ -55,12 +59,50 @@ export default function AIAnalysis() {
     analyzePortfolioMutation.mutate(selectedAccountId);
   };
 
+  const effectivePickerAccountId = pickerAccountId ?? (accountsData[0]?.id ?? null);
+
+  const handleHoldingSelect = (stock: SelectedStock) => {
+    setSelectedStock(stock);
+    setAnalysis(null);
+  };
+
   return (
     <div className="p-6 space-y-6">
       <div>
         <h1 className="text-3xl font-bold" data-testid="text-ai-title">AI 분석</h1>
         <p className="text-muted-foreground">GPT-4 기반 종목 분석 및 추천</p>
       </div>
+
+      {/* 보유 종목 바로가기 */}
+      {accountsData.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3">
+          {accountsData.length > 1 && (
+            <div className="flex items-center gap-2">
+              <Label className="text-sm text-muted-foreground whitespace-nowrap">계좌</Label>
+              <Select
+                value={effectivePickerAccountId?.toString() ?? ""}
+                onValueChange={(v) => setPickerAccountId(parseInt(v))}
+              >
+                <SelectTrigger className="w-52 h-8 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {accountsData.map((a: any) => (
+                    <SelectItem key={a.id} value={a.id.toString()} className="text-xs">
+                      {a.accountName || a.accountNumber} ({a.accountType === "real" ? "실전" : "모의"})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          <AccountHoldingPicker
+            accountId={effectivePickerAccountId}
+            onSelect={handleHoldingSelect}
+          />
+        </div>
+      )}
+
       <Tabs defaultValue="integrated" className="space-y-6">
         <TabsList>
           <TabsTrigger value="integrated" data-testid="tab-integrated-analysis" className="flex items-center gap-1.5">
@@ -72,7 +114,7 @@ export default function AIAnalysis() {
         </TabsList>
 
         <TabsContent value="integrated">
-          <IntegratedAnalysis />
+          <IntegratedAnalysis externalStock={selectedStock} />
         </TabsContent>
 
         <AIStockAnalysis

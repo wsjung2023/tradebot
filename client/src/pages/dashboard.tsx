@@ -8,10 +8,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { TrendingUp, TrendingDown, Wallet, Target, Plus, Archive, RefreshCw, WifiOff, ArrowLeftRight, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { TrendingUp, TrendingDown, Wallet, Target, Plus, Archive, RefreshCw, WifiOff, ArrowLeftRight, AlertTriangle, CheckCircle2, Lock } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useKiwoomBalance } from "@/hooks/use-kiwoom-balance";
+import { useRealAccountLock } from "@/hooks/use-real-account-lock";
 import { LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 
 interface DashboardAccount {
@@ -61,6 +62,19 @@ export default function Dashboard() {
   const [productCode, setProductCode] = useState<"11" | "10">("11");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const { isLocked, unlock } = useRealAccountLock();
+  const [pinInput, setPinInput] = useState("");
+  const [pinError, setPinError] = useState(false);
+
+  const handleUnlock = () => {
+    if (unlock(pinInput)) {
+      setPinInput("");
+      setPinError(false);
+    } else {
+      setPinError(true);
+      setPinInput("");
+    }
+  };
 
   const { data: accounts = [], isLoading: accountsLoading } = useQuery<DashboardAccount[]>({ queryKey: ['/api/accounts'] });
   const { data: settings } = useQuery<DashboardSettings>({ queryKey: ['/api/settings'] });
@@ -445,6 +459,37 @@ export default function Dashboard() {
           </Card>
         )}
 
+        {/* 요약 카드 + 보유종목 — 실계좌 잠금 시 PIN 입력 요구 */}
+        {selectedAccount?.accountType === "real" && isLocked ? (
+          <Card className="max-w-sm mx-auto mt-8">
+            <CardHeader className="text-center">
+              <div className="flex justify-center mb-2">
+                <Lock className="h-8 w-8 text-amber-500" />
+              </div>
+              <CardTitle>실계좌 잠금</CardTitle>
+              <CardDescription>PIN을 입력하면 자산 정보를 확인할 수 있습니다</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <Input
+                type="password"
+                inputMode="numeric"
+                maxLength={4}
+                placeholder="4자리 PIN"
+                value={pinInput}
+                onChange={(e) => { setPinInput(e.target.value.replace(/\D/g, "").slice(0, 4)); setPinError(false); }}
+                className="text-center tracking-widest text-xl"
+                onKeyDown={(e) => { if (e.key === "Enter") handleUnlock(); }}
+                autoFocus
+              />
+              {pinError && <p className="text-sm text-red-500 text-center">PIN이 올바르지 않습니다</p>}
+              <Button className="w-full" onClick={handleUnlock} disabled={pinInput.length !== 4}>
+                잠금 해제
+              </Button>
+            </CardContent>
+          </Card>
+        ) : (
+        <>
+
         {/* 요약 카드 */}
         <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
           <Card className="hover-elevate transition-all duration-300 border-[hsl(var(--neon-cyan))]/20">
@@ -588,6 +633,9 @@ export default function Dashboard() {
               </CardContent>
             </Card>
           </div>
+        )}
+
+        </>
         )}
 
         {/* 자산 추이 — 실제 스냅샷 데이터가 있을 때만 표시 */}

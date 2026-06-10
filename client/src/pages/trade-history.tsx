@@ -33,6 +33,7 @@ import {
   Loader2,
   AlertCircle,
 } from "lucide-react";
+import { TablePagination } from "@/components/ui/table-pagination";
 import {
   BarChart,
   Bar,
@@ -410,10 +411,15 @@ function StockPerformanceTab({ accountStatus, accountType, accountId }: AccountF
   );
 }
 
+const ORDERS_PAGE_SIZE = 20;
+const LOGS_PAGE_SIZE = 20;
+
 export default function TradeHistory() {
   const [accountStatus, setAccountStatus] = useState<"active" | "all" | "archived">("all");
   const [accountType, setAccountType] = useState<"all" | "mock" | "real">("all");
   const [accountId, setAccountId] = useState("all");
+  const [ordersPage, setOrdersPage] = useState(1);
+  const [logsPage, setLogsPage] = useState(1);
 
   const { data: accounts = [] } = useQuery<TradeAccount[]>({
     queryKey: ['/api/accounts'],
@@ -654,7 +660,7 @@ export default function TradeHistory() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {orders.map((order) => (
+                      {orders.slice((ordersPage - 1) * ORDERS_PAGE_SIZE, ordersPage * ORDERS_PAGE_SIZE).map((order) => (
                         <TableRow key={order.id} data-testid={`row-order-${order.id}`}>
                           <TableCell className="text-sm">
                             {format(new Date(order.createdAt), 'yyyy-MM-dd HH:mm')}
@@ -693,6 +699,12 @@ export default function TradeHistory() {
                       ))}
                     </TableBody>
                   </Table>
+                  <TablePagination
+                    page={ordersPage}
+                    totalItems={orders.length}
+                    pageSize={ORDERS_PAGE_SIZE}
+                    onPageChange={(p) => { setOrdersPage(p); }}
+                  />
                 </div>
               )}
             </CardContent>
@@ -725,7 +737,7 @@ export default function TradeHistory() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {logs.map((log) => (
+                      {logs.slice((logsPage - 1) * LOGS_PAGE_SIZE, logsPage * LOGS_PAGE_SIZE).map((log) => (
                         <TableRow key={log.id} data-testid={`row-log-${log.id}`}>
                           <TableCell className="text-sm">
                             {format(new Date(log.createdAt), 'yyyy-MM-dd HH:mm:ss')}
@@ -761,6 +773,12 @@ export default function TradeHistory() {
                       ))}
                     </TableBody>
                   </Table>
+                  <TablePagination
+                    page={logsPage}
+                    totalItems={logs.length}
+                    pageSize={LOGS_PAGE_SIZE}
+                    onPageChange={(p) => { setLogsPage(p); }}
+                  />
                 </div>
               )}
             </CardContent>
