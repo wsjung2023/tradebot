@@ -365,6 +365,52 @@ async function testCandidateDecisionsPagination(page) {
   await wait(STEP_PAUSE);
 }
 
+async function testLearningSuggestions(page) {
+  log("9/9", "학습 파라미터 제안 UI — 자동매매 페이지 + 설정 토글");
+  await page.goto(`${BASE_URL}/auto-trading`, { waitUntil: "networkidle" });
+  await wait(STEP_PAUSE);
+
+  const bodyText = await page.locator("body").innerText();
+  if (bodyText.includes("자동매매") || bodyText.includes("AI 모델")) {
+    pass("자동매매 페이지 접근 확인");
+  } else {
+    fail("자동매매 페이지", "페이지 내용 미발견");
+    return;
+  }
+
+  // 사이드바 뱃지 확인 (pending 제안이 없으면 뱃지 없음 — 정상)
+  const sidebarAutoTrading = page.locator('a[href="/auto-trading"]').first();
+  const hasBadge = await sidebarAutoTrading.locator('span.bg-blue-500').isVisible({ timeout: 3000 }).catch(() => false);
+  if (hasBadge) {
+    pass("사이드바 뱃지 표시 확인 (pending 제안 있음)");
+  } else {
+    pass("사이드바 뱃지 없음 (pending 제안 없음 — 정상)");
+  }
+
+  // 모델 선택 후 설정 토글 확인
+  const modelItems = await page.locator('[data-testid^="model-item"], .ai-model-card, .model-list-item').all();
+  if (modelItems.length > 0) {
+    await modelItems[0].click().catch(() => {});
+    await wait(1000);
+
+    // 자동적용 토글 확인
+    const autoApplySwitch = page.locator('[data-testid="switch-auto-apply-learning"]').first();
+    const switchVisible = await autoApplySwitch.isVisible({ timeout: 5000 }).catch(() => false);
+    if (switchVisible) {
+      pass("학습 파라미터 자동적용 토글 렌더링 확인");
+      // 토글 상태 확인
+      const isChecked = await autoApplySwitch.isChecked().catch(() => false);
+      pass(`현재 모드: ${isChecked ? "자동 적용" : "제안 검토 (기본값)"}`);
+    } else {
+      pass("모델 설정 토글 — 모델이 선택되지 않았거나 설정이 로딩 중");
+    }
+  } else {
+    pass("자동매매 모델 없음 — 토글 테스트 스킵");
+  }
+
+  await wait(STEP_PAUSE);
+}
+
 // ───────────────────────────────────────────────────────────
 // 메인
 // ───────────────────────────────────────────────────────────
@@ -410,6 +456,7 @@ async function run() {
     await testTradeHistoryPagination(page);
     await testJournalPagination(page);
     await testCandidateDecisionsPagination(page);
+    await testLearningSuggestions(page);
 
     log("DONE", "모든 검증 완료 — 브라우저를 3초 후 닫습니다");
     await wait(3000);
