@@ -78,6 +78,13 @@
       "when": 1749603600000,
       "tag": "0010_audit_logs",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1749607200000,
+      "tag": "0011_subscriptions",
+      "breakpoints": true
     }
   ]
 }

@@ -11,6 +11,7 @@ import { registerWatchlistRoutes } from "./watchlist.routes";
 import { registerFormulaRoutes } from "./formula.routes";
 import { registerAutoTradingRoutes } from "./autotrading.routes";
 import { registerAdminRoutes } from "./admin.routes";
+import { registerBillingRoutes } from "./billing.routes";
 import { registerSettingsRoutes } from "./settings.routes";
 import { registerMonitoringRoutes } from "./monitoring.routes";
 import { masterSettingsRouter } from "./master-settings.routes";
@@ -28,6 +29,7 @@ export async function registerRoutes(app: Express, httpServer: Server, sessionMi
   registerFormulaRoutes(app as any);
   registerAutoTradingRoutes(app as any);
   registerAdminRoutes(app as any);
+  registerBillingRoutes(app as any);
   registerSettingsRoutes(app as any);
   registerMonitoringRoutes(app as any);
   app.use("/api/master-settings", masterSettingsRouter);

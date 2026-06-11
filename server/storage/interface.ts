@@ -41,6 +41,8 @@ import {
   type InsertConditionScanLog,
   type HoldingExitPlan, type InsertHoldingExitPlan,
   type LearningSuggestion, type InsertLearningSuggestion,
+  type Plan,
+  type Subscription,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -51,6 +53,11 @@ export interface IStorage {
   createUser(user: InsertUser): Promise<User>;
   updateUser(id: string, updates: Partial<User>): Promise<User | undefined>;
   deleteUser(id: string): Promise<void>;
+
+  // 구독/플랜 (SaaS billing)
+  getPlans(): Promise<Plan[]>;
+  getUserSubscription(userId: string): Promise<Subscription | undefined>;
+  upsertSubscription(data: Partial<Subscription> & { userId: string }): Promise<Subscription>;
 
   // ?��? 계좌
   getKiwoomAccounts(userId: string): Promise<KiwoomAccount[]>;

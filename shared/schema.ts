@@ -1110,3 +1110,35 @@ export const auditLogs = pgTable("audit_logs", {
   ip: text("ip"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
+
+// Plans definition — SaaS pricing tiers
+export const plans = pgTable("plans", {
+  id: text("id").primaryKey(), // 'free' | 'saas_basic' | 'saas_pro' | 'saas_enterprise'
+  name: text("name").notNull(),
+  paddlePriceId: text("paddle_price_id"),
+  monthlyUsd: decimal("monthly_usd", { precision: 10, scale: 2 }),
+  maxModels: integer("max_models"),
+  maxAiCallsPerDay: integer("max_ai_calls_per_day"),
+  aumLimitKrw: text("aum_limit_krw"), // stored as text to avoid bigint issues
+  features: jsonb("features").notNull().default({}),
+  isActive: boolean("is_active").notNull().default(true),
+});
+
+// User subscriptions — Paddle billing state
+export const subscriptions = pgTable("subscriptions", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  paddleSubscriptionId: text("paddle_subscription_id").unique(),
+  paddleCustomerId: text("paddle_customer_id"),
+  tier: text("tier").notNull().default('free'), // 'free' | 'saas_basic' | 'saas_pro' | 'saas_enterprise'
+  status: text("status").notNull().default('active'), // 'active' | 'past_due' | 'cancelled' | 'trialing'
+  currentPeriodEnd: timestamp("current_period_end"),
+  aumTier: text("aum_tier"), // 'under_20m' | 'under_50m' | 'under_100m' | 'over_100m'
+  detectedAum: text("detected_aum"), // stored as text to avoid bigint issues
+  aumCheckedAt: timestamp("aum_checked_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export type Plan = typeof plans.$inferSelect;
+export type Subscription = typeof subscriptions.$inferSelect;

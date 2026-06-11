@@ -67,6 +67,32 @@ export class PostgreSQLCoreStorage {
     await db.delete(schema.users).where(eq(schema.users.id, id));
   }
 
+  // ==================== Subscription / Plan Methods ====================
+
+  async getPlans() {
+    return db.select().from(schema.plans).where(eq(schema.plans.isActive, true));
+  }
+
+  async getUserSubscription(userId: string) {
+    const rows = await db.select().from(schema.subscriptions)
+      .where(eq(schema.subscriptions.userId, userId))
+      .limit(1);
+    return rows[0];
+  }
+
+  async upsertSubscription(data: any) {
+    const existing = await this.getUserSubscription(data.userId);
+    if (existing) {
+      const rows = await db.update(schema.subscriptions)
+        .set({ ...data, updatedAt: new Date() })
+        .where(eq(schema.subscriptions.userId, data.userId))
+        .returning();
+      return rows[0];
+    }
+    const rows = await db.insert(schema.subscriptions).values(data).returning();
+    return rows[0];
+  }
+
   // ==================== Kiwoom Account Methods ====================
 
   async getKiwoomAccounts(userId: string): Promise<KiwoomAccount[]> {
