@@ -1353,7 +1353,8 @@ export class TradeExecutorService {
               this.clSellHistory.delete(clKey);
             }
 
-            if (clLine >= 60) {
+            // CL 분할매도: 수익 구간일 때만 발동 (손실/손익분기 구간에서는 불필요한 매도 방지)
+            if (clLine >= 60 && profitRate > 0) {
               const matched = clRainbowSettings.find(r => r.line === clLine)
                 ?? clRainbowSettings.reduce((prev, curr) =>
                   Math.abs(curr.line - clLine) < Math.abs(prev.line - clLine) ? curr : prev);
@@ -1363,15 +1364,20 @@ export class TradeExecutorService {
               if (sw > 0 && clLine > lastCLSold) {
                 shouldSell = true;
                 sellRatio = sw / 100;
-                exitReason = `CL${clLine}% 분할매도: sellWeight=${sw}% (${matched.line}선 기준)`;
+                exitReason = `CL${clLine}% 분할매도: sellWeight=${sw}% (${matched.line}선 기준, 수익률 +${profitRate.toFixed(2)}%)`;
                 this.clSellHistory.set(clKey, clLine);
                 console.log(`    🌈 [CL매도] ${holding.stockCode} CL=${clLine}%, sellWeight=${sw}% → sellRatio=${sellRatio.toFixed(2)} (신규 레벨, lastSold=${lastCLSold})`);
               } else if (sw > 0) {
                 console.log(`    ⏭️ [CL매도 스킵] ${holding.stockCode} CL=${clLine}% 이미 매도 완료 (lastSold=${lastCLSold})`);
               }
+            } else if (clLine >= 60 && profitRate <= 0) {
+              console.log(`    ⏭️ [CL매도 스킵] ${holding.stockCode} CL=${clLine}% 이지만 수익률 ${profitRate.toFixed(2)}% ≤ 0 — 손익분기 미달, CL매도 보류`);
             }
           }
         }
+
+        // soft_ai_first AI 판단: CL 분할매도 등 부분 매도 비율은 유지 (AI가 amplify 불가)
+        const triggerSellRatio = sellRatio;
 
         if (shouldSell && stopLossMode === 'soft_ai_first' && aiService) {
           try {
@@ -1420,11 +1426,14 @@ export class TradeExecutorService {
               exitReason = `AI 보유판단(soft_ai_first): ${aiDecision.reasoning || 'hold'}`;
             } else if (aiDecision.action === 'partial_exit' && holding.quantity >= 2) {
               shouldSell = true;
-              sellRatio = 0.5;
+              // 트리거가 이미 부분매도(CL 20% 등)이면 그 비율 유지, 전량 트리거였으면 50%로 축소
+              sellRatio = triggerSellRatio < 1 ? triggerSellRatio : 0.5;
               exitReason = `AI 부분청산(soft_ai_first): ${aiDecision.reasoning || 'partial_exit'}`;
             } else if (aiDecision.action === 'full_exit' || aiDecision.action === 'stop_loss') {
               shouldSell = true;
-              sellRatio = 1;
+              // AI가 full_exit을 결정해도 트리거에서 설정한 매도 비율은 변경하지 않음
+              // CL 20% 트리거 → triggerSellRatio=0.20 유지 / 손절 트리거 → triggerSellRatio=1 유지
+              sellRatio = triggerSellRatio;
               exitReason = `AI 청산(soft_ai_first): ${aiDecision.reasoning || aiDecision.action}`;
             }
           } catch (aiErr) {
