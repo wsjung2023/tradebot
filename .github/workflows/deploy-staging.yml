@@ -30,4 +30,4 @@ jobs:
       - name: Deploy to staging
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-        run: railway up --service tradebot --environment staging --detach
+        run: railway up --detach
