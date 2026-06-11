@@ -116,7 +116,7 @@ export function LearningSuggestionsPanel({ modelId }: Props) {
             모두 무시
           </Button>
         </div>
-        <CardDescription>매일 04:00 학습잡이 성과 분석 후 생성한 제안입니다. 검토 후 적용하세요.</CardDescription>
+        <CardDescription>매일 16:00 KST (장 종료 후) 학습잡이 성과 분석 후 생성한 제안입니다. 검토 후 적용하세요.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         {suggestions.map((s) => (
