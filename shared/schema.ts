@@ -1100,3 +1100,13 @@ export const learningSuggestions = pgTable("learning_suggestions", {
 export const insertLearningSuggestionSchema = createInsertSchema(learningSuggestions).omit({ id: true, createdAt: true, reviewedAt: true });
 export type LearningSuggestion = typeof learningSuggestions.$inferSelect;
 export type InsertLearningSuggestion = z.infer<typeof insertLearningSuggestionSchema>;
+
+// Audit logs — user action history for compliance and dispute resolution
+export const auditLogs = pgTable("audit_logs", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").references(() => users.id, { onDelete: 'set null' }),
+  action: text("action").notNull(),
+  detail: jsonb("detail").notNull().default({}),
+  ip: text("ip"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});

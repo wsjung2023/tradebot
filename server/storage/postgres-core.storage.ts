@@ -63,6 +63,10 @@ export class PostgreSQLCoreStorage {
     return result[0];
   }
 
+  async deleteUser(id: string): Promise<void> {
+    await db.delete(schema.users).where(eq(schema.users.id, id));
+  }
+
   // ==================== Kiwoom Account Methods ====================
 
   async getKiwoomAccounts(userId: string): Promise<KiwoomAccount[]> {

@@ -3,6 +3,7 @@ import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import rateLimit from "express-rate-limit";
 import helmet from "helmet";
+import cors from "cors";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
@@ -14,6 +15,7 @@ import { setupAuth } from "./auth";
 import { jobManager } from "./job-manager";
 import { masterSettings } from "./services/master-settings.service";
 import { opsMonitorService } from "./services/ops-monitor.service";
+import { getAllowedOrigins } from "./config";
 
 // 전역 에러 핸들러
 process.on('uncaughtException', (err) => {
@@ -35,6 +37,11 @@ declare module 'http' {
 }
 
 app.set('trust proxy', 1);
+
+app.use(cors({
+  origin: getAllowedOrigins(),
+  credentials: true,
+}));
 
 const isProduction = process.env.NODE_ENV === 'production';
 const sessionSecret = process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex");

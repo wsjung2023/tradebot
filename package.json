@@ -23,7 +23,8 @@
         "check:security-config": "node scripts/check-security-config.mjs",
         "check:secret-hygiene": "node scripts/check-secret-hygiene.mjs",
         "ops:generate-secrets": "node scripts/generate-secrets.mjs",
-        "ops:create-user": "tsx scripts/create-ops-user.ts"
+        "ops:create-user": "tsx scripts/create-ops-user.ts",
+        "db:migrate": "tsx scripts/migrate.ts"
     },
     "dependencies": {
         "@hookform/resolvers": "^3.10.0",
@@ -58,6 +59,7 @@
         "@radix-ui/react-tooltip": "^1.2.0",
         "@tanstack/react-query": "^5.60.5",
         "@types/bcryptjs": "^2.4.6",
+        "@types/cors": "^2.8.19",
         "@types/node-cron": "^3.0.11",
         "@types/nodemailer": "^8.0.0",
         "@types/passport-google-oauth20": "^2.0.17",
@@ -68,6 +70,7 @@
         "clsx": "^2.1.1",
         "cmdk": "^1.1.1",
         "connect-pg-simple": "^10.0.0",
+        "cors": "^2.8.6",
         "date-fns": "^3.6.0",
         "drizzle-orm": "^0.39.1",
         "drizzle-zod": "^0.7.0",

@@ -50,6 +50,7 @@ export interface IStorage {
   getUserByAuthProvider(provider: string, providerId: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   updateUser(id: string, updates: Partial<User>): Promise<User | undefined>;
+  deleteUser(id: string): Promise<void>;
 
   // ?��? 계좌
   getKiwoomAccounts(userId: string): Promise<KiwoomAccount[]>;

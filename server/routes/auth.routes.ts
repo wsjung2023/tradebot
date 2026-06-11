@@ -56,6 +56,22 @@ export function registerAuthRoutes(app: Router) {
     res.json({ user: { id: user!.id, email: user!.email, name: user!.name, profileImage: user!.profileImage } });
   });
 
+  // 회원 탈퇴 — 사용자 데이터 전체 삭제 (PIPA 개인정보보호법)
+  app.delete("/api/auth/account", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req)!;
+      await storage.deleteUser(user.id);
+      req.logout((err) => {
+        if (err) console.error('[Auth] Logout after delete failed:', err);
+        req.session.destroy(() => {
+          res.json({ ok: true });
+        });
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // 개발 전용 — 이메일로 바로 세션 생성 (NODE_ENV=development 에서만 동작)
   app.post("/api/auth/dev-login", async (req, res) => {
     if (process.env.NODE_ENV !== "development") {
