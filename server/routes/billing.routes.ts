@@ -5,6 +5,20 @@ import { isAuthenticated, getCurrentUser } from '../auth';
 import { isPublicSaaS, config } from '../config';
 import { handlePaddleWebhook, buildCheckoutUrl } from '../services/paddle.service';
 
+// AUM(운용자산) 합계 → 티어 문자열
+function calcAumTier(totalKrw: number): string {
+  if (totalKrw >= 100_000_000) return 'over_100m';
+  if (totalKrw >= 50_000_000)  return 'under_100m';
+  if (totalKrw >= 20_000_000)  return 'under_50m';
+  return 'under_20m';
+}
+
+async function refreshAumTier(userId: string): Promise<string> {
+  const accounts = await storage.getKiwoomAccounts(userId);
+  const totalKrw = accounts.reduce((sum, a) => sum + parseFloat(a.lastTotalAssets ?? '0'), 0);
+  return calcAumTier(totalKrw);
+}
+
 export function registerBillingRoutes(app: Express) {
   // 플랜 목록 조회 (공개)
   app.get('/api/billing/plans', async (_req, res) => {
@@ -35,6 +49,12 @@ export function registerBillingRoutes(app: Express) {
       // public_saas: 구독 없으면 free로 자동 생성
       if (!subscription) {
         subscription = await storage.upsertSubscription({ userId: user.id, tier: 'free', status: 'active' });
+      }
+
+      // AUM 티어 계산 및 변경 시 업데이트
+      const newAumTier = await refreshAumTier(user.id);
+      if (newAumTier !== subscription.aumTier) {
+        subscription = await storage.upsertSubscription({ userId: user.id, aumTier: newAumTier });
       }
 
       res.json({
