@@ -426,7 +426,7 @@ CL폭(Width) = (현재가 - 240일최저가) / (240일최고가 × 0.2)
         <div className="mt-3 p-3 bg-amber-50 border border-amber-300/60 rounded-md dark:bg-amber-900/20 dark:border-amber-500/30 text-xs space-y-1">
           <p className="font-bold text-amber-700 dark:text-amber-400">⚠️ 주의사항</p>
           <p className="text-amber-900 dark:text-amber-200">① 매도계획 배치잡을 꺼도 DB에 저장된 계획은 계속 실행됩니다. 계획 자체를 삭제(🎯 다이얼로그)해야 멈춥니다.</p>
-          <p className="text-amber-900 dark:text-amber-200">⑤ CL 분할매도는 수익 중일 때만 발동합니다 (손실 중 CL 상승은 발동 안 함).</p>
+          <p className="text-amber-900 dark:text-amber-200">⑤ CL 분할매도는 수익/손실 무관하게 해당 CL선에 도달하면 발동합니다. 동일 CL선은 한 번만 발동하며 더 높은 선 도달 시 재발동합니다.</p>
           <p className="text-amber-900 dark:text-amber-200">⑧ AI 거부권은 soft_ai_first 모드에서만 작동합니다. hard/conditional/disabled 모드는 AI 판단 없이 즉시 실행됩니다.</p>
         </div>
       </SectionCard>
@@ -438,9 +438,11 @@ CL폭(Width) = (현재가 - 240일최저가) / (240일최고가 × 0.2)
 [스캔 잡]      : 30분마다 조건검색식으로 후보 종목 발굴 → condition_scan_logs에 영구 저장
 [매매 잡]      : 1분마다 AI 평가 + 매수/매도 실행 (장중에만 실질 동작)
 [학습 잡]      : 매일 16:00 KST (장 종료 후) 거래 성과 분석 → 파라미터 변경 제안 생성
-  · 거래 데이터 20건 미만 → 분석 스킵
-  · 제안이 생성되면 자동매매 메뉴에 뱃지 표시 → 앱에서 검토 후 직접 적용
-  · 자동 적용: 설정 > '학습 파라미터 적용 방식' 토글로 전환 가능
+  · 거래 데이터 20건 미만 → 분석 스킵 (카드에 '데이터 부족 (현재 N건)' 메시지 표시)
+  · autoApply=OFF: 제안이 '검토 필요' 섹션에 표시 → 직접 검토 후 개별 적용/무시
+  · autoApply=ON:  제안을 즉시 설정에 반영 후 '자동 적용됨' 섹션에 기록 (무엇이 바뀌었는지 확인 가능)
+  · 토글 OFF→ON 전환 시 현재 pending 제안 전부 즉시 적용 (다음날 학습 기다릴 필요 없음)
+  · 학습 파라미터 제안 카드는 제안 없어도 항상 표시 (마지막 학습 날짜·이유 표시)
 [잔고갱신 잡]  : 5분마다 실계좌 잔고 동기화 (장중 08:30~18:00 KST 월~금)
 [매도계획 잡]  : 매일 08:50 KST 보유 종목별 AI 분할매도 계획 자동 생성
   · 꺼도 이미 저장된 계획은 계속 실행됨 (계획 삭제 필요)

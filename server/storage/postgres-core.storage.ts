@@ -1162,9 +1162,13 @@ export class PostgreSQLCoreStorage {
     return db.insert(schema.learningSuggestions).values(suggestions).returning();
   }
 
-  async getLearningSuggestions(modelId: number, status?: string): Promise<schema.LearningSuggestion[]> {
+  async getLearningSuggestions(modelId: number, status?: string | string[]): Promise<schema.LearningSuggestion[]> {
     const conditions = [eq(schema.learningSuggestions.modelId, modelId)];
-    if (status) conditions.push(eq(schema.learningSuggestions.status, status));
+    if (Array.isArray(status) && status.length > 0) {
+      conditions.push(inArray(schema.learningSuggestions.status, status));
+    } else if (typeof status === 'string' && status) {
+      conditions.push(eq(schema.learningSuggestions.status, status));
+    }
     return db.select()
       .from(schema.learningSuggestions)
       .where(and(...conditions))
@@ -1186,7 +1190,7 @@ export class PostgreSQLCoreStorage {
     return Number(rows[0]?.count ?? 0);
   }
 
-  async updateLearningSuggestionStatus(id: number, status: 'applied' | 'dismissed'): Promise<schema.LearningSuggestion | undefined> {
+  async updateLearningSuggestionStatus(id: number, status: 'applied' | 'dismissed' | 'auto_applied'): Promise<schema.LearningSuggestion | undefined> {
     const [row] = await db.update(schema.learningSuggestions)
       .set({ status, reviewedAt: new Date() })
       .where(eq(schema.learningSuggestions.id, id))

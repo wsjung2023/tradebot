@@ -1,6 +1,6 @@
 // learning.service.ts — AI 자동매매 성과 분석 및 모델 파라미터 자동 최적화 학습 서비스
 import { storage } from '../storage';
-import { TradingPerformance, AiModel, AutoTradingSettings } from '@shared/schema';
+import { TradingPerformance, AiModel, AutoTradingSettings, InsertLearningSuggestion } from '@shared/schema';
 import { getAIService } from './ai.service';
 
 export interface LearningStats {
@@ -1184,6 +1184,41 @@ export class LearningService {
 
             appliedChanges = true;
             recommendations.push('✅ 최적화 파라미터 자동 적용 완료 (가중치, 임계치, 라더, 손절정책)');
+
+            // auto_applied 기록 저장 (사용자가 무엇이 바뀌었는지 확인 가능)
+            try {
+              const autoAppliedList: InsertLearningSuggestion[] = [];
+              const recordIfChanged = (paramKey: string, before: unknown, after: unknown, reasoning: string, src: 'ai' | 'rule_based') => {
+                const b = String(before ?? ''); const a = String(after ?? '');
+                if (b !== a && a) autoAppliedList.push({ modelId, paramKey, currentValue: b, suggestedValue: a, reasoning, status: 'auto_applied', source: src });
+              };
+              recordIfChanged('themeWeight', settings.themeWeight, updates.themeWeight, `테마 가중치: 최근 ${stats.totalTrades}건 성과 분석 기반`, 'rule_based');
+              recordIfChanged('newsWeight', settings.newsWeight, updates.newsWeight, `뉴스 가중치: 뉴스 분석 기반 진입 승률 최적화`, 'rule_based');
+              recordIfChanged('financialsWeight', settings.financialsWeight, updates.financialsWeight, `재무 가중치: 재무 필터 성과 분석`, 'rule_based');
+              recordIfChanged('liquidityWeight', settings.liquidityWeight, updates.liquidityWeight, `유동성 가중치: 유동성 필터 성과 분석`, 'rule_based');
+              recordIfChanged('institutionalWeight', settings.institutionalWeight, updates.institutionalWeight, `기관 가중치: 기관매수 포함 종목 승률 분석`, 'rule_based');
+              recordIfChanged('minAiConfidence', settings.minAiConfidence, updates.minAiConfidence, `AI 신뢰도 임계치: ${calibration.recommendation}`, 'rule_based');
+              recordIfChanged('requireGoodFinancials', settings.requireGoodFinancials, updates.requireGoodFinancials, `재무 양호 필터 자동 최적화`, 'rule_based');
+              recordIfChanged('requireHighLiquidity', settings.requireHighLiquidity, updates.requireHighLiquidity, `유동성 필터 자동 최적화`, 'rule_based');
+              const currentStopMode = (settings.stopLossPolicy as any)?.mode ?? 'soft_ai_first';
+              const updatedStopMode = (updates.stopLossPolicy as any)?.mode;
+              if (updatedStopMode && currentStopMode !== updatedStopMode) {
+                autoAppliedList.push({ modelId, paramKey: 'stopLossMode', currentValue: currentStopMode, suggestedValue: updatedStopMode, reasoning: `손절 모드 자동 최적화`, status: 'auto_applied', source: 'rule_based' });
+              }
+              const currentLadder = JSON.stringify(settings.entryLadderSettings ?? []);
+              const updatedLadder = updates.entryLadderSettings ? JSON.stringify(updates.entryLadderSettings) : currentLadder;
+              if (currentLadder !== updatedLadder) {
+                autoAppliedList.push({ modelId, paramKey: 'entryLadderSettings', currentValue: currentLadder, suggestedValue: updatedLadder, reasoning: `분할매수 라더 자동 최적화`, status: 'auto_applied', source: 'rule_based' });
+              }
+              const updatedMaxUnits = String((updates as any).maxUnitsPerStock ?? '');
+              if (updatedMaxUnits) recordIfChanged('maxUnitsPerStock', String(settings.maxUnitsPerStock ?? ''), updatedMaxUnits, `AI 추천 최대 유닛 수 자동 적용`, 'ai');
+              if (autoAppliedList.length > 0) {
+                await storage.dismissAllLearningSuggestions(modelId);
+                await storage.createLearningSuggestions(autoAppliedList);
+              }
+            } catch (recordErr) {
+              console.error('[LearningService] auto_applied record save failed:', recordErr);
+            }
           }
         } catch (error) {
           console.error('Failed to apply optimizations:', error);

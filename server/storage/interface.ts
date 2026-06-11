@@ -331,9 +331,9 @@ export interface IStorage {
 
   // 학습잡 파라미터 제안
   createLearningSuggestions(suggestions: InsertLearningSuggestion[]): Promise<LearningSuggestion[]>;
-  getLearningSuggestions(modelId: number, status?: string): Promise<LearningSuggestion[]>;
+  getLearningSuggestions(modelId: number, status?: string | string[]): Promise<LearningSuggestion[]>;
   countPendingLearningSuggestions(userId: string): Promise<number>;
-  updateLearningSuggestionStatus(id: number, status: 'applied' | 'dismissed'): Promise<LearningSuggestion | undefined>;
+  updateLearningSuggestionStatus(id: number, status: 'applied' | 'dismissed' | 'auto_applied'): Promise<LearningSuggestion | undefined>;
   applyLearningSuggestion(id: number, userId: string): Promise<LearningSuggestion | undefined>;
   dismissAllLearningSuggestions(modelId: number): Promise<void>;
 }

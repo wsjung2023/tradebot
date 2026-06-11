@@ -654,24 +654,25 @@ export function registerAutoTradingRoutes(app: Router) {
 
   // ==================== Learning Suggestions ====================
 
-  // GET /api/auto-trading/suggestions/:modelId — 제안 목록
-  app.get('/api/auto-trading/suggestions/:modelId', isAuthenticated, async (req, res) => {
-    try {
-      const user = getCurrentUser(req)!;
-      const modelId = parseInt(req.params.modelId);
-      if (!await verifyModelOwnership(user.id, modelId)) return res.status(403).json({ error: 'forbidden' });
-      const status = req.query.status as string | undefined;
-      const suggestions = await storage.getLearningSuggestions(modelId, status);
-      res.json(suggestions);
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
-  });
-
-  // GET /api/auto-trading/suggestions/pending-count — 사용자 전체 pending 제안 수
+  // GET /api/auto-trading/suggestions/pending-count — 사용자 전체 pending 제안 수 (반드시 /:modelId 앞에 등록)
   app.get('/api/auto-trading/suggestions/pending-count', isAuthenticated, async (req, res) => {
     try {
       const user = getCurrentUser(req)!;
       const count = await storage.countPendingLearningSuggestions(user.id);
       res.json({ count });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/auto-trading/suggestions/:modelId — 제안 목록 (?status=pending,auto_applied 복수 가능)
+  app.get('/api/auto-trading/suggestions/:modelId', isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req)!;
+      const modelId = parseInt(req.params.modelId);
+      if (!await verifyModelOwnership(user.id, modelId)) return res.status(403).json({ error: 'forbidden' });
+      const rawStatus = req.query.status as string | undefined;
+      const status = rawStatus?.includes(',') ? rawStatus.split(',').map(s => s.trim()) : rawStatus;
+      const suggestions = await storage.getLearningSuggestions(modelId, status);
+      res.json(suggestions);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
@@ -720,7 +721,19 @@ export function registerAutoTradingRoutes(app: Router) {
       await storage.updateAutoTradingSettings(modelId, {
         learningPolicy: { ...currentPolicy, autoApply: Boolean(autoApply) },
       });
-      res.json({ ok: true, autoApply: Boolean(autoApply) });
+      // 토글 ON 전환 시 현재 pending 제안 즉시 적용
+      let appliedCount = 0;
+      if (autoApply) {
+        const pending = await storage.getLearningSuggestions(modelId, 'pending');
+        for (const s of pending) {
+          const applied = await storage.applyLearningSuggestion(s.id, user.id);
+          if (applied) {
+            await storage.updateLearningSuggestionStatus(s.id, 'auto_applied');
+            appliedCount++;
+          }
+        }
+      }
+      res.json({ ok: true, autoApply: Boolean(autoApply), appliedCount });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 }
