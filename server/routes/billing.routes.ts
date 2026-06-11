@@ -1,8 +1,9 @@
-// billing.routes.ts — 구독/플랜 관리 라우터 (Phase 1 Paddle 연동 준비)
+// billing.routes.ts — 구독/플랜 관리 라우터 (Phase 1 Paddle 연동)
 import type { Express } from 'express';
 import { storage } from '../storage';
 import { isAuthenticated, getCurrentUser } from '../auth';
-import { isPublicSaaS } from '../config';
+import { isPublicSaaS, config } from '../config';
+import { handlePaddleWebhook, buildCheckoutUrl } from '../services/paddle.service';
 
 export function registerBillingRoutes(app: Express) {
   // 플랜 목록 조회 (공개)
@@ -45,6 +46,35 @@ export function registerBillingRoutes(app: Express) {
       });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Paddle Checkout URL 생성
+  app.post('/api/billing/checkout', isAuthenticated, async (req, res) => {
+    if (!isPublicSaaS) return res.status(400).json({ error: 'Billing not available in this deployment tier' });
+    if (!config.PADDLE_API_KEY) return res.status(503).json({ error: 'Billing not configured' });
+    try {
+      const user = getCurrentUser(req)!;
+      const { planId } = req.body;
+      if (!planId) return res.status(400).json({ error: 'planId required' });
+      const url = buildCheckoutUrl(user.id, planId);
+      res.json({ checkoutUrl: url });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Paddle Webhook 수신 (서명 검증 필수)
+  app.post('/api/billing/webhook', async (req, res) => {
+    const signature = req.headers['paddle-signature'] as string;
+    if (!signature) return res.status(400).json({ error: 'Missing signature' });
+    try {
+      const rawBody = (req as any).rawBody as Buffer;
+      await handlePaddleWebhook(rawBody, signature);
+      res.json({ ok: true });
+    } catch (error: any) {
+      console.error('[Billing] Paddle webhook error:', error.message);
+      res.status(400).json({ error: error.message });
     }
   });
 }
