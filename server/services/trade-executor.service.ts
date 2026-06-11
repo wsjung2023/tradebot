@@ -1353,8 +1353,7 @@ export class TradeExecutorService {
               this.clSellHistory.delete(clKey);
             }
 
-            // CL 분할매도: 수익 구간일 때만 발동 (손실/손익분기 구간에서는 불필요한 매도 방지)
-            if (clLine >= 60 && profitRate > 0) {
+            if (clLine >= 60) {
               const matched = clRainbowSettings.find(r => r.line === clLine)
                 ?? clRainbowSettings.reduce((prev, curr) =>
                   Math.abs(curr.line - clLine) < Math.abs(prev.line - clLine) ? curr : prev);
@@ -1364,14 +1363,12 @@ export class TradeExecutorService {
               if (sw > 0 && clLine > lastCLSold) {
                 shouldSell = true;
                 sellRatio = sw / 100;
-                exitReason = `CL${clLine}% 분할매도: sellWeight=${sw}% (${matched.line}선 기준, 수익률 +${profitRate.toFixed(2)}%)`;
+                exitReason = `CL${clLine}% 분할매도: sellWeight=${sw}% (${matched.line}선 기준)`;
                 this.clSellHistory.set(clKey, clLine);
                 console.log(`    🌈 [CL매도] ${holding.stockCode} CL=${clLine}%, sellWeight=${sw}% → sellRatio=${sellRatio.toFixed(2)} (신규 레벨, lastSold=${lastCLSold})`);
               } else if (sw > 0) {
                 console.log(`    ⏭️ [CL매도 스킵] ${holding.stockCode} CL=${clLine}% 이미 매도 완료 (lastSold=${lastCLSold})`);
               }
-            } else if (clLine >= 60 && profitRate <= 0) {
-              console.log(`    ⏭️ [CL매도 스킵] ${holding.stockCode} CL=${clLine}% 이지만 수익률 ${profitRate.toFixed(2)}% ≤ 0 — 손익분기 미달, CL매도 보류`);
             }
           }
         }
