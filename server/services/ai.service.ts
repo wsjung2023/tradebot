@@ -1172,12 +1172,10 @@ let aiServiceInstance: AIService | null = null;
 
 export function getAIService(): AIService {
   if (!aiServiceInstance) {
-    const apiKey = process.env.OPENAI_API_KEY;
-
+    const apiKey = process.env.OPENAI_API_KEY || '';
     if (!apiKey) {
-      throw new Error('OpenAI API key not configured');
+      console.warn('[AIService] OPENAI_API_KEY not set — AI features will fail at call time');
     }
-
     aiServiceInstance = new AIService(apiKey);
   }
 
