@@ -1,6 +1,6 @@
 {
   "include": ["client/src/**/*", "shared/**/*", "server/**/*"],
-  "exclude": ["node_modules", "build", "dist", "**/*.test.ts", "**/*_OLD.ts"],
+  "exclude": ["node_modules", "build", "dist", "**/*.test.ts", "**/*_OLD.ts", "**/kiwoom_OLD", "**/kiwoom_OLD/**"],
   "compilerOptions": {
     "noEmit": true,
     "module": "ESNext",

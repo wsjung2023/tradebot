@@ -200,13 +200,14 @@ export class KiwoomBase {
         const code = String(d?.return_code || d?.msg_cd || "");
         const isAuthError = msg.includes("8005") || msg.includes("Token이 유효하지 않습니다") || msg.includes("인증에 실패했습니다") || code === "8005";
 
-        if (isAuthError && !res.config?._retried) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if (isAuthError && !(res.config as any)?._retried) {
           console.warn("⚠️  Kiwoom 인증 오류(본문 에러) 감지 — 토큰 강제 갱신 후 재시도");
           this.accessToken = "";
           this.tokenExpiry = 0;
           try {
             await this.ensureValidToken();
-            res.config._retried = true;
+            (res.config as any)._retried = true;
             if (this.accessToken) {
               res.config.headers.Authorization = `Bearer ${this.accessToken}`;
             }

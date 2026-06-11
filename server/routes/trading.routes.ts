@@ -185,7 +185,7 @@ export function registerTradingRoutes(app: Router) {
       const keyword = (req.query.query ?? req.query.q ?? "") as string;
       if (!keyword.trim()) return res.json([]);
       const results = await userKiwoomService.searchStock(user!.id, keyword);
-      res.json(Array.isArray(results) ? results : (results?.items || []));
+      res.json(Array.isArray(results) ? results : ((results as any)?.items || []));
     } catch (error: any) {
       if (error instanceof AgentTimeoutError) return res.status(503).json({ error: error.message });
       res.status(500).json({ error: error.message });
@@ -223,7 +223,7 @@ export function registerTradingRoutes(app: Router) {
       const dart = dartResult.status === "fulfilled" ? dartResult.value : {};
 
       // 재무 데이터 정규화 — 에이전트·레거시 모두 대응
-      const fin = financials?.output?.[0] || financials?.[0] || financials || {};
+      const fin = financials?.output?.[0] || (financials as any)?.[0] || financials || {};
       const rawInfo = (info as any)?.raw || info || {};
 
       const details = {

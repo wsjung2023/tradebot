@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -57,18 +57,19 @@ export function HoldingExitPlanDialog({ open, onOpenChange, modelId, holding }: 
     queryKey: planKey,
     queryFn: () => fetch(`/api/auto-trading/exit-plan/${modelId}/${holding.stockCode}`).then(r => r.json()),
     enabled: open,
-    onSuccess: (d) => {
-      if (!initialLoaded && d?.plan) {
-        setTakeProfitPct(d.plan.takeProfitPercent ?? '');
-        setStopLossPct(d.plan.stopLossPercent ?? '');
-        const s = (d.plan.exitStages as ExitStage[] | null) ?? [];
-        setStages(s.map(({ fulfilled: _f, ...rest }) => rest));
-        setInitialLoaded(true);
-      }
-    },
   });
 
   const plan = data?.plan;
+
+  useEffect(() => {
+    if (!initialLoaded && plan) {
+      setTakeProfitPct(plan.takeProfitPercent ?? '');
+      setStopLossPct(plan.stopLossPercent ?? '');
+      const s = (plan.exitStages as ExitStage[] | null) ?? [];
+      setStages(s.map(({ fulfilled: _f, ...rest }) => rest));
+      setInitialLoaded(true);
+    }
+  }, [plan, initialLoaded]);
 
   const generateMutation = useMutation({
     mutationFn: () => fetch(`/api/auto-trading/exit-plan/${modelId}/${holding.stockCode}/generate`, {

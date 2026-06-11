@@ -32,6 +32,7 @@ export const users = pgTable("users", {
   authProvider: text("auth_provider").notNull().default('local'), // 'local', 'google', 'kakao', 'naver'
   authProviderId: text("auth_provider_id"), // ID from OAuth provider
   isEmailVerified: boolean("is_email_verified").notNull().default(false),
+  role: text("role").notNull().default('user'), // 'admin' | 'user'
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

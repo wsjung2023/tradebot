@@ -66,6 +66,7 @@ export class KiwoomFinancial extends KiwoomBase {
             total_lblt: info.tot_lblt || "0",
             cpfn: info.cap || "0",
             // 재무비율 (ka10001에 포함됨)
+            // @ts-ignore — legacy response type doesn't include per
             per: info.per || info.PER || "0",
             pbr: info.pbr || info.PBR || "0",
             roe: info.roe || info.ROE || "0",

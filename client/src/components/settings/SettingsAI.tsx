@@ -42,12 +42,15 @@ function LearningPolicySection() {
     queryKey: ['/api/ai/models', selectedModelId, 'trading-settings'],
     queryFn: () => apiRequest('GET', `/api/ai/models/${selectedModelId}/trading-settings`).then(r => r.json()),
     enabled: !!selectedModelId,
-    onSuccess: (d: any) => {
-      const p = d?.learningPolicy;
+  });
+
+  useEffect(() => {
+    if (tsData !== undefined) {
+      const p = tsData?.learningPolicy;
       if (p) setLp({ ...LP_DEFAULTS, ...p });
       else setLp(LP_DEFAULTS);
-    },
-  });
+    }
+  }, [tsData]);
 
   const saveMutation = useMutation({
     mutationFn: () => apiRequest('PATCH', `/api/ai/models/${selectedModelId}/trading-settings`, { learningPolicy: lp }).then(r => r.json()),

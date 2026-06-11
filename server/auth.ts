@@ -6,15 +6,6 @@ import { storage } from './storage';
 import type { User } from '@shared/schema';
 import type { Express } from 'express';
 
-// ==================== Access Whitelist ====================
-// Only these emails are allowed to use the app
-const ALLOWED_EMAILS = ['mainstop3@gmail.com', 'test@test.com', 'newuser@test.com'];
-
-function isAllowedEmail(email: string | undefined | null): boolean {
-  if (!email) return false;
-  return ALLOWED_EMAILS.includes(email.toLowerCase().trim());
-}
-
 // Serialize user for session
 passport.serializeUser((user: any, done) => {
   done(null, user.id);
@@ -59,8 +50,8 @@ passport.use(
           return done(null, false, { message: 'Invalid email or password' });
         }
 
-        if (!isAllowedEmail(user.email)) {
-          return done(null, false, { message: 'Access denied' });
+        if (!user.isEmailVerified) {
+          return done(null, false, { message: 'Please verify your email before logging in' });
         }
 
         return done(null, user);
@@ -87,11 +78,6 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
       async (accessToken: any, refreshToken: any, profile: any, done: any) => {
         try {
           const googleEmail = profile.emails?.[0]?.value || '';
-
-          // Whitelist check — only allowed emails can log in
-          if (!isAllowedEmail(googleEmail)) {
-            return done(null, false, { message: 'Access denied' });
-          }
 
           // Check if user exists with this Google ID
           let user = await storage.getUserByAuthProvider('google', profile.id);
