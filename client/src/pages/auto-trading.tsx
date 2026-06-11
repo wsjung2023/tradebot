@@ -67,6 +67,13 @@ export default function AutoTrading() {
   const [learningPeriodDays, setLearningPeriodDays] = useState(30);
 
   const { data: models = [], isLoading: modelsLoading } = useQuery<AiModel[]>({ queryKey: ["/api/ai/models"] });
+
+  // 모델이 1개뿐이면 자동 선택
+  useEffect(() => {
+    if (!modelsLoading && models.length === 1 && selectedModelId === null) {
+      setSelectedModelId(models[0].id);
+    }
+  }, [models, modelsLoading]);
   const { data: accounts = [] } = useQuery<KiwoomAccount[]>({ queryKey: ["/api/accounts"] });
   const { data: recommendations = [] } = useQuery<AiRecommendation[]>({
     queryKey: ["/api/ai/models", selectedModelId, "recommendations"],
