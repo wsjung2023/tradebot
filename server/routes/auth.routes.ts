@@ -1,5 +1,6 @@
 ﻿// auth.routes.ts — 사용자 인증 라우터 (회원가입/로그인/로그아웃/소셜로그인)
 import type { Router } from "express";
+import crypto from "crypto";
 import { storage } from "../storage";
 import {
   isAuthenticated,
@@ -14,6 +15,7 @@ import {
   naverCallback,
 } from "../auth";
 import { insertUserSchema } from "@shared/schema";
+import { sendVerificationEmail } from "../services/email.service";
 
 export function registerAuthRoutes(app: Router) {
   // 이메일/비밀번호 회원가입
@@ -25,8 +27,19 @@ export function registerAuthRoutes(app: Router) {
         return res.status(400).json({ error: "Email already registered" });
       }
       const hashedPassword = await hashPassword(password!);
-      const user = await storage.createUser({ email, password: hashedPassword, name, authProvider: "local" });
+      const verificationToken = crypto.randomBytes(32).toString('hex');
+      const verificationExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24시간
+      const user = await storage.createUser({
+        email, password: hashedPassword, name, authProvider: "local",
+        emailVerificationToken: verificationToken,
+        emailVerificationExpiry: verificationExpiry,
+      });
       await storage.createUserSettings({ userId: user.id, tradingMode: "mock", riskLevel: "medium", aiModel: "gpt-5-mini" });
+      // 인증 메일 발송 (실패해도 회원가입은 성공)
+      const baseUrl = `${req.protocol}://${req.get('host')}`;
+      sendVerificationEmail(email, verificationToken, baseUrl).catch(e =>
+        console.error('[Auth] Verification email failed:', e.message)
+      );
       req.login(user, (err) => {
         if (err) return res.status(500).json({ error: "Login failed" });
         req.session.save((saveErr) => {
@@ -54,6 +67,39 @@ export function registerAuthRoutes(app: Router) {
   app.get("/api/auth/me", isAuthenticated, (req, res) => {
     const user = getCurrentUser(req);
     res.json({ user: { id: user!.id, email: user!.email, name: user!.name, profileImage: user!.profileImage, role: user!.role, onboardedAt: user!.onboardedAt } });
+  });
+
+  // 이메일 인증 확인
+  app.get("/api/auth/verify-email", async (req, res) => {
+    const { token } = req.query as { token: string };
+    if (!token) return res.status(400).send("Invalid token");
+    const user = await storage.getUserByVerificationToken(token);
+    if (!user) return res.status(400).send("유효하지 않거나 만료된 인증 링크입니다.");
+    if (user.emailVerificationExpiry && user.emailVerificationExpiry < new Date()) {
+      return res.status(400).send("인증 링크가 만료되었습니다. 재발송을 요청해주세요.");
+    }
+    await storage.updateUser(user.id, {
+      isEmailVerified: true,
+      emailVerificationToken: null,
+      emailVerificationExpiry: null,
+    });
+    res.redirect("/?verified=1");
+  });
+
+  // 인증 메일 재발송
+  app.post("/api/auth/resend-verification", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req)!;
+      if (user.isEmailVerified) return res.status(400).json({ error: "Already verified" });
+      const token = crypto.randomBytes(32).toString('hex');
+      const expiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      await storage.updateUser(user.id, { emailVerificationToken: token, emailVerificationExpiry: expiry });
+      const baseUrl = `${req.protocol}://${req.get('host')}`;
+      await sendVerificationEmail(user.email, token, baseUrl);
+      res.json({ ok: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
   });
 
   // 온보딩 완료 처리

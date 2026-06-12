@@ -57,6 +57,13 @@ export class PostgreSQLCoreStorage {
     return db.select().from(schema.users).orderBy(schema.users.createdAt);
   }
 
+  async getUserByVerificationToken(token: string): Promise<User | undefined> {
+    const rows = await db.select().from(schema.users)
+      .where(eq(schema.users.emailVerificationToken, token))
+      .limit(1);
+    return rows[0];
+  }
+
   async createUser(user: InsertUser): Promise<User> {
     const result = await db.insert(schema.users).values([user]).returning();
     return result[0];

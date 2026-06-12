@@ -92,6 +92,13 @@
       "when": 1749610800000,
       "tag": "0012_users_onboarded_at",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1749614400000,
+      "tag": "0013_email_verification",
+      "breakpoints": true
     }
   ]
 }

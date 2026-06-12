@@ -1,6 +1,7 @@
+import React from "react";
 import { Switch, Route, Redirect } from "wouter";
-import { queryClient } from "./lib/queryClient";
-import { QueryClientProvider, useQuery } from "@tanstack/react-query";
+import { queryClient, apiRequest } from "./lib/queryClient";
+import { QueryClientProvider, useQuery, useMutation } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
@@ -34,7 +35,7 @@ import AiUsage from "@/pages/ai-usage";
 import heroA from "@assets/stock_images/futuristic_ai_artifi_11460e5f.jpg";
 import heroB from "@assets/stock_images/dynamic_stock_market_da45a7fb.jpg";
 import heroC from "@assets/stock_images/futuristic_ai_artifi_f9d4da05.jpg";
-import { Sparkles, Radar, GalleryHorizontal } from "lucide-react";
+import { Sparkles, Radar, GalleryHorizontal, MailWarning } from "lucide-react";
 
 function DecorativeHeroStrip() {
   return (
@@ -114,6 +115,34 @@ function ProtectedRoute({ component: Component, ...rest }: any) {
   return <Component {...rest} />;
 }
 
+function EmailVerificationBanner() {
+  const { data } = useQuery<{ user: any }>({ queryKey: ['/api/auth/me'], retry: false });
+  const [sent, setSent] = React.useState(false);
+  const resend = useMutation({
+    mutationFn: async () => {
+      const resp = await apiRequest('POST', '/api/auth/resend-verification');
+      return resp.json();
+    },
+    onSuccess: () => setSent(true),
+  });
+  if (!data?.user || data.user.isEmailVerified !== false) return null;
+  return (
+    <div className="flex items-center justify-between gap-2 px-4 py-1.5 bg-amber-50 border-b border-amber-200 text-amber-800 text-xs">
+      <div className="flex items-center gap-1.5">
+        <MailWarning className="h-3.5 w-3.5 shrink-0" />
+        이메일 인증이 완료되지 않았습니다. 받은 편지함을 확인해주세요.
+      </div>
+      <button
+        className="underline shrink-0 disabled:opacity-50"
+        disabled={sent || resend.isPending}
+        onClick={() => resend.mutate()}
+      >
+        {sent ? '발송됨' : '재발송'}
+      </button>
+    </div>
+  );
+}
+
 function AuthenticatedRouter() {
   const style = {
     "--sidebar-width": "16rem",
@@ -125,6 +154,7 @@ function AuthenticatedRouter() {
       <div className="flex h-screen w-full app-shell-bg">
         <AppSidebar />
         <div className="flex flex-col flex-1 min-w-0">
+          <EmailVerificationBanner />
           <header className="flex items-center justify-between p-2 border-b border-white/50 bg-white/70 backdrop-blur-sm">
             <SidebarTrigger data-testid="button-sidebar-toggle" />
           </header>
