@@ -27,6 +27,7 @@ import ChartFormulaEditor from "@/pages/chart-formula-editor";
 import BackAttackScan from "@/pages/backattack-scan";
 import AdminJobs from "@/pages/admin-jobs";
 import AdminUsers from "@/pages/admin-users";
+import Onboarding from "@/pages/onboarding";
 import Monitoring from "@/pages/monitoring";
 import CandidateDecisions from "@/pages/candidate-decisions";
 import AiUsage from "@/pages/ai-usage";
@@ -104,6 +105,12 @@ function ProtectedRoute({ component: Component, ...rest }: any) {
     );
   }
 
+  // 온보딩 미완료 → /onboarding으로 리다이렉트 (/onboarding 자체는 통과)
+  const currentPath = window.location.pathname;
+  if (user?.user && !user.user.onboardedAt && currentPath !== '/onboarding') {
+    return <Redirect to="/onboarding" />;
+  }
+
   return <Component {...rest} />;
 }
 
@@ -162,6 +169,9 @@ function Router() {
     <Switch>
       <Route path="/login" component={Login} />
       <Route path="/register" component={Register} />
+      <Route path="/onboarding">
+        {(params) => <ProtectedRoute component={Onboarding} {...params} />}
+      </Route>
       <Route>
         {(params) => <ProtectedRoute component={AuthenticatedRouter} {...params} />}
       </Route>

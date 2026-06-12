@@ -85,6 +85,13 @@
       "when": 1749607200000,
       "tag": "0011_subscriptions",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1749610800000,
+      "tag": "0012_users_onboarded_at",
+      "breakpoints": true
     }
   ]
 }

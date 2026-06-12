@@ -53,7 +53,18 @@ export function registerAuthRoutes(app: Router) {
   // 현재 로그인 사용자 정보
   app.get("/api/auth/me", isAuthenticated, (req, res) => {
     const user = getCurrentUser(req);
-    res.json({ user: { id: user!.id, email: user!.email, name: user!.name, profileImage: user!.profileImage } });
+    res.json({ user: { id: user!.id, email: user!.email, name: user!.name, profileImage: user!.profileImage, role: user!.role, onboardedAt: user!.onboardedAt } });
+  });
+
+  // 온보딩 완료 처리
+  app.post("/api/auth/onboard", isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req)!;
+      const updated = await storage.updateUser(user.id, { onboardedAt: new Date() });
+      res.json({ ok: true, onboardedAt: updated?.onboardedAt });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
   });
 
   // 회원 탈퇴 — 사용자 데이터 전체 삭제 (PIPA 개인정보보호법)
