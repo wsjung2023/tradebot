@@ -1,3 +1,4 @@
+import * as Sentry from "@sentry/node";
 import express, { type Request, Response, NextFunction } from "express";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
@@ -16,6 +17,14 @@ import { jobManager } from "./job-manager";
 import { masterSettings } from "./services/master-settings.service";
 import { opsMonitorService } from "./services/ops-monitor.service";
 import { getAllowedOrigins } from "./config";
+
+if (process.env.SENTRY_DSN) {
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    environment: process.env.NODE_ENV || 'development',
+    tracesSampleRate: 0,
+  });
+}
 
 // 전역 에러 핸들러
 process.on('uncaughtException', (err) => {
@@ -207,11 +216,12 @@ httpServer.listen({ port, host: "0.0.0.0" }, () => {
     console.log('[STARTUP] Registering routes...');
     await registerRoutes(app, httpServer, sessionMiddleware);
 
-    app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+    app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
       if (res.headersSent) return;
       const status = err.status || err.statusCode || 500;
       const message = err.message || "Internal Server Error";
       console.error('[ERROR]', status, message);
+      if (status >= 500 && process.env.SENTRY_DSN) Sentry.captureException(err);
       res.status(status).json({ message });
     });
 
