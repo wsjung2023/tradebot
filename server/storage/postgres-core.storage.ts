@@ -53,6 +53,10 @@ export class PostgreSQLCoreStorage {
     return result[0];
   }
 
+  async getAllUsers(): Promise<User[]> {
+    return db.select().from(schema.users).orderBy(schema.users.createdAt);
+  }
+
   async createUser(user: InsertUser): Promise<User> {
     const result = await db.insert(schema.users).values([user]).returning();
     return result[0];

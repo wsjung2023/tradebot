@@ -26,6 +26,7 @@ import WatchlistSignals from "@/pages/watchlist-signals";
 import ChartFormulaEditor from "@/pages/chart-formula-editor";
 import BackAttackScan from "@/pages/backattack-scan";
 import AdminJobs from "@/pages/admin-jobs";
+import AdminUsers from "@/pages/admin-users";
 import Monitoring from "@/pages/monitoring";
 import CandidateDecisions from "@/pages/candidate-decisions";
 import AiUsage from "@/pages/ai-usage";
@@ -145,6 +146,7 @@ function AuthenticatedRouter() {
                 <Route path="/candidate-decisions" component={CandidateDecisions} />
                 <Route path="/ai-usage" component={AiUsage} />
                 <Route path="/admin-jobs" component={AdminJobs} />
+                <Route path="/admin-users" component={AdminUsers} />
                 <Route component={NotFound} />
               </Switch>
             </div>

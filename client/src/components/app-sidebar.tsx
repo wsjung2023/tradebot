@@ -16,6 +16,7 @@ import {
   Rainbow,
   GraduationCap,
   ServerCog,
+  UserCog,
   ClipboardList,
   Coins,
   Wallet,
@@ -55,6 +56,7 @@ const menuItems = [
   { title: "선정/탈락 이력", url: "/candidate-decisions", icon: ClipboardList },
   { title: "설정", url: "/settings", icon: Settings },
   { title: "배치잡 관리", url: "/admin-jobs", icon: ServerCog },
+  { title: "유저 관리", url: "/admin-users", icon: UserCog },
 ];
 
 export function AppSidebar() {
