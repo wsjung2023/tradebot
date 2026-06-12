@@ -2,7 +2,7 @@ import { Resend } from 'resend';
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
-const FROM = 'TradeBot <noreply@tradebot.app>';
+const FROM = process.env.EMAIL_FROM || 'TradeBot <onboarding@resend.dev>';
 
 export async function sendVerificationEmail(to: string, token: string, baseUrl: string): Promise<void> {
   if (!resend) {
