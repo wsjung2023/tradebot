@@ -1,22 +1,26 @@
 // paddle.service.ts — Paddle Billing v2 연동
+// PADDLE_SANDBOX=true → SDBX_ 세트 / false → LIVE_ 세트 자동 선택
 import crypto from 'crypto';
 import { storage } from '../storage';
-import { config } from '../config';
 
 const SANDBOX = process.env.PADDLE_SANDBOX === 'true';
 const PADDLE_API_BASE = SANDBOX ? 'https://sandbox-api.paddle.com' : 'https://api.paddle.com';
 
-export type PaddleEventType =
-  | 'subscription.created'
-  | 'subscription.updated'
-  | 'subscription.cancelled'
-  | 'subscription.activated'
-  | 'subscription.past_due'
-  | 'subscription.paused'
-  | 'subscription.resumed';
+// 현재 모드에 맞는 변수 자동 선택
+function paddleEnv() {
+  const p = SANDBOX ? 'PADDLE_SDBX_' : 'PADDLE_LIVE_';
+  return {
+    apiKey:          process.env[`${p}API_KEY`],
+    clientToken:     process.env[`${p}CLIENT_TOKEN`],
+    webhookSecret:   process.env[`${p}WEBHOOK_SECRET`],
+    priceBasic:      process.env[`${p}PRICE_BASIC`],
+    pricePro:        process.env[`${p}PRICE_PRO`],
+    priceEnterprise: process.env[`${p}PRICE_ENTERPRISE`],
+  };
+}
 
 interface PaddleWebhookEvent {
-  event_type: PaddleEventType;
+  event_type: string;
   data: {
     id: string;
     status: string;
@@ -28,10 +32,11 @@ interface PaddleWebhookEvent {
 }
 
 function priceIdToTier(priceId: string | undefined): string {
+  const env = paddleEnv();
   const map: Record<string, string> = {
-    [process.env.PADDLE_PRICE_BASIC ?? '']:      'saas_basic',
-    [process.env.PADDLE_PRICE_PRO ?? '']:        'saas_pro',
-    [process.env.PADDLE_PRICE_ENTERPRISE ?? '']: 'saas_enterprise',
+    [env.priceBasic ?? '']:      'saas_basic',
+    [env.pricePro ?? '']:        'saas_pro',
+    [env.priceEnterprise ?? '']: 'saas_enterprise',
   };
   return map[priceId ?? ''] ?? 'free';
 }
@@ -48,30 +53,28 @@ function mapPaddleStatus(s: string): string {
 }
 
 async function paddleApi(method: string, path: string, body?: unknown) {
-  if (!config.PADDLE_API_KEY) throw new Error('PADDLE_API_KEY not configured');
+  const { apiKey } = paddleEnv();
+  if (!apiKey) throw new Error(`PADDLE_${SANDBOX ? 'SDBX' : 'LIVE'}_API_KEY not configured`);
   const res = await fetch(`${PADDLE_API_BASE}${path}`, {
     method,
-    headers: {
-      Authorization: `Bearer ${config.PADDLE_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     body: body ? JSON.stringify(body) : undefined,
   });
-  const data = await res.json() as { data?: unknown; error?: { type: string; detail: string } };
+  const data = await res.json() as { data?: unknown; error?: { detail: string } };
   if (!res.ok) throw new Error(data.error?.detail ?? `Paddle API error ${res.status}`);
   return data.data;
 }
 
 // 웹훅 서명 검증 (HMAC-SHA256) + DB 업데이트
 export async function handlePaddleWebhook(rawBody: Buffer, signatureHeader: string): Promise<void> {
-  if (!config.PADDLE_WEBHOOK_SECRET) throw new Error('PADDLE_WEBHOOK_SECRET not configured');
+  const { webhookSecret } = paddleEnv();
+  if (!webhookSecret) throw new Error(`PADDLE_${SANDBOX ? 'SDBX' : 'LIVE'}_WEBHOOK_SECRET not configured`);
 
-  // Format: "ts=<timestamp>;h1=<hmac-sha256>"
   const parts = Object.fromEntries(
     signatureHeader.split(';').map(p => p.split('=') as [string, string])
   );
   const expected = crypto
-    .createHmac('sha256', config.PADDLE_WEBHOOK_SECRET)
+    .createHmac('sha256', webhookSecret)
     .update(`${parts['ts']}:${rawBody.toString('utf8')}`)
     .digest('hex');
 
@@ -100,13 +103,14 @@ export async function handlePaddleWebhook(rawBody: Buffer, signatureHeader: stri
 
 // 결제 트랜잭션 생성 → transactionId (Paddle.js overlay용)
 export async function createCheckoutTransaction(userId: string, userEmail: string, planId: string): Promise<string> {
+  const env = paddleEnv();
   const priceMap: Record<string, string | undefined> = {
-    saas_basic:      process.env.PADDLE_PRICE_BASIC,
-    saas_pro:        process.env.PADDLE_PRICE_PRO,
-    saas_enterprise: process.env.PADDLE_PRICE_ENTERPRISE,
+    saas_basic:      env.priceBasic,
+    saas_pro:        env.pricePro,
+    saas_enterprise: env.priceEnterprise,
   };
   const priceId = priceMap[planId];
-  if (!priceId) throw new Error(`Unknown plan or PADDLE_PRICE_* not configured: ${planId}`);
+  if (!priceId) throw new Error(`Unknown plan or price not configured: ${planId}`);
 
   const txn = await paddleApi('POST', '/transactions', {
     items: [{ price_id: priceId, quantity: 1 }],
@@ -116,9 +120,15 @@ export async function createCheckoutTransaction(userId: string, userEmail: strin
   return txn.id;
 }
 
-// 구독 취소 (다음 결제 기간 종료 시 적용)
+// 구독 취소
 export async function cancelSubscription(paddleSubscriptionId: string): Promise<void> {
   await paddleApi('PATCH', `/subscriptions/${paddleSubscriptionId}`, {
     scheduled_change: { action: 'cancel', effective_at: 'next_billing_period' },
   });
+}
+
+// 프론트엔드에 전달할 Paddle 설정
+export function getPaddleClientConfig() {
+  const { clientToken } = paddleEnv();
+  return { clientToken: clientToken ?? null, sandbox: SANDBOX };
 }

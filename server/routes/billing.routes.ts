@@ -2,8 +2,8 @@
 import type { Express } from 'express';
 import { storage } from '../storage';
 import { isAuthenticated, getCurrentUser } from '../auth';
-import { isPublicSaaS, config } from '../config';
-import { handlePaddleWebhook, createCheckoutTransaction, cancelSubscription } from '../services/paddle.service';
+import { isPublicSaaS } from '../config';
+import { handlePaddleWebhook, createCheckoutTransaction, cancelSubscription, getPaddleClientConfig } from '../services/paddle.service';
 
 function calcAumTier(totalKrw: number): string {
   if (totalKrw >= 100_000_000) return 'over_100m';
@@ -19,14 +19,10 @@ async function refreshAumTier(userId: string): Promise<string> {
 }
 
 export function registerBillingRoutes(app: Express) {
-  // Paddle.js v2 초기화 정보
+  // Paddle.js v2 초기화 정보 (현재 모드에 맞는 토큰 자동 선택)
   app.get('/api/billing/config', (_req, res) => {
     if (!isPublicSaaS) return res.json({ enabled: false });
-    res.json({
-      enabled: true,
-      clientToken: config.PADDLE_CLIENT_TOKEN ?? null,
-      sandbox: process.env.PADDLE_SANDBOX === 'true',
-    });
+    res.json({ enabled: true, ...getPaddleClientConfig() });
   });
 
   // 플랜 목록 조회 (공개)
@@ -74,7 +70,7 @@ export function registerBillingRoutes(app: Express) {
   // Paddle v2 트랜잭션 생성 → transactionId (Paddle.js overlay용)
   app.post('/api/billing/checkout', isAuthenticated, async (req, res) => {
     if (!isPublicSaaS) return res.status(400).json({ error: 'Billing not available in this deployment tier' });
-    if (!config.PADDLE_API_KEY) return res.status(503).json({ error: 'Billing not configured' });
+    if (!process.env[`PADDLE_${process.env.PADDLE_SANDBOX === 'true' ? 'SDBX' : 'LIVE'}_API_KEY`]) return res.status(503).json({ error: 'Billing not configured' });
     try {
       const user = getCurrentUser(req)!;
       const { planId } = req.body;

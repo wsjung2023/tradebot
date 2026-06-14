@@ -33,13 +33,22 @@ const envSchema = z.object({
   KIWOOM_APP_SECRET_MOCK: z.string().optional(),
 
   // SaaS billing — Paddle Billing v2 (public_saas only)
-  PADDLE_SANDBOX: z.enum(['true', 'false']).optional(), // 'true' = sandbox-api.paddle.com
-  PADDLE_API_KEY: z.string().optional(),                // Dashboard > Developer > API keys
-  PADDLE_WEBHOOK_SECRET: z.string().optional(),         // Dashboard > Notifications > webhook secret
-  PADDLE_CLIENT_TOKEN: z.string().optional(),           // Dashboard > Developer > Client-side tokens
-  PADDLE_PRICE_BASIC: z.string().optional(),            // pri_xxx (Basic Plan Price ID)
-  PADDLE_PRICE_PRO: z.string().optional(),              // pri_xxx (Pro Plan Price ID)
-  PADDLE_PRICE_ENTERPRISE: z.string().optional(),       // pri_xxx (Enterprise Plan Price ID)
+  // PADDLE_SANDBOX=true 이면 SDBX_ 세트, false/미설정이면 LIVE_ 세트 자동 선택
+  PADDLE_SANDBOX: z.enum(['true', 'false']).optional(),
+  // Sandbox 세트
+  PADDLE_SDBX_API_KEY: z.string().optional(),
+  PADDLE_SDBX_CLIENT_TOKEN: z.string().optional(),
+  PADDLE_SDBX_WEBHOOK_SECRET: z.string().optional(),
+  PADDLE_SDBX_PRICE_BASIC: z.string().optional(),
+  PADDLE_SDBX_PRICE_PRO: z.string().optional(),
+  PADDLE_SDBX_PRICE_ENTERPRISE: z.string().optional(),
+  // Live 세트
+  PADDLE_LIVE_API_KEY: z.string().optional(),
+  PADDLE_LIVE_CLIENT_TOKEN: z.string().optional(),
+  PADDLE_LIVE_WEBHOOK_SECRET: z.string().optional(),
+  PADDLE_LIVE_PRICE_BASIC: z.string().optional(),
+  PADDLE_LIVE_PRICE_PRO: z.string().optional(),
+  PADDLE_LIVE_PRICE_ENTERPRISE: z.string().optional(),
 
   // Monitoring
   SENTRY_DSN: z.string().optional(),
