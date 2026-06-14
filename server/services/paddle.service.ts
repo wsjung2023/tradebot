@@ -3,7 +3,8 @@ import crypto from 'crypto';
 import { storage } from '../storage';
 import { config } from '../config';
 
-const PADDLE_API_BASE = 'https://api.paddle.com';
+const PADDLE_SANDBOX = process.env.PADDLE_SANDBOX === 'true';
+const PADDLE_API_BASE = PADDLE_SANDBOX ? 'https://sandbox-api.paddle.com' : 'https://api.paddle.com';
 
 export type PaddleEventType =
   | 'subscription.created'

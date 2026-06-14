@@ -33,6 +33,7 @@ const envSchema = z.object({
   KIWOOM_APP_SECRET_MOCK: z.string().optional(),
 
   // SaaS billing (public_saas only)
+  PADDLE_SANDBOX: z.enum(['true', 'false']).optional(), // 'true' = sandbox, 'false' or unset = live
   PADDLE_API_KEY: z.string().optional(),
   PADDLE_WEBHOOK_SECRET: z.string().optional(),
   PADDLE_CLIENT_TOKEN: z.string().optional(), // frontend Paddle.js 초기화용 (test_xxx / live_xxx)

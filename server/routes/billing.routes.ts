@@ -25,6 +25,7 @@ export function registerBillingRoutes(app: Express) {
     res.json({
       enabled: true,
       clientToken: config.PADDLE_CLIENT_TOKEN ?? null,
+      sandbox: process.env.PADDLE_SANDBOX === 'true',
     });
   });
 

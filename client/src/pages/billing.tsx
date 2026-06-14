@@ -11,6 +11,7 @@ import { Check, Loader2, CreditCard, AlertTriangle, Zap } from "lucide-react";
 declare global {
   interface Window {
     Paddle?: {
+      Environment: { set: (env: 'sandbox' | 'production') => void };
       Initialize: (opts: { token: string; eventCallback?: (data: { name: string; [k: string]: unknown }) => void }) => void;
       Checkout: { open: (opts: { transactionId?: string }) => void };
     };
@@ -39,6 +40,7 @@ interface Subscription {
 interface BillingConfig {
   enabled: boolean;
   clientToken: string | null;
+  sandbox: boolean;
 }
 
 const TIER_ORDER: Record<string, number> = {
@@ -62,27 +64,23 @@ const STATUS_LABEL: Record<string, { text: string; variant: 'default' | 'seconda
   cancelled: { text: '해지 예정',  variant: 'outline' },
 };
 
-function usePaddleInit(clientToken: string | null | undefined) {
+function usePaddleInit(clientToken: string | null | undefined, sandbox: boolean) {
   const initialized = useRef(false);
 
   useEffect(() => {
     if (!clientToken || initialized.current) return;
-    if (window.Paddle) {
-      window.Paddle.Initialize({ token: clientToken });
-      initialized.current = true;
-      return;
-    }
-    const script = document.createElement('script');
-    script.src = 'https://cdn.paddle.com/paddle/v2/paddle.js';
-    script.onload = () => {
+    const init = () => {
+      if (sandbox) window.Paddle!.Environment.set('sandbox');
       window.Paddle!.Initialize({ token: clientToken });
       initialized.current = true;
     };
+    if (window.Paddle) { init(); return; }
+    const script = document.createElement('script');
+    script.src = 'https://cdn.paddle.com/paddle/v2/paddle.js';
+    script.onload = init;
     document.head.appendChild(script);
-    return () => {
-      if (!initialized.current) document.head.removeChild(script);
-    };
-  }, [clientToken]);
+    return () => { if (!initialized.current) document.head.removeChild(script); };
+  }, [clientToken, sandbox]);
 }
 
 export default function Billing() {
@@ -105,7 +103,7 @@ export default function Billing() {
     queryFn: async () => { const r = await apiRequest('GET', '/api/billing/subscription'); return r.json(); },
   });
 
-  usePaddleInit(billingConfig?.clientToken);
+  usePaddleInit(billingConfig?.clientToken, billingConfig?.sandbox ?? false);
 
   const checkoutMutation = useMutation({
     mutationFn: async (planId: string) => {
