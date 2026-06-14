@@ -4,6 +4,7 @@ import { storage } from '../storage';
 import { isAuthenticated, getCurrentUser } from '../auth';
 import { isPublicSaaS } from '../config';
 import { handlePaddleWebhook, createCheckoutTransaction, cancelSubscription, getPaddleClientConfig, syncSubscriptionFromTransaction } from '../services/paddle.service';
+import { getLimits } from '../services/tier-limits.service';
 
 function calcAumTier(totalKrw: number): string {
   if (totalKrw >= 100_000_000) return 'over_100m';
@@ -54,6 +55,7 @@ export function registerBillingRoutes(app: Express) {
         subscription = await storage.upsertSubscription({ userId: user.id, aumTier: newAumTier });
       }
 
+      const limits = getLimits(subscription.tier);
       res.json({
         tier: subscription.tier,
         status: subscription.status,
@@ -61,6 +63,11 @@ export function registerBillingRoutes(app: Express) {
         aumTier: subscription.aumTier,
         isPaidPlan: subscription.tier !== 'free',
         paddleSubscriptionId: subscription.paddleSubscriptionId ?? null,
+        limits: {
+          maxRealAccounts: limits.maxRealAccounts,
+          maxAiAnalysisPerDay: limits.maxAiAnalysisPerDay,
+          canAutoApply: limits.canAutoApply,
+        },
       });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
