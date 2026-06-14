@@ -84,6 +84,7 @@ export async function handlePaddleWebhook(rawBody: Buffer, signatureHeader: stri
   const userId = event.data.custom_data?.user_id;
   if (!userId) return;
 
+  const isSubscriptionEvent = event.event_type.startsWith('subscription.');
   const priceId = event.data.items?.[0]?.price?.id;
   const tier = priceIdToTier(priceId);
   const status = mapPaddleStatus(event.data.status);
@@ -93,8 +94,11 @@ export async function handlePaddleWebhook(rawBody: Buffer, signatureHeader: stri
 
   await storage.upsertSubscription({
     userId,
-    paddleSubscriptionId: event.data.id,
-    paddleCustomerId: event.data.customer_id,
+    // transaction 이벤트는 txn_xxx ID를 subscription ID로 저장하지 않음
+    ...(isSubscriptionEvent && {
+      paddleSubscriptionId: event.data.id,
+      paddleCustomerId: event.data.customer_id,
+    }),
     tier: event.event_type === 'subscription.cancelled' ? 'free' : tier,
     status,
     currentPeriodEnd: currentPeriodEnd ?? null,
@@ -116,6 +120,8 @@ export async function createCheckoutTransaction(userId: string, userEmail: strin
     items: [{ price_id: priceId, quantity: 1 }],
     customer: { email: userEmail },
     custom_data: { user_id: userId },
+    // subscription 이벤트 웹훅에도 user_id가 포함되도록 subscription_data도 설정
+    subscription_data: { custom_data: { user_id: userId } },
   }) as { id: string };
   return txn.id;
 }
