@@ -133,6 +133,40 @@ export async function cancelSubscription(paddleSubscriptionId: string): Promise<
   });
 }
 
+// txn_xxx → 실제 sub_xxx + 기간 정보 동기화 (이전 버그로 잘못 저장된 구독 ID 복구용)
+export async function syncSubscriptionFromTransaction(txnId: string): Promise<{
+  paddleSubscriptionId: string | null;
+  paddleCustomerId: string | null;
+  currentPeriodEnd: Date | null;
+  tier: string;
+  status: string;
+} | null> {
+  const txn = await paddleApi('GET', `/transactions/${txnId}`) as {
+    subscription_id?: string;
+    customer_id?: string;
+    status?: string;
+    items?: Array<{ price: { id: string } }>;
+  };
+  if (!txn?.subscription_id) return null;
+
+  const sub = await paddleApi('GET', `/subscriptions/${txn.subscription_id}`) as {
+    id: string;
+    customer_id: string;
+    status: string;
+    current_billing_period?: { ends_at?: string };
+    items?: Array<{ price: { id: string } }>;
+  };
+
+  const priceId = sub.items?.[0]?.price?.id ?? txn.items?.[0]?.price?.id;
+  return {
+    paddleSubscriptionId: sub.id,
+    paddleCustomerId: sub.customer_id,
+    currentPeriodEnd: sub.current_billing_period?.ends_at ? new Date(sub.current_billing_period.ends_at) : null,
+    tier: priceIdToTier(priceId),
+    status: mapPaddleStatus(sub.status),
+  };
+}
+
 // 프론트엔드에 전달할 Paddle 설정
 export function getPaddleClientConfig() {
   const { clientToken } = paddleEnv();

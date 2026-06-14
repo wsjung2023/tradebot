@@ -148,6 +148,20 @@ export default function Billing() {
     },
   });
 
+  const syncMutation = useMutation({
+    mutationFn: async () => {
+      const r = await apiRequest('POST', '/api/billing/sync');
+      return r.json();
+    },
+    onSuccess: () => {
+      toast({ title: '동기화 완료', description: '구독 정보가 업데이트되었습니다.' });
+      queryClient.invalidateQueries({ queryKey: ['/api/billing/subscription'] });
+    },
+    onError: (e: any) => {
+      toast({ variant: 'destructive', title: '동기화 실패', description: e.message });
+    },
+  });
+
   function handleUpgrade(planId: string) {
     setCheckingOut(planId);
     checkoutMutation.mutate(planId);
@@ -205,7 +219,16 @@ export default function Billing() {
                   다음 결제일: {new Date(subscription.currentPeriodEnd).toLocaleDateString('ko-KR')}
                 </p>
               )}
-              {subscription.isPaidPlan && subscription.status === 'active' && !cancelConfirm && (
+              {subscription.isPaidPlan && subscription.paddleSubscriptionId?.startsWith('txn_') && (
+                <div className="flex items-center gap-3 p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-800">
+                  <p className="text-sm flex-1">구독 정보 동기화가 필요합니다.</p>
+                  <Button size="sm" variant="outline" disabled={syncMutation.isPending}
+                    onClick={() => syncMutation.mutate()}>
+                    {syncMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : '동기화'}
+                  </Button>
+                </div>
+              )}
+              {subscription.isPaidPlan && subscription.status === 'active' && !cancelConfirm && !subscription.paddleSubscriptionId?.startsWith('txn_') && (
                 <Button size="sm" variant="outline" className="text-destructive border-destructive/30 hover:bg-destructive/5"
                   onClick={() => setCancelConfirm(true)}>
                   구독 해지

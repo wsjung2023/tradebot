@@ -3,7 +3,7 @@ import type { Express } from 'express';
 import { storage } from '../storage';
 import { isAuthenticated, getCurrentUser } from '../auth';
 import { isPublicSaaS } from '../config';
-import { handlePaddleWebhook, createCheckoutTransaction, cancelSubscription, getPaddleClientConfig } from '../services/paddle.service';
+import { handlePaddleWebhook, createCheckoutTransaction, cancelSubscription, getPaddleClientConfig, syncSubscriptionFromTransaction } from '../services/paddle.service';
 
 function calcAumTier(totalKrw: number): string {
   if (totalKrw >= 100_000_000) return 'over_100m';
@@ -99,6 +99,38 @@ export function registerBillingRoutes(app: Express) {
       res.json({ ok: true, message: '다음 결제 기간 종료 시 구독이 해지됩니다.' });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
+    }
+  });
+
+  // 구독 정보 Paddle에서 재동기화 (txn_ ID로 잘못 저장된 경우 복구)
+  app.post('/api/billing/sync', isAuthenticated, async (req, res) => {
+    if (!isPublicSaaS) return res.status(400).json({ error: 'Not applicable' });
+    try {
+      const user = getCurrentUser(req)!;
+      const sub = await storage.getUserSubscription(user.id);
+      if (!sub) return res.status(404).json({ error: '구독 정보 없음' });
+
+      const paddleSubId = sub.paddleSubscriptionId;
+      if (!paddleSubId) return res.status(400).json({ error: 'Paddle 구독 ID 없음' });
+
+      // txn_ 으로 시작하면 transaction ID → subscription ID 변환
+      if (paddleSubId.startsWith('txn_')) {
+        const synced = await syncSubscriptionFromTransaction(paddleSubId);
+        if (!synced) return res.status(404).json({ error: 'Paddle에서 구독 정보를 찾을 수 없음' });
+        await storage.upsertSubscription({
+          userId: user.id,
+          paddleSubscriptionId: synced.paddleSubscriptionId ?? undefined,
+          paddleCustomerId: synced.paddleCustomerId ?? undefined,
+          tier: synced.tier,
+          status: synced.status,
+          currentPeriodEnd: synced.currentPeriodEnd,
+        });
+        return res.json({ ok: true, synced });
+      }
+
+      return res.json({ ok: true, message: '이미 올바른 구독 ID' });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
     }
   });
 
