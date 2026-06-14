@@ -35,6 +35,10 @@ const envSchema = z.object({
   // SaaS billing (public_saas only)
   PADDLE_API_KEY: z.string().optional(),
   PADDLE_WEBHOOK_SECRET: z.string().optional(),
+  PADDLE_CLIENT_TOKEN: z.string().optional(), // frontend Paddle.js 초기화용 (test_xxx / live_xxx)
+  PADDLE_PRICE_BASIC: z.string().optional(),
+  PADDLE_PRICE_PRO: z.string().optional(),
+  PADDLE_PRICE_ENTERPRISE: z.string().optional(),
 
   // Monitoring
   SENTRY_DSN: z.string().optional(),

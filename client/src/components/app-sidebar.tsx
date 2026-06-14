@@ -21,6 +21,7 @@ import {
   ClipboardList,
   Coins,
   Wallet,
+  CreditCard,
 } from "lucide-react";
 import {
   Sidebar,
@@ -56,6 +57,7 @@ const menuItems = [
   { title: "뒷차기2 스캔", url: "/backattack-scan", icon: Rainbow },
   { title: "선정/탈락 이력", url: "/candidate-decisions", icon: ClipboardList },
   { title: "설정", url: "/settings", icon: Settings },
+  { title: "구독 관리", url: "/billing", icon: CreditCard },
   { title: "배치잡 관리", url: "/admin-jobs", icon: ServerCog },
   { title: "유저 관리", url: "/admin-users", icon: UserCog },
   { title: "Private Cloud", url: "/admin-private-cloud", icon: Server },

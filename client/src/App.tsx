@@ -29,6 +29,7 @@ import BackAttackScan from "@/pages/backattack-scan";
 import AdminJobs from "@/pages/admin-jobs";
 import AdminUsers from "@/pages/admin-users";
 import AdminPrivateCloud from "@/pages/admin-private-cloud";
+import Billing from "@/pages/billing";
 import Onboarding from "@/pages/onboarding";
 import Monitoring from "@/pages/monitoring";
 import CandidateDecisions from "@/pages/candidate-decisions";
@@ -186,6 +187,7 @@ function AuthenticatedRouter() {
                 <Route path="/admin-jobs" component={AdminJobs} />
                 <Route path="/admin-users" component={AdminUsers} />
                 <Route path="/admin-private-cloud" component={AdminPrivateCloud} />
+                <Route path="/billing" component={Billing} />
                 <Route component={NotFound} />
               </Switch>
             </div>
