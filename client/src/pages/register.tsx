@@ -1,33 +1,30 @@
 import { useState } from "react";
-import { useLocation } from "wouter";
 import { useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { UserPlus, Shield, Sparkles } from "lucide-react";
+import { UserPlus, Shield, Sparkles, MailCheck } from "lucide-react";
 import heroImage from "@assets/stock_images/futuristic_ai_artifi_f9d4da05.jpg";
 
 export default function Register() {
-  const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [name, setName] = useState("");
+  const [pendingEmail, setPendingEmail] = useState<string | null>(null);
 
   const registerMutation = useMutation({
     mutationFn: async (userData: { email: string; password: string; name: string }) => {
-      return await apiRequest('POST', '/api/auth/register', userData);
+      const res = await apiRequest('POST', '/api/auth/register', userData);
+      return res.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/auth/me'] });
-      toast({
-        title: "회원가입 성공",
-        description: "환영합니다! 로그인되었습니다.",
-      });
-      setLocation('/');
+    onSuccess: (data: any) => {
+      if (data.pendingVerification) {
+        setPendingEmail(data.email);
+      }
     },
     onError: (error: any) => {
       toast({
@@ -61,6 +58,31 @@ export default function Register() {
 
     registerMutation.mutate({ email, password, name });
   };
+
+  if (pendingEmail) {
+    return (
+      <div className="relative flex items-center justify-center min-h-screen overflow-hidden">
+        <div className="absolute inset-0 bg-cover bg-center bg-no-repeat" style={{ backgroundImage: `url(${heroImage})` }} />
+        <div className="absolute inset-0 bg-gradient-to-br from-[#2D1B69]/95 via-[#1E3A8A]/85 to-[#0A0E27]/90" />
+        <div className="relative z-10 w-full max-w-md px-4 text-center space-y-6">
+          <div className="flex justify-center">
+            <div className="p-5 rounded-full bg-green-500/20 border border-green-400/30">
+              <MailCheck className="h-14 w-14 text-green-400" />
+            </div>
+          </div>
+          <h2 className="text-3xl font-bold text-white">이메일을 확인해주세요</h2>
+          <p className="text-white/70 text-lg">{pendingEmail}</p>
+          <p className="text-white/60 text-sm">
+            인증 링크를 클릭하면 로그인할 수 있습니다.<br />
+            메일이 오지 않으면 스팸 폴더를 확인해주세요.
+          </p>
+          <a href="/login" className="inline-block mt-4 text-sm text-[hsl(var(--neon-cyan))] hover:underline">
+            로그인 페이지로 이동
+          </a>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="relative flex items-center justify-center min-h-screen overflow-hidden">

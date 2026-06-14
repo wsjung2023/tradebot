@@ -40,13 +40,8 @@ export function registerAuthRoutes(app: Router) {
       sendVerificationEmail(email, verificationToken, baseUrl).catch(e =>
         console.error('[Auth] Verification email failed:', e.message)
       );
-      req.login(user, (err) => {
-        if (err) return res.status(500).json({ error: "Login failed" });
-        req.session.save((saveErr) => {
-          if (saveErr) return res.status(500).json({ error: "Session save failed" });
-          res.json({ user: { id: user.id, email: user.email, name: user.name } });
-        });
-      });
+      // 이메일 인증 전까지 로그인 처리하지 않음
+      res.json({ pendingVerification: true, email: user.email });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
@@ -83,7 +78,7 @@ export function registerAuthRoutes(app: Router) {
       emailVerificationToken: null,
       emailVerificationExpiry: null,
     });
-    res.redirect("/?verified=1");
+    res.redirect("/login?verified=1");
   });
 
   // 인증 메일 재발송

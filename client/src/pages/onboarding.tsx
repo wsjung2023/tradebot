@@ -37,7 +37,10 @@ export default function Onboarding() {
       return resp.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      queryClient.setQueryData(["/api/auth/me"], (old: any) => ({
+        ...old,
+        user: { ...old?.user, onboardedAt: new Date().toISOString() },
+      }));
       setLocation("/");
     },
   });

@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useLocation } from "wouter";
+import { useState, useEffect } from "react";
+import { useLocation, useSearch } from "wouter";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -7,12 +7,19 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { SiGoogle } from "react-icons/si";
-import { TrendingUp, Zap, Bot } from "lucide-react";
+import { TrendingUp, Zap, Bot, CheckCircle2 } from "lucide-react";
 import heroImage from "@assets/stock_images/futuristic_ai_artifi_11460e5f.jpg";
 
 export default function Login() {
   const [, setLocation] = useLocation();
+  const search = useSearch();
   const { toast } = useToast();
+
+  useEffect(() => {
+    if (new URLSearchParams(search).get('verified') === '1') {
+      toast({ title: "이메일 인증 완료", description: "로그인해주세요." });
+    }
+  }, []);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
