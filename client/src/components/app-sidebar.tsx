@@ -17,6 +17,7 @@ import {
   GraduationCap,
   ServerCog,
   UserCog,
+  Server,
   ClipboardList,
   Coins,
   Wallet,
@@ -57,6 +58,7 @@ const menuItems = [
   { title: "설정", url: "/settings", icon: Settings },
   { title: "배치잡 관리", url: "/admin-jobs", icon: ServerCog },
   { title: "유저 관리", url: "/admin-users", icon: UserCog },
+  { title: "Private Cloud", url: "/admin-private-cloud", icon: Server },
 ];
 
 export function AppSidebar() {

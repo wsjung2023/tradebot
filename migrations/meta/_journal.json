@@ -99,6 +99,13 @@
       "when": 1749614400000,
       "tag": "0013_email_verification",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1749700000000,
+      "tag": "0014_private_cloud_customers",
+      "breakpoints": true
     }
   ]
 }

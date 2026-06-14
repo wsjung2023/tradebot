@@ -1,8 +1,10 @@
-// admin.routes.ts — 관리자 전용 API (Job 관리 + 유저 관리)
+// admin.routes.ts — 관리자 전용 API (Job 관리 + 유저 관리 + Private Cloud)
 import type { Express } from 'express';
 import { jobManager } from '../job-manager';
 import { requireAdmin } from '../middleware/require-admin';
 import { storage } from '../storage';
+import { pool } from '../db';
+import { provisionPrivateCloudInstance, deprovisionPrivateCloudInstance } from '../services/railway-provisioner.service';
 
 export function registerAdminRoutes(app: Express) {
   app.get('/api/admin/jobs', requireAdmin, (_req, res) => {
@@ -68,5 +70,87 @@ export function registerAdminRoutes(app: Express) {
     const updated = await storage.updateUser(req.params.id, { role });
     if (!updated) return res.status(404).json({ error: 'User not found' });
     res.json({ id: updated.id, email: updated.email, role: updated.role });
+  });
+
+  // ── Private Cloud 고객 관리 ──
+
+  // 목록 조회
+  app.get('/api/admin/private-cloud', requireAdmin, async (_req, res) => {
+    const { rows } = await pool.query(
+      `SELECT * FROM private_cloud_customers ORDER BY created_at DESC`
+    );
+    res.json(rows);
+  });
+
+  // 고객 등록 + 프로비저닝 시작
+  app.post('/api/admin/private-cloud', requireAdmin, async (req, res) => {
+    const { name, email, companyName, subdomain, monthlyFeeKrw, notes } = req.body;
+    if (!name || !email || !subdomain) {
+      return res.status(400).json({ error: 'name, email, subdomain 필수' });
+    }
+    // subdomain 중복 확인
+    const dup = await pool.query(
+      `SELECT id FROM private_cloud_customers WHERE subdomain=$1`, [subdomain]
+    );
+    if (dup.rows.length) return res.status(400).json({ error: '이미 사용 중인 서브도메인입니다.' });
+
+    const { rows } = await pool.query(
+      `INSERT INTO private_cloud_customers (name, email, company_name, subdomain, monthly_fee_krw, notes)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [name, email, companyName || null, subdomain, monthlyFeeKrw || null, notes || null]
+    );
+    const customer = rows[0];
+
+    // 비동기 프로비저닝 (응답은 즉시 반환)
+    provisionPrivateCloudInstance({
+      customerId: customer.id,
+      customerName: name,
+      customerEmail: email,
+      subdomain,
+    }).catch(err => console.error(`[PrivateCloud] 프로비저닝 실패 customer=${customer.id}:`, err.message));
+
+    res.status(201).json(customer);
+  });
+
+  // 단건 조회 (프로비저닝 상태 폴링용)
+  app.get('/api/admin/private-cloud/:id', requireAdmin, async (req, res) => {
+    const { rows } = await pool.query(
+      `SELECT * FROM private_cloud_customers WHERE id=$1`, [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Not found' });
+    res.json(rows[0]);
+  });
+
+  // 고객 정보 수정
+  app.patch('/api/admin/private-cloud/:id', requireAdmin, async (req, res) => {
+    const { notes, monthlyFeeKrw } = req.body;
+    const { rows } = await pool.query(
+      `UPDATE private_cloud_customers SET notes=$1, monthly_fee_krw=$2 WHERE id=$3 RETURNING *`,
+      [notes ?? null, monthlyFeeKrw ?? null, req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Not found' });
+    res.json(rows[0]);
+  });
+
+  // 인스턴스 비활성화 (Railway 프로젝트 삭제)
+  app.delete('/api/admin/private-cloud/:id', requireAdmin, async (req, res) => {
+    await deprovisionPrivateCloudInstance(parseInt(req.params.id, 10));
+    res.json({ ok: true });
+  });
+
+  // 프로비저닝 재시도 (failed 상태)
+  app.post('/api/admin/private-cloud/:id/reprovision', requireAdmin, async (req, res) => {
+    const { rows } = await pool.query(
+      `SELECT * FROM private_cloud_customers WHERE id=$1`, [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Not found' });
+    const c = rows[0];
+    provisionPrivateCloudInstance({
+      customerId: c.id,
+      customerName: c.name,
+      customerEmail: c.email,
+      subdomain: c.subdomain,
+    }).catch(err => console.error(`[PrivateCloud] 재프로비저닝 실패:`, err.message));
+    res.json({ ok: true, message: '프로비저닝을 다시 시작했습니다.' });
   });
 }
