@@ -15,42 +15,37 @@ export function log(message: string, source = "express") {
 }
 
 export async function setupVite(app: Express, server: Server) {
-  // Dynamic imports: vite + nanoid are devDependencies, not available in production runtime
+  // Dynamic imports only — vite/nanoid are devDependencies, not available in production.
+  // vite.config.ts is NOT imported here; Vite auto-discovers it via configFile detection.
   const { createServer: createViteServer, createLogger } = await import('vite');
-  const { default: viteConfig } = await import('../vite.config');
   const { nanoid } = await import('nanoid');
 
   const viteLogger = createLogger();
   const devPort = parseInt(process.env.PORT || "5000", 10);
-  const serverOptions = {
-    middlewareMode: true,
-    hmr: {
-      server,
-      host: "127.0.0.1",
-      protocol: "ws" as const,
-      clientPort: devPort,
-      port: devPort,
-    },
-    allowedHosts: true as const,
-  };
 
   const vite = await createViteServer({
-    ...viteConfig,
-    configFile: false,
+    // configFile omitted → Vite auto-discovers vite.config.ts at project root
     customLogger: {
       ...viteLogger,
       error: (msg, options) => {
         viteLogger.error(msg, options);
-        // Do not terminate dev server on blocked/invalid requests.
-        // Keep Vite's security block in place but preserve availability.
         const text = typeof msg === "string" ? msg : String(msg);
         if (text.includes("outside of Vite serving allow list")) {
           return;
         }
-        // For other Vite errors, log only (no hard exit).
       },
     },
-    server: serverOptions,
+    server: {
+      middlewareMode: true,
+      hmr: {
+        server,
+        host: "127.0.0.1",
+        protocol: "ws" as const,
+        clientPort: devPort,
+        port: devPort,
+      },
+      allowedHosts: true as const,
+    },
     appType: "custom",
   });
 
