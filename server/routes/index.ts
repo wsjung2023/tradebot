@@ -14,6 +14,7 @@ import { registerAdminRoutes } from "./admin.routes";
 import { registerBillingRoutes } from "./billing.routes";
 import { registerSettingsRoutes } from "./settings.routes";
 import { registerMonitoringRoutes } from "./monitoring.routes";
+import { registerReportsRoutes } from "./reports.routes";
 import { masterSettingsRouter } from "./master-settings.routes";
 import { storage } from "../storage";
 import { getOrderSyncService } from "../services/order-sync.service";
@@ -32,6 +33,7 @@ export async function registerRoutes(app: Express, httpServer: Server, sessionMi
   registerBillingRoutes(app as any);
   registerSettingsRoutes(app as any);
   registerMonitoringRoutes(app as any);
+  registerReportsRoutes(app as any);
   app.use("/api/master-settings", masterSettingsRouter);
 
   const orderSyncService = getOrderSyncService();
