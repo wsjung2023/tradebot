@@ -32,14 +32,14 @@ const envSchema = z.object({
   KIWOOM_APP_KEY_MOCK: z.string().optional(),
   KIWOOM_APP_SECRET_MOCK: z.string().optional(),
 
-  // SaaS billing (public_saas only)
-  PADDLE_SANDBOX: z.enum(['true', 'false']).optional(), // 'true' = sandbox, 'false' or unset = live
-  PADDLE_API_KEY: z.string().optional(),
-  PADDLE_WEBHOOK_SECRET: z.string().optional(),
-  PADDLE_CLIENT_TOKEN: z.string().optional(), // frontend Paddle.js 초기화용 (test_xxx / live_xxx)
-  PADDLE_PRICE_BASIC: z.string().optional(),
-  PADDLE_PRICE_PRO: z.string().optional(),
-  PADDLE_PRICE_ENTERPRISE: z.string().optional(),
+  // SaaS billing — Paddle Classic (public_saas only)
+  PADDLE_SANDBOX: z.enum(['true', 'false']).optional(), // 'true' = sandbox
+  PADDLE_VENDOR_ID: z.string().optional(),              // 숫자형 Vendor ID
+  PADDLE_VENDOR_AUTH_CODE: z.string().optional(),       // API 인증 코드 (Dashboard > Developer Tools)
+  PADDLE_PUBLIC_KEY: z.string().optional(),             // 웹훅 서명 검증용 RSA 공개키
+  PADDLE_PLAN_BASIC: z.string().optional(),             // 숫자형 Plan ID
+  PADDLE_PLAN_PRO: z.string().optional(),
+  PADDLE_PLAN_ENTERPRISE: z.string().optional(),
 
   // Monitoring
   SENTRY_DSN: z.string().optional(),

@@ -1,9 +1,9 @@
-// billing.routes.ts — 구독/플랜 관리 라우터 (Phase 1 Paddle 연동)
+// billing.routes.ts — 구독/플랜 관리 라우터 (Paddle Classic)
 import type { Express } from 'express';
 import { storage } from '../storage';
 import { isAuthenticated, getCurrentUser } from '../auth';
-import { isPublicSaaS, config } from '../config';
-import { handlePaddleWebhook, createCheckoutTransaction, cancelSubscription } from '../services/paddle.service';
+import { isPublicSaaS } from '../config';
+import { handlePaddleWebhook, cancelSubscription, getPlanId } from '../services/paddle.service';
 
 function calcAumTier(totalKrw: number): string {
   if (totalKrw >= 100_000_000) return 'over_100m';
@@ -19,12 +19,12 @@ async function refreshAumTier(userId: string): Promise<string> {
 }
 
 export function registerBillingRoutes(app: Express) {
-  // Paddle.js 초기화용 클라이언트 토큰 노출 (공개, 읽기 전용)
+  // Paddle.js Classic 초기화 정보 (Vendor ID + sandbox 여부)
   app.get('/api/billing/config', (_req, res) => {
     if (!isPublicSaaS) return res.json({ enabled: false });
     res.json({
       enabled: true,
-      clientToken: config.PADDLE_CLIENT_TOKEN ?? null,
+      vendorId: process.env.PADDLE_VENDOR_ID ?? null,
       sandbox: process.env.PADDLE_SANDBOX === 'true',
     });
   });
@@ -71,26 +71,21 @@ export function registerBillingRoutes(app: Express) {
     }
   });
 
-  // Paddle 체크아웃 트랜잭션 생성 → transactionId 반환 (Paddle.js overlay용)
+  // Paddle Classic Plan ID 조회 (클라이언트 Paddle.Checkout.open 호출용)
   app.post('/api/billing/checkout', isAuthenticated, async (req, res) => {
     if (!isPublicSaaS) return res.status(400).json({ error: 'Billing not available in this deployment tier' });
-    if (!config.PADDLE_API_KEY) return res.status(503).json({ error: 'Billing not configured' });
+    if (!process.env.PADDLE_VENDOR_ID) return res.status(503).json({ error: 'Billing not configured' });
     try {
-      const user = getCurrentUser(req)!;
       const { planId } = req.body;
       if (!planId) return res.status(400).json({ error: 'planId required' });
-
-      const dbUser = await storage.getUser(user.id);
-      const userEmail = dbUser?.email ?? '';
-
-      const transactionId = await createCheckoutTransaction(user.id, userEmail, planId);
-      res.json({ transactionId });
+      const paddlePlanId = getPlanId(planId);
+      res.json({ paddlePlanId });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
   });
 
-  // 구독 취소 (다음 결제 기간 종료 시 적용)
+  // 구독 취소
   app.post('/api/billing/subscription/cancel', isAuthenticated, async (req, res) => {
     if (!isPublicSaaS) return res.status(400).json({ error: 'Not applicable' });
     try {
@@ -106,13 +101,11 @@ export function registerBillingRoutes(app: Express) {
     }
   });
 
-  // Paddle Webhook 수신
+  // Paddle Classic Webhook (application/x-www-form-urlencoded)
+  // express.urlencoded가 req.body로 파싱해줌
   app.post('/api/billing/webhook', async (req, res) => {
-    const signature = req.headers['paddle-signature'] as string;
-    if (!signature) return res.status(400).json({ error: 'Missing signature' });
     try {
-      const rawBody = (req as any).rawBody as Buffer;
-      await handlePaddleWebhook(rawBody, signature);
+      await handlePaddleWebhook(req.body as Record<string, string>);
       res.json({ ok: true });
     } catch (error: any) {
       console.error('[Billing] Paddle webhook error:', error.message);

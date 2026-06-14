@@ -7,13 +7,21 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { useToast } from "@/hooks/use-toast";
 import { Check, Loader2, CreditCard, AlertTriangle, Zap } from "lucide-react";
 
-// Paddle.js 타입
+// Paddle Classic 타입
 declare global {
   interface Window {
     Paddle?: {
-      Environment: { set: (env: 'sandbox' | 'production') => void };
-      Initialize: (opts: { token: string; eventCallback?: (data: { name: string; [k: string]: unknown }) => void }) => void;
-      Checkout: { open: (opts: { transactionId?: string }) => void };
+      Environment: { set: (env: 'sandbox') => void };
+      Setup: (opts: { vendor: number }) => void;
+      Checkout: {
+        open: (opts: {
+          product: number;
+          email?: string;
+          passthrough?: string;
+          successCallback?: (data: unknown) => void;
+          closeCallback?: () => void;
+        }) => void;
+      };
     };
   }
 }
@@ -39,15 +47,12 @@ interface Subscription {
 
 interface BillingConfig {
   enabled: boolean;
-  clientToken: string | null;
+  vendorId: string | null;
   sandbox: boolean;
 }
 
 const TIER_ORDER: Record<string, number> = {
-  free: 0,
-  saas_basic: 1,
-  saas_pro: 2,
-  saas_enterprise: 3,
+  free: 0, saas_basic: 1, saas_pro: 2, saas_enterprise: 3,
 };
 
 const AUM_TIER_LABEL: Record<string, string> = {
@@ -58,35 +63,41 @@ const AUM_TIER_LABEL: Record<string, string> = {
 };
 
 const STATUS_LABEL: Record<string, { text: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
-  active:    { text: '구독 중',    variant: 'default' },
-  trialing:  { text: '체험 중',    variant: 'secondary' },
-  past_due:  { text: '결제 실패',  variant: 'destructive' },
-  cancelled: { text: '해지 예정',  variant: 'outline' },
+  active:    { text: '구독 중',   variant: 'default' },
+  trialing:  { text: '체험 중',   variant: 'secondary' },
+  past_due:  { text: '결제 실패', variant: 'destructive' },
+  cancelled: { text: '해지 예정', variant: 'outline' },
 };
 
-function usePaddleInit(clientToken: string | null | undefined, sandbox: boolean) {
+function usePaddleSetup(vendorId: string | null | undefined, sandbox: boolean) {
   const initialized = useRef(false);
 
   useEffect(() => {
-    if (!clientToken || initialized.current) return;
-    const init = () => {
+    if (!vendorId || initialized.current) return;
+    const vid = parseInt(vendorId, 10);
+    const setup = () => {
       if (sandbox) window.Paddle!.Environment.set('sandbox');
-      window.Paddle!.Initialize({ token: clientToken });
+      window.Paddle!.Setup({ vendor: vid });
       initialized.current = true;
     };
-    if (window.Paddle) { init(); return; }
+    if (window.Paddle) { setup(); return; }
     const script = document.createElement('script');
-    script.src = 'https://cdn.paddle.com/paddle/v2/paddle.js';
-    script.onload = init;
+    script.src = 'https://cdn.paddle.com/paddle/paddle.js'; // Classic: v1 URL
+    script.onload = setup;
     document.head.appendChild(script);
     return () => { if (!initialized.current) document.head.removeChild(script); };
-  }, [clientToken, sandbox]);
+  }, [vendorId, sandbox]);
 }
 
 export default function Billing() {
   const { toast } = useToast();
   const [checkingOut, setCheckingOut] = useState<string | null>(null);
   const [cancelConfirm, setCancelConfirm] = useState(false);
+
+  const { data: authData } = useQuery<{ user: { id: string; email: string } }>({
+    queryKey: ['/api/auth/me'],
+    retry: false,
+  });
 
   const { data: billingConfig } = useQuery<BillingConfig>({
     queryKey: ['/api/billing/config'],
@@ -103,21 +114,17 @@ export default function Billing() {
     queryFn: async () => { const r = await apiRequest('GET', '/api/billing/subscription'); return r.json(); },
   });
 
-  usePaddleInit(billingConfig?.clientToken, billingConfig?.sandbox ?? false);
+  usePaddleSetup(billingConfig?.vendorId, billingConfig?.sandbox ?? false);
 
   const checkoutMutation = useMutation({
     mutationFn: async (planId: string) => {
       const r = await apiRequest('POST', '/api/billing/checkout', { planId });
-      return r.json() as Promise<{ transactionId?: string; error?: string }>;
+      return r.json() as Promise<{ paddlePlanId?: string; error?: string }>;
     },
     onSuccess: (data, planId) => {
       setCheckingOut(null);
-      if (data.error) {
-        toast({ variant: 'destructive', title: '결제 오류', description: data.error });
-        return;
-      }
-      if (!data.transactionId) {
-        toast({ variant: 'destructive', title: '오류', description: '트랜잭션 ID를 받지 못했습니다.' });
+      if (data.error || !data.paddlePlanId) {
+        toast({ variant: 'destructive', title: '오류', description: data.error ?? '플랜 정보를 가져오지 못했습니다.' });
         return;
       }
       if (!window.Paddle) {
@@ -125,7 +132,13 @@ export default function Billing() {
         return;
       }
       window.Paddle.Checkout.open({
-        transactionId: data.transactionId,
+        product: parseInt(data.paddlePlanId, 10),
+        email: authData?.user?.email,
+        passthrough: JSON.stringify({ user_id: authData?.user?.id }),
+        successCallback: () => {
+          queryClient.invalidateQueries({ queryKey: ['/api/billing/subscription'] });
+          toast({ title: '결제 완료', description: '구독이 활성화되었습니다.' });
+        },
       });
     },
     onError: (e: any) => {
@@ -190,7 +203,7 @@ export default function Billing() {
             <div className="space-y-3">
               <div className="flex items-center gap-3 flex-wrap">
                 <span className="font-semibold text-lg">
-                  {paidPlans.find(p => p.id === subscription.tier)?.name ?? (subscription.tier === 'free' ? '무료 (Free)' : subscription.tier)}
+                  {paidPlans.find(p => p.id === subscription.tier)?.name ?? '무료 (Free)'}
                 </span>
                 {subscription.isPaidPlan && (() => {
                   const s = STATUS_LABEL[subscription.status] ?? { text: subscription.status, variant: 'secondary' as const };
@@ -236,7 +249,6 @@ export default function Billing() {
             const planRank = TIER_ORDER[plan.id] ?? 0;
             const isCurrent = subscription?.tier === plan.id;
             const isDowngrade = planRank < currentTierRank;
-            const isUpgrade = planRank > currentTierRank;
             const isLoading = checkingOut === plan.id;
 
             return (
@@ -294,7 +306,7 @@ export default function Billing() {
                   >
                     {isLoading ? (
                       <><Loader2 className="h-4 w-4 mr-2 animate-spin" />처리 중...</>
-                    ) : isCurrent ? '현재 플랜' : isDowngrade ? '다운그레이드 불가' : isUpgrade ? '업그레이드' : '선택'}
+                    ) : isCurrent ? '현재 플랜' : isDowngrade ? '다운그레이드 불가' : '업그레이드'}
                   </Button>
                 </CardContent>
               </Card>
