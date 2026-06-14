@@ -3,7 +3,7 @@ builder = "nixpacks"
 buildCommand = "npm install --include=dev && npm run build"
 
 [deploy]
-startCommand = "node scripts/migrate-prod.mjs && node dist/index.js 2>&1"
+startCommand = "npm run start:railway"
 healthcheckPath = "/api/healthz"
 healthcheckTimeout = 120
 restartPolicyType = "on_failure"
