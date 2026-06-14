@@ -90,9 +90,12 @@ async function createTestAiModel(ctx) {
     throw new Error(`테스트 AI 모델 생성 실패: ${text}`);
   }
   const model = await res.json();
-  // auto-apply-toggle이 settings 레코드를 요구하므로 미리 생성
+  // auto-apply-toggle이 settings 레코드를 요구하므로 미리 생성 (가중치 합=100 필요)
   await ctx.request.put(`${BASE_URL}/api/ai/models/${model.id}/trading-settings`, {
-    data: {},
+    data: {
+      themeWeight: '20', newsWeight: '20', financialsWeight: '20',
+      liquidityWeight: '20', institutionalWeight: '20',
+    },
     headers: { 'Content-Type': 'application/json' },
   });
   console.log(`  ✔ 테스트 AI 모델 생성: id=${model.id} (settings 포함)`);
