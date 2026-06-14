@@ -7,21 +7,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { useToast } from "@/hooks/use-toast";
 import { Check, Loader2, CreditCard, AlertTriangle, Zap } from "lucide-react";
 
-// Paddle Classic 타입
+// Paddle Billing v2 타입
 declare global {
   interface Window {
     Paddle?: {
       Environment: { set: (env: 'sandbox') => void };
-      Setup: (opts: { vendor: number }) => void;
-      Checkout: {
-        open: (opts: {
-          product: number;
-          email?: string;
-          passthrough?: string;
-          successCallback?: (data: unknown) => void;
-          closeCallback?: () => void;
-        }) => void;
-      };
+      Initialize: (opts: { token: string; eventCallback?: (data: { name: string; [k: string]: unknown }) => void }) => void;
+      Checkout: { open: (opts: { transactionId: string }) => void };
     };
   }
 }
@@ -47,7 +39,7 @@ interface Subscription {
 
 interface BillingConfig {
   enabled: boolean;
-  vendorId: string | null;
+  clientToken: string | null;
   sandbox: boolean;
 }
 
@@ -69,35 +61,36 @@ const STATUS_LABEL: Record<string, { text: string; variant: 'default' | 'seconda
   cancelled: { text: '해지 예정', variant: 'outline' },
 };
 
-function usePaddleSetup(vendorId: string | null | undefined, sandbox: boolean) {
+function usePaddleInit(clientToken: string | null | undefined, sandbox: boolean) {
   const initialized = useRef(false);
 
   useEffect(() => {
-    if (!vendorId || initialized.current) return;
-    const vid = parseInt(vendorId, 10);
-    const setup = () => {
+    if (!clientToken || initialized.current) return;
+    const init = () => {
       if (sandbox) window.Paddle!.Environment.set('sandbox');
-      window.Paddle!.Setup({ vendor: vid });
+      window.Paddle!.Initialize({
+        token: clientToken,
+        eventCallback: (data) => {
+          if (data.name === 'checkout.completed') {
+            queryClient.invalidateQueries({ queryKey: ['/api/billing/subscription'] });
+          }
+        },
+      });
       initialized.current = true;
     };
-    if (window.Paddle) { setup(); return; }
+    if (window.Paddle) { init(); return; }
     const script = document.createElement('script');
-    script.src = 'https://cdn.paddle.com/paddle/paddle.js'; // Classic: v1 URL
-    script.onload = setup;
+    script.src = 'https://cdn.paddle.com/paddle/v2/paddle.js';
+    script.onload = init;
     document.head.appendChild(script);
     return () => { if (!initialized.current) document.head.removeChild(script); };
-  }, [vendorId, sandbox]);
+  }, [clientToken, sandbox]);
 }
 
 export default function Billing() {
   const { toast } = useToast();
   const [checkingOut, setCheckingOut] = useState<string | null>(null);
   const [cancelConfirm, setCancelConfirm] = useState(false);
-
-  const { data: authData } = useQuery<{ user: { id: string; email: string } }>({
-    queryKey: ['/api/auth/me'],
-    retry: false,
-  });
 
   const { data: billingConfig } = useQuery<BillingConfig>({
     queryKey: ['/api/billing/config'],
@@ -114,32 +107,24 @@ export default function Billing() {
     queryFn: async () => { const r = await apiRequest('GET', '/api/billing/subscription'); return r.json(); },
   });
 
-  usePaddleSetup(billingConfig?.vendorId, billingConfig?.sandbox ?? false);
+  usePaddleInit(billingConfig?.clientToken, billingConfig?.sandbox ?? false);
 
   const checkoutMutation = useMutation({
     mutationFn: async (planId: string) => {
       const r = await apiRequest('POST', '/api/billing/checkout', { planId });
-      return r.json() as Promise<{ paddlePlanId?: string; error?: string }>;
+      return r.json() as Promise<{ transactionId?: string; error?: string }>;
     },
-    onSuccess: (data, planId) => {
+    onSuccess: (data) => {
       setCheckingOut(null);
-      if (data.error || !data.paddlePlanId) {
-        toast({ variant: 'destructive', title: '오류', description: data.error ?? '플랜 정보를 가져오지 못했습니다.' });
+      if (data.error || !data.transactionId) {
+        toast({ variant: 'destructive', title: '오류', description: data.error ?? '결제 정보를 가져오지 못했습니다.' });
         return;
       }
       if (!window.Paddle) {
         toast({ variant: 'destructive', title: 'Paddle 로드 실패', description: '페이지를 새로고침 후 다시 시도해주세요.' });
         return;
       }
-      window.Paddle.Checkout.open({
-        product: parseInt(data.paddlePlanId, 10),
-        email: authData?.user?.email,
-        passthrough: JSON.stringify({ user_id: authData?.user?.id }),
-        successCallback: () => {
-          queryClient.invalidateQueries({ queryKey: ['/api/billing/subscription'] });
-          toast({ title: '결제 완료', description: '구독이 활성화되었습니다.' });
-        },
-      });
+      window.Paddle.Checkout.open({ transactionId: data.transactionId });
     },
     onError: (e: any) => {
       setCheckingOut(null);
