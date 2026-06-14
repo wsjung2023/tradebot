@@ -67,11 +67,12 @@ app.use(helmet({
   contentSecurityPolicy: isProduction ? {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "https://cdn.paddle.com"],
       styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
       imgSrc: ["'self'", "data:", "https:"],
       connectSrc: ["'self'", "ws:", "wss:", "https:"],
       fontSrc: ["'self'", "data:", "https://fonts.gstatic.com"],
+      frameSrc: ["https://sandbox-buy.paddle.com", "https://buy.paddle.com"],
       objectSrc: ["'none'"],
       manifestSrc: ["'self'"],
       workerSrc: ["'self'"],
