@@ -25,13 +25,25 @@ export default function AIAnalysis() {
   const analyzeStockMutation = useMutation({
     mutationFn: async (data: any) => (await apiRequest("POST", "/api/ai/analyze-stock", data)).json(),
     onSuccess: (data) => { setAnalysis(data); toast({ title: "분석 완료", description: "AI 종목 분석이 완료되었습니다" }); },
-    onError: (error: any) => toast({ variant: "destructive", title: "분석 실패", description: error.message }),
+    onError: (error: any) => {
+      const isLimit = error.message?.includes('AI_ANALYSIS_LIMIT_EXCEEDED') || error.message?.includes('일일 한도');
+      toast({ variant: "destructive",
+        title: isLimit ? "AI 분석 일일 한도 초과" : "분석 실패",
+        description: isLimit ? "오늘의 AI 분석 횟수를 모두 사용했습니다. 내일 다시 시도하거나 플랜을 업그레이드해주세요." : error.message,
+      });
+    },
   });
 
   const analyzePortfolioMutation = useMutation({
     mutationFn: async (accountId: number) => (await apiRequest("POST", "/api/ai/analyze-portfolio", { accountId })).json(),
     onSuccess: (data) => { setPortfolioAnalysis(data); toast({ title: "포트폴리오 분석 완료" }); },
-    onError: (error: any) => toast({ variant: "destructive", title: "분석 실패", description: error.message }),
+    onError: (error: any) => {
+      const isLimit = error.message?.includes('AI_ANALYSIS_LIMIT_EXCEEDED') || error.message?.includes('일일 한도');
+      toast({ variant: "destructive",
+        title: isLimit ? "AI 분석 일일 한도 초과" : "분석 실패",
+        description: isLimit ? "오늘의 AI 분석 횟수를 모두 사용했습니다. 내일 다시 시도하거나 플랜을 업그레이드해주세요." : error.message,
+      });
+    },
   });
 
   const handleStockAnalysis = () => {

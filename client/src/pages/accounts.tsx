@@ -101,10 +101,13 @@ export default function Accounts() {
       setProductCode('11');
     },
     onError: (error: any) => {
+      const isTierLimit = error.message?.includes('REAL_ACCOUNT_LIMIT_EXCEEDED') || error.message?.includes('최대');
       toast({
         variant: "destructive",
-        title: "계좌 추가 실패",
-        description: error.message,
+        title: isTierLimit ? "플랜 한도 초과" : "계좌 추가 실패",
+        description: isTierLimit
+          ? "현재 플랜에서 연결 가능한 실계좌 수를 초과했습니다. 플랜을 업그레이드해주세요."
+          : error.message,
       });
     },
   });

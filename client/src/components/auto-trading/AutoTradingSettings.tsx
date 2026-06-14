@@ -326,7 +326,16 @@ export function AutoTradingSettings({ modelId, modelConfig, onAccountChange }: P
           : "학습잡 결과를 앱에서 검토 후 직접 적용합니다",
       });
     },
-    onError: (e: any) => toast({ variant: "destructive", title: "설정 변경 실패", description: e.message }),
+    onError: (e: any) => {
+      const isTierBlock = e.message?.includes('TIER_AUTOPLAY_BLOCKED') || e.message?.includes('Pro 이상');
+      toast({
+        variant: "destructive",
+        title: isTierBlock ? "플랜 업그레이드 필요" : "설정 변경 실패",
+        description: isTierBlock
+          ? "학습 자동 적용은 Pro 이상 플랜에서 사용 가능합니다."
+          : e.message,
+      });
+    },
   });
 
   const handleSave = () => {

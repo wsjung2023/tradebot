@@ -141,6 +141,21 @@ export function registerBillingRoutes(app: Express) {
     }
   });
 
+  // [테스트 전용] 티어 강제 설정 — AGENT_KEY 필요
+  app.post('/api/billing/test/set-tier', async (req, res) => {
+    const key = (req.headers['x-agent-key'] as string) || (req.query.agent_key as string) || '';
+    const agentKey = process.env.AGENT_KEY || '';
+    if (!agentKey || key !== agentKey) return res.status(403).json({ error: 'forbidden' });
+    try {
+      const { userId, tier } = req.body;
+      if (!userId || !tier) return res.status(400).json({ error: 'userId, tier 필수' });
+      const validTiers = ['free', 'saas_basic', 'saas_pro', 'saas_enterprise'];
+      if (!validTiers.includes(tier)) return res.status(400).json({ error: `tier는 ${validTiers.join('|')} 중 하나` });
+      const updated = await storage.upsertSubscription({ userId, tier, status: 'active' });
+      res.json({ ok: true, tier: updated.tier });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // Paddle v2 Webhook (JSON, rawBody로 서명 검증)
   app.post('/api/billing/webhook', async (req, res) => {
     const signature = req.headers['paddle-signature'] as string;
