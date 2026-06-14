@@ -10,6 +10,7 @@ import { getUserKiwoomService } from "../services/user-kiwoom.service";
 import { getAICouncilService } from "../services/ai-council.service";
 import { getFeatureFlags } from "../config/feature-flags";
 import { getDartService } from "../services/dart.service";
+import { checkAiAnalysisLimit } from "../services/tier-limits.service";
 
 export function registerAiRoutes(app: Router) {
   const aiService = getAIService();
@@ -194,6 +195,10 @@ export function registerAiRoutes(app: Router) {
   app.post("/api/ai/integrated-analysis", isAuthenticated, async (req, res) => {
     try {
       const user = getCurrentUser(req);
+      const aiLimit = await checkAiAnalysisLimit(user!.id);
+      if (!aiLimit.allowed) {
+        return res.status(429).json({ error: `AI 분석 일일 한도를 초과했습니다. (${aiLimit.used}/${aiLimit.max}회)`, code: 'AI_ANALYSIS_LIMIT_EXCEEDED' });
+      }
       const { stockCode, stockName, currentPrice } = req.body;
       if (!stockCode || !stockName || !currentPrice) {
         return res.status(400).json({ error: "stockCode, stockName, currentPrice 필수" });
@@ -296,6 +301,10 @@ export function registerAiRoutes(app: Router) {
   app.post("/api/ai/analyze-stock", isAuthenticated, async (req, res) => {
     try {
       const user = getCurrentUser(req);
+      const aiLimit = await checkAiAnalysisLimit(user!.id);
+      if (!aiLimit.allowed) {
+        return res.status(429).json({ error: `AI 분석 일일 한도를 초과했습니다. (${aiLimit.used}/${aiLimit.max}회)`, code: 'AI_ANALYSIS_LIMIT_EXCEEDED' });
+      }
       let { stockCode, stockName, currentPrice } = req.body;
       if (!stockCode) return res.status(400).json({ error: "stockCode 필수" });
       // currentPrice 미전달 시 서버에서 직접 조회
@@ -326,6 +335,10 @@ export function registerAiRoutes(app: Router) {
   app.post("/api/ai/analyze-portfolio", isAuthenticated, async (req, res) => {
     try {
       const user = getCurrentUser(req);
+      const aiLimit = await checkAiAnalysisLimit(user!.id);
+      if (!aiLimit.allowed) {
+        return res.status(429).json({ error: `AI 분석 일일 한도를 초과했습니다. (${aiLimit.used}/${aiLimit.max}회)`, code: 'AI_ANALYSIS_LIMIT_EXCEEDED' });
+      }
       const { accountId } = req.body;
       const holdings = await storage.getHoldings(accountId);
       const settings = await storage.getUserSettings(user!.id);

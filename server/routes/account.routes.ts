@@ -4,6 +4,7 @@ import { storage } from "../storage";
 import { isAuthenticated, getCurrentUser } from "../auth";
 import { insertKiwoomAccountSchema } from "@shared/schema";
 import { z } from "zod";
+import { checkRealAccountLimit } from "../services/tier-limits.service";
 import { parseHoldingItem } from "../utils/balance-parser";
 import { evaluateHoldingSyncGuard } from "../utils/holding-sync-guard";
 import { getUserKiwoomService } from "../services/user-kiwoom.service";
@@ -56,6 +57,18 @@ export function registerAccountRoutes(app: Router) {
         accountNumber: normalizeAccountNumber(req.body.accountNumber || "", req.body.productCode),
         userId: user!.id,
       });
+
+      // 실계좌 추가 시 티어 한도 체크
+      if (accountData.accountType === 'real') {
+        const limit = await checkRealAccountLimit(user!.id);
+        if (!limit.allowed) {
+          return res.status(403).json({
+            error: `실계좌는 현재 플랜에서 최대 ${limit.max}개까지 연결 가능합니다. (현재 ${limit.current}개)`,
+            code: 'REAL_ACCOUNT_LIMIT_EXCEEDED',
+          });
+        }
+      }
+
       const account = await storage.createKiwoomAccount(accountData);
       res.json(account);
     } catch (error: any) {

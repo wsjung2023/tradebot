@@ -8,6 +8,7 @@ import { RainbowChartAnalyzer } from "../formula/rainbow-chart";
 import { normalizeChartDataAsc } from "../utils/chart-normalization";
 import { getAIService } from "../services/ai.service";
 import { z } from "zod";
+import { checkAutoApplyAllowed } from "../services/tier-limits.service";
 
 
 export function registerAutoTradingRoutes(app: Router) {
@@ -715,6 +716,9 @@ export function registerAutoTradingRoutes(app: Router) {
       const modelId = parseInt(req.params.modelId);
       if (!await verifyModelOwnership(user.id, modelId)) return res.status(403).json({ error: 'forbidden' });
       const { autoApply } = req.body as { autoApply: boolean };
+      if (autoApply && !await checkAutoApplyAllowed(user.id)) {
+        return res.status(403).json({ error: '학습 자동 적용은 Pro 이상 플랜에서 사용 가능합니다.', code: 'TIER_AUTOPLAY_BLOCKED' });
+      }
       const settings = await storage.getAutoTradingSettings(modelId);
       if (!settings) return res.status(404).json({ error: 'settings not found' });
       const currentPolicy = (settings.learningPolicy as Record<string, any>) ?? {};
