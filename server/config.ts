@@ -34,7 +34,7 @@ const envSchema = z.object({
 
   // SaaS billing — Paddle Billing v2 (public_saas only)
   // PADDLE_SANDBOX=true 이면 SDBX_ 세트, false/미설정이면 LIVE_ 세트 자동 선택
-  PADDLE_SANDBOX: z.enum(['true', 'false']).optional(),
+  PADDLE_SANDBOX: z.string().optional(),
   // Sandbox 세트
   PADDLE_SDBX_API_KEY: z.string().optional(),
   PADDLE_SDBX_CLIENT_TOKEN: z.string().optional(),

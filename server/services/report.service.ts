@@ -1,5 +1,4 @@
 // report.service.ts — 월간 성과 PDF 리포트 생성
-import PDFDocument from 'pdfkit';
 import { pool } from '../db';
 import { getReportExtension } from '../extensions/report.ext';
 
@@ -82,6 +81,8 @@ export async function generateMonthlyReport(data: MonthlyReportData): Promise<Bu
   const primaryColor = ext.primaryColor;
   const pnl = summary.totalProceeds - summary.totalInvested;
   const pnlRate = summary.totalInvested > 0 ? ((pnl / summary.totalInvested) * 100).toFixed(2) : '0.00';
+
+  const { default: PDFDocument } = await import('pdfkit');
 
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margin: 50 });
