@@ -334,7 +334,7 @@ function SaaSOnboarding({ onComplete }: { onComplete: (redirectTo?: string) => v
           {step !== 1 && (
             <button
               className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors"
-              onClick={isLast ? onComplete : () => setStep(s => s + 1)}
+              onClick={isLast ? () => onComplete() : () => setStep(s => s + 1)}
             >
               {isLast ? '완료' : '건너뛰기'}
             </button>
