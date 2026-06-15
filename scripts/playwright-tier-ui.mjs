@@ -15,20 +15,13 @@
  *
  * 환경변수:
  *   PLAYWRIGHT_BASE_URL  기본값 https://app.wsj-aitradebot.live
- *   AGENT_KEY            서버의 AGENT_KEY (티어 강제 설정용)
  */
 
 import { chromium } from 'playwright';
 import { existsSync } from 'fs';
 
 const BASE_URL = process.env.PLAYWRIGHT_BASE_URL || 'https://app.wsj-aitradebot.live';
-const AGENT_KEY = process.env.AGENT_KEY;
 const SESSION_FILE = '.playwright-session.json';
-
-if (!AGENT_KEY) {
-  console.error('AGENT_KEY 환경변수가 필요합니다.');
-  process.exit(1);
-}
 
 let passed = 0;
 let failed = 0;
@@ -43,13 +36,11 @@ function assert(condition, label, detail = '') {
   }
 }
 
-async function setTier(userId, tier) {
-  const res = await fetch(`${BASE_URL}/api/billing/test/set-tier`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-agent-key': AGENT_KEY },
-    body: JSON.stringify({ userId, tier }),
+async function setTier(ctx, userId, tier) {
+  const res = await ctx.request.patch(`${BASE_URL}/api/admin/users/${userId}/subscription`, {
+    data: { tier },
   });
-  if (!res.ok) throw new Error(`티어 설정 실패: ${await res.text()}`);
+  if (!res.ok()) throw new Error(`티어 설정 실패: ${await res.text()}`);
   console.log(`  → 티어 설정: ${tier}`);
 }
 
@@ -177,6 +168,26 @@ async function run() {
   const userId = await getUserId(ctx);
   console.log(`  userId: ${userId}`);
 
+  // ── 사전 준비: 어드민 권한 확인 / 부트스트랩 ───────────────────────────────
+  console.log('\n⚙️  어드민 권한 확인');
+  const meRes2 = await ctx.request.get(`${BASE_URL}/api/auth/me`);
+  const meData = await meRes2.json();
+  if (meData.user?.role !== 'admin') {
+    console.log('  어드민 아님 — 부트스트랩 시도...');
+    const bsRes = await ctx.request.post(`${BASE_URL}/api/admin/bootstrap`);
+    if (bsRes.ok()) {
+      console.log('  부트스트랩 성공 ✅');
+    } else {
+      const err = await bsRes.text();
+      console.error(`  [FATAL] 어드민 부트스트랩 실패 (이미 어드민 존재?): ${err}`);
+      console.error('  어드민 계정으로 로그인하거나 SESSION_FILE을 삭제 후 재실행하세요.');
+      await browser.close();
+      process.exit(1);
+    }
+  } else {
+    console.log('  어드민 확인 ✅');
+  }
+
   // ── 사전 준비: 테스트용 AI 모델 생성 ──────────────────────────────────────
   console.log('\n⚙️  사전 준비: 테스트 AI 모델 생성');
   let testModelId = null;
@@ -197,7 +208,7 @@ async function run() {
     console.log(`\n${'═'.repeat(55)}`);
     console.log(`🧪 [${label}] 플랜 테스트 시작`);
 
-    await setTier(userId, tier);
+    await setTier(ctx, userId, tier);
     await new Promise(r => setTimeout(r, 500));
 
     // ── A. /billing 페이지 limits 확인 ───────────────────────────────────
@@ -328,7 +339,7 @@ async function run() {
   // ── 원복: saas_pro 복원 ────────────────────────────────────────────────────
   console.log(`\n${'═'.repeat(55)}`);
   console.log('🔄 원복: saas_pro 복원');
-  await setTier(userId, 'saas_pro');
+  await setTier(ctx, userId, 'saas_pro');
 
   await browser.close();
 

@@ -2,11 +2,28 @@
 import type { Express } from 'express';
 import { jobManager } from '../job-manager';
 import { requireAdmin } from '../middleware/require-admin';
+import { isAuthenticated, getCurrentUser } from '../auth';
 import { storage } from '../storage';
 import { pool } from '../db';
 import { provisionPrivateCloudInstance, deprovisionPrivateCloudInstance } from '../services/railway-provisioner.service';
 
 export function registerAdminRoutes(app: Express) {
+  // 최초 어드민 부트스트랩 — 어드민이 0명일 때만 현재 로그인 유저를 admin으로 승격
+  // 초기 설정 및 테스트 환경에서만 사용; 어드민 1명이라도 있으면 403
+  app.post('/api/admin/bootstrap', isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req)!;
+      const all = await storage.getAllUsers();
+      const hasAdmin = all.some(u => u.role === 'admin');
+      if (hasAdmin) return res.status(403).json({ error: '이미 어드민이 존재합니다' });
+      const updated = await storage.updateUser(user.id, { role: 'admin' });
+      res.json({ ok: true, email: updated?.email, role: updated?.role });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+
   app.get('/api/admin/jobs', requireAdmin, (_req, res) => {
     res.json(jobManager.getJobs());
   });
