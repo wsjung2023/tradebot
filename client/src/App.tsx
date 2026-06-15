@@ -26,6 +26,7 @@ import ConditionScreening from "@/pages/condition-screening";
 import WatchlistSignals from "@/pages/watchlist-signals";
 import ChartFormulaEditor from "@/pages/chart-formula-editor";
 import BackAttackScan from "@/pages/backattack-scan";
+import AdminDashboard from "@/pages/admin-dashboard";
 import AdminJobs from "@/pages/admin-jobs";
 import AdminUsers from "@/pages/admin-users";
 import AdminPrivateCloud from "@/pages/admin-private-cloud";
@@ -184,6 +185,7 @@ function AuthenticatedRouter() {
                 <Route path="/monitoring" component={Monitoring} />
                 <Route path="/candidate-decisions" component={CandidateDecisions} />
                 <Route path="/ai-usage" component={AiUsage} />
+                <Route path="/admin" component={AdminDashboard} />
                 <Route path="/admin-jobs" component={AdminJobs} />
                 <Route path="/admin-users" component={AdminUsers} />
                 <Route path="/admin-private-cloud" component={AdminPrivateCloud} />

@@ -5,6 +5,7 @@ import { storage } from '../storage';
 import { parseHoldingItem } from '../utils/balance-parser';
 import { evaluateHoldingSyncGuard } from '../utils/holding-sync-guard';
 import { getUserKiwoomService } from './user-kiwoom.service';
+import { refreshUserAumTier } from './tier-limits.service';
 
 /**
  * KST 현재 시각 기준으로 장중(08:30~18:00, 월~금)인지 확인.
@@ -98,6 +99,11 @@ export class BalanceRefreshService {
     }
 
     console.log('[BalanceRefresh] 자동 잔고 갱신 완료');
+
+    // 처리된 유저들의 aumTier 업데이트 (구독 페이지 조회 시마다 재계산하지 않기 위해 여기서 처리)
+    const userIds = Array.from(new Set(accounts.map(a => a.userId)));
+    await Promise.all(userIds.map(uid => refreshUserAumTier(uid).catch(() => {})));
+
     this.onRun?.();
   }
 

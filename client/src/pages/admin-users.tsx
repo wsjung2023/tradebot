@@ -4,6 +4,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { Users, ShieldCheck, ShieldOff } from "lucide-react";
 
@@ -61,6 +62,18 @@ export default function AdminUsers() {
     onSettled: () => setLoadingId(null),
   });
 
+  const tierMutation = useMutation({
+    mutationFn: async ({ id, tier }: { id: string; tier: string }) => {
+      const resp = await apiRequest('PATCH', `/api/admin/users/${id}/subscription`, { tier });
+      return resp.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/users'] });
+      toast({ title: '구독 티어 변경됨' });
+    },
+    onError: (e: any) => toast({ title: '실패', description: e.message, variant: 'destructive' }),
+  });
+
   return (
     <div className="p-6 space-y-4">
       <div className="flex items-center gap-2 mb-4">
@@ -109,9 +122,20 @@ export default function AdminUsers() {
                         </Badge>
                       </td>
                       <td className="py-2 pr-4">
-                        <Badge variant="outline" className="text-xs">
-                          {u.subscription?.tier ?? 'free'} / {u.subscription?.status ?? '-'}
-                        </Badge>
+                        <Select
+                          value={u.subscription?.tier ?? 'free'}
+                          onValueChange={(tier) => tierMutation.mutate({ id: u.id, tier })}
+                        >
+                          <SelectTrigger className="h-7 text-xs w-36">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="free" className="text-xs">free</SelectItem>
+                            <SelectItem value="saas_basic" className="text-xs">saas_basic</SelectItem>
+                            <SelectItem value="saas_pro" className="text-xs">saas_pro</SelectItem>
+                            <SelectItem value="saas_enterprise" className="text-xs">saas_enterprise</SelectItem>
+                          </SelectContent>
+                        </Select>
                       </td>
                       <td className="py-2 pr-4 text-xs text-muted-foreground">
                         {u.subscription?.aumTier ? AUM_LABELS[u.subscription.aumTier] ?? u.subscription.aumTier : '-'}

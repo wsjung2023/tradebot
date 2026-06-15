@@ -4,7 +4,7 @@ import { storage } from "../storage";
 import { isAuthenticated, getCurrentUser } from "../auth";
 import { insertKiwoomAccountSchema } from "@shared/schema";
 import { z } from "zod";
-import { checkRealAccountLimit } from "../services/tier-limits.service";
+import { checkRealAccountLimit, refreshUserAumTier } from "../services/tier-limits.service";
 import { parseHoldingItem } from "../utils/balance-parser";
 import { evaluateHoldingSyncGuard } from "../utils/holding-sync-guard";
 import { getUserKiwoomService } from "../services/user-kiwoom.service";
@@ -243,6 +243,8 @@ export function registerAccountRoutes(app: Router) {
         lastTodayProfitRate: String(todayProfitRate),
         lastBalanceFetchedAt: new Date(),
       });
+      // 실계좌 총 AUM 변경 반영 (구독 페이지 표시용, fire-and-forget)
+      refreshUserAumTier(user!.id).catch(() => {});
 
       res.json({
         output1,

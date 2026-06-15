@@ -6,19 +6,6 @@ import { isPublicSaaS } from '../config';
 import { handlePaddleWebhook, createCheckoutTransaction, cancelSubscription, getPaddleClientConfig, syncSubscriptionFromTransaction } from '../services/paddle.service';
 import { getLimits } from '../services/tier-limits.service';
 
-function calcAumTier(totalKrw: number): string {
-  if (totalKrw >= 100_000_000) return 'over_100m';
-  if (totalKrw >= 50_000_000)  return 'under_100m';
-  if (totalKrw >= 20_000_000)  return 'under_50m';
-  return 'under_20m';
-}
-
-async function refreshAumTier(userId: string): Promise<string> {
-  const accounts = await storage.getKiwoomAccounts(userId);
-  const totalKrw = accounts.reduce((sum, a) => sum + parseFloat(a.lastTotalAssets ?? '0'), 0);
-  return calcAumTier(totalKrw);
-}
-
 export function registerBillingRoutes(app: Express) {
   // Paddle.js v2 초기화 정보 (현재 모드에 맞는 토큰 자동 선택)
   app.get('/api/billing/config', (_req, res) => {
@@ -48,11 +35,6 @@ export function registerBillingRoutes(app: Express) {
 
       if (!subscription) {
         subscription = await storage.upsertSubscription({ userId: user.id, tier: 'free', status: 'active' });
-      }
-
-      const newAumTier = await refreshAumTier(user.id);
-      if (newAumTier !== subscription.aumTier) {
-        subscription = await storage.upsertSubscription({ userId: user.id, aumTier: newAumTier });
       }
 
       const limits = getLimits(subscription.tier);

@@ -72,6 +72,52 @@ export function registerAdminRoutes(app: Express) {
     res.json({ id: updated.id, email: updated.email, role: updated.role });
   });
 
+  // 유저 구독 tier 강제 변경 (어드민 전용)
+  app.patch('/api/admin/users/:id/subscription', requireAdmin, async (req, res) => {
+    const { tier } = req.body;
+    const validTiers = ['free', 'saas_basic', 'saas_pro', 'saas_enterprise'];
+    if (!validTiers.includes(tier)) {
+      return res.status(400).json({ error: `tier는 ${validTiers.join('|')} 중 하나` });
+    }
+    try {
+      const updated = await storage.upsertSubscription({ userId: req.params.id, tier, status: 'active' });
+      res.json({ ok: true, tier: updated.tier });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // 어드민 대시보드 통계
+  app.get('/api/admin/stats', requireAdmin, async (_req, res) => {
+    try {
+      const users = await storage.getAllUsers();
+      const subs = await Promise.all(users.map(u => storage.getUserSubscription(u.id)));
+
+      const byTier: Record<string, number> = { free: 0, saas_basic: 0, saas_pro: 0, saas_enterprise: 0 };
+      let activeCount = 0;
+      for (const sub of subs) {
+        const tier = sub?.tier ?? 'free';
+        byTier[tier] = (byTier[tier] ?? 0) + 1;
+        if (sub?.status === 'active' && sub.tier !== 'free') activeCount++;
+      }
+
+      const MONTHLY_USD: Record<string, number> = { saas_basic: 85, saas_pro: 180, saas_enterprise: 320 };
+      const mrrUsd = subs.reduce((sum, sub) => {
+        if (sub?.status !== 'active') return sum;
+        return sum + (MONTHLY_USD[sub.tier ?? ''] ?? 0);
+      }, 0);
+
+      const recentUsers = [...users]
+        .sort((a, b) => new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime())
+        .slice(0, 5)
+        .map(u => ({ id: u.id, email: u.email, createdAt: u.createdAt }));
+
+      res.json({ totalUsers: users.length, byTier, activeSubscriptions: activeCount, mrrUsd, recentUsers });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // ── Private Cloud 고객 관리 ──
 
   // 목록 조회

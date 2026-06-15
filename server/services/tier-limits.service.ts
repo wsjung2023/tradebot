@@ -57,3 +57,25 @@ export async function checkAutoApplyAllowed(userId: string): Promise<boolean> {
   const tier = await getUserTier(userId);
   return getLimits(tier).canAutoApply;
 }
+
+// 실계좌 총 운용자산 기준 AUM 티어 계산
+function calcAumTier(totalKrw: number): string {
+  if (totalKrw >= 100_000_000) return 'over_100m';
+  if (totalKrw >= 50_000_000)  return 'under_100m';
+  if (totalKrw >= 20_000_000)  return 'under_50m';
+  return 'under_20m';
+}
+
+// 사용자의 실계좌 잔고 합산 후 subscription.aumTier 업데이트
+// 잔고 갱신 시점에만 호출 (GET /billing/subscription에서 매번 호출하지 않음)
+export async function refreshUserAumTier(userId: string): Promise<void> {
+  const accounts = await storage.getKiwoomAccounts(userId);
+  const totalKrw = accounts
+    .filter((a: any) => a.accountType === 'real')
+    .reduce((sum: number, a: any) => sum + parseFloat(a.lastTotalAssets ?? '0'), 0);
+  const newAumTier = calcAumTier(totalKrw);
+  const sub = await storage.getUserSubscription(userId);
+  if (sub && sub.aumTier !== newAumTier) {
+    await storage.upsertSubscription({ userId, aumTier: newAumTier });
+  }
+}
