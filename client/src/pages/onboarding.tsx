@@ -106,7 +106,7 @@ const PLAN_INFO = [
   { tier: 'saas_enterprise', name: 'Enterprise', price: '$320/월', limit: '실계좌 5개, AI 300회/일, 자동적용' },
 ];
 
-function SaaSOnboarding({ onComplete }: { onComplete: () => void }) {
+function SaaSOnboarding({ onComplete }: { onComplete: (redirectTo?: string) => void }) {
   const [step, setStep] = useState(0);
   const [, setLocation] = useLocation();
   const { toast } = useToast();
@@ -190,7 +190,7 @@ function SaaSOnboarding({ onComplete }: { onComplete: () => void }) {
               </div>
             </div>
           ))}
-          <Button className="w-full" onClick={() => { onComplete(); setLocation('/billing'); }}>
+          <Button className="w-full" onClick={() => onComplete('/billing')}>
             <CreditCard className="h-4 w-4 mr-2" />구독 페이지에서 결제하기
           </Button>
           <p className="text-xs text-center text-muted-foreground">
@@ -357,16 +357,19 @@ export default function Onboarding() {
 
   const completeMutation = useMutation({
     mutationFn: async () => (await apiRequest('POST', '/api/auth/onboard')).json(),
-    onSuccess: () => {
-      queryClient.setQueryData(['/api/auth/me'], (old: any) => ({
-        ...old,
-        user: { ...old?.user, onboardedAt: new Date().toISOString() },
-      }));
-      setLocation('/');
-    },
   });
 
-  const handleComplete = () => completeMutation.mutate();
+  const handleComplete = (redirectTo = '/') => {
+    completeMutation.mutate(undefined, {
+      onSuccess: () => {
+        queryClient.setQueryData(['/api/auth/me'], (old: any) => ({
+          ...old,
+          user: { ...old?.user, onboardedAt: new Date().toISOString() },
+        }));
+        setLocation(redirectTo);
+      },
+    });
+  };
 
   if (billingConfig === undefined) {
     return <div className="min-h-screen flex items-center justify-center" />;
