@@ -9,6 +9,7 @@ import { normalizeChartDataAsc } from "../utils/chart-normalization";
 import { getAIService } from "../services/ai.service";
 import { z } from "zod";
 import { checkAutoApplyAllowed } from "../services/tier-limits.service";
+import { getSimulationService } from "../services/simulation.service";
 
 
 export function registerAutoTradingRoutes(app: Router) {
@@ -738,6 +739,20 @@ export function registerAutoTradingRoutes(app: Router) {
         }
       }
       res.json({ ok: true, autoApply: Boolean(autoApply), appliedCount });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/auto-trading/simulation/run — 전방 섀도우 시뮬레이션 1사이클 수동 실행 (Track 1)
+  // 실주문 미호출·실계좌 무영향. 원본 모델의 신선 후보를 시뮬 모델/계좌로 평가.
+  app.post('/api/auto-trading/simulation/run', isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req)!;
+      const modelId = parseInt(String((req.body as any)?.modelId));
+      if (!Number.isFinite(modelId)) return res.status(400).json({ error: 'modelId required' });
+      if (!await verifyModelOwnership(user.id, modelId)) return res.status(403).json({ error: 'forbidden' });
+      const result = await getSimulationService().runSimCycle(modelId);
+      if (!result.ok) return res.status(400).json(result);
+      res.json(result);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 }
