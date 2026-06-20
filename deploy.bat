@@ -17,6 +17,20 @@ robocopy %DEV%\migrations %PROD%\migrations /E /NFL /NDL /NJS
 echo [OK] 코드 복사 완료
 echo.
 
+echo [1-5] 의존성 동기화 (package.json 복사 + npm install)...
+copy /Y %DEV%\package.json %PROD%\package.json >nul
+copy /Y %DEV%\package-lock.json %PROD%\package-lock.json >nul
+cd /d %PROD%
+call npm install --no-audit --no-fund
+if errorlevel 1 (
+  echo [오류] npm install 실패 - 배포 중단 ^(운영 서버는 기존 상태 유지^)
+  pause
+  exit /b 1
+)
+echo [OK] 의존성 설치 완료
+echo.
+REM 참고: DB 마이그레이션은 자동 적용 안 함. 새 컬럼/테이블 추가 시 운영 DB에 수동(additive) 적용 필요.
+
 echo [2] GitHub에도 올리기 (git push)...
 cd /d %DEV%
 git add -A
