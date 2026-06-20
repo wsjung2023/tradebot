@@ -755,4 +755,32 @@ export function registerAutoTradingRoutes(app: Router) {
       res.json(result);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
+
+  // POST /api/auto-trading/simulation/race/run — 변종 시합 1사이클(반복 호출로 누적). 실주문 미호출.
+  app.post('/api/auto-trading/simulation/race/run', isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req)!;
+      const modelId = parseInt(String((req.body as any)?.modelId));
+      if (!Number.isFinite(modelId)) return res.status(400).json({ error: 'modelId required' });
+      const count = Number((req.body as any)?.count);
+      if (!await verifyModelOwnership(user.id, modelId)) return res.status(403).json({ error: 'forbidden' });
+      const result = await getSimulationService().runRaceCycle(modelId, Number.isFinite(count) ? count : undefined);
+      if (!result.ok) return res.status(400).json(result);
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/auto-trading/simulation/race/settle — 변종 채점→1등을 검증된 설정으로 보관(자동 적용 없음).
+  app.post('/api/auto-trading/simulation/race/settle', isAuthenticated, async (req, res) => {
+    try {
+      const user = getCurrentUser(req)!;
+      const modelId = parseInt(String((req.body as any)?.modelId));
+      if (!Number.isFinite(modelId)) return res.status(400).json({ error: 'modelId required' });
+      const minTrades = Number((req.body as any)?.minTrades);
+      if (!await verifyModelOwnership(user.id, modelId)) return res.status(403).json({ error: 'forbidden' });
+      const result = await getSimulationService().settleRace(modelId, Number.isFinite(minTrades) ? minTrades : undefined);
+      if (!result.ok) return res.status(400).json(result);
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
 }
