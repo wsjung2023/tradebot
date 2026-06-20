@@ -363,6 +363,21 @@ export const autoTradingSettings = pgTable("auto_trading_settings", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
+// 승격 브리지(Track 1): 시합에서 1등한 검증된 설정 보관소. 어떤 운영 모델에도 자동 적용하지 않음.
+export const provenSettings = pgTable("proven_settings", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  sourceModelId: integer("source_model_id").notNull(), // 시합의 챔피언(원본) 모델
+  variantLabel: text("variant_label").notNull(),        // 1등 변종 라벨
+  settings: jsonb("settings").notNull(),                // 1등 변종의 settings 오버라이드 + 베이스 병합 결과
+  score: jsonb("score").notNull(),                      // VariantScore 스냅샷
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertProvenSettingsSchema = createInsertSchema(provenSettings).omit({ id: true, createdAt: true });
+export type ProvenSetting = typeof provenSettings.$inferSelect;
+export type InsertProvenSetting = z.infer<typeof insertProvenSettingsSchema>;
+
 // Trading performance - learning data for strategy improvement
 export const tradingPerformance = pgTable("trading_performance", {
   id: serial("id").primaryKey(),

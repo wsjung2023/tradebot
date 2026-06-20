@@ -120,6 +120,13 @@
       "when": 1750464000000,
       "tag": "0016_simulation_trades",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1750550400000,
+      "tag": "0017_proven_settings",
+      "breakpoints": true
     }
   ]
 }

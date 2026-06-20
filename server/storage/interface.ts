@@ -43,6 +43,7 @@ import {
   type LearningSuggestion, type InsertLearningSuggestion,
   type Plan,
   type Subscription,
+  type ProvenSetting, type InsertProvenSetting,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -165,6 +166,10 @@ export interface IStorage {
   getAutoTradingSettings(modelId: number): Promise<AutoTradingSettings | undefined>;
   createAutoTradingSettings(settings: InsertAutoTradingSettings): Promise<AutoTradingSettings>;
   updateAutoTradingSettings(modelId: number, updates: Partial<AutoTradingSettings>): Promise<AutoTradingSettings | undefined>;
+
+  // Proven Settings (승격 브리지)
+  createProvenSettings(row: InsertProvenSetting): Promise<ProvenSetting>;
+  getProvenSettings(userId: string): Promise<ProvenSetting[]>;
 
   // 매매 ?�과
   getTradingPerformance(modelId: number, limit?: number): Promise<TradingPerformance[]>;

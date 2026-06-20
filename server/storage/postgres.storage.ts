@@ -15,6 +15,7 @@ import type {
   CandidateStock,
   CandidateDecisionLog, InsertCandidateDecisionLog,
   PositionDecisionLog, InsertPositionDecisionLog,
+  ProvenSetting, InsertProvenSetting,
 } from '@shared/schema';
 import { PostgreSQLCoreStorage } from './postgres-core.storage';
 
@@ -221,6 +222,19 @@ export class PostgreSQLStorage extends PostgreSQLCoreStorage implements IStorage
   async updateTradingPerformance(id: number, updates: Partial<TradingPerformance>): Promise<TradingPerformance | undefined> {
     const result = await db.update(schema.tradingPerformance).set(updates).where(eq(schema.tradingPerformance.id, id)).returning();
     return result[0];
+  }
+
+  // ==================== Proven Settings (승격 브리지) ====================
+
+  async createProvenSettings(row: InsertProvenSetting): Promise<ProvenSetting> {
+    const result = await db.insert(schema.provenSettings).values([row]).returning();
+    return result[0];
+  }
+
+  async getProvenSettings(userId: string): Promise<ProvenSetting[]> {
+    return db.select().from(schema.provenSettings)
+      .where(eq(schema.provenSettings.userId, userId))
+      .orderBy(desc(schema.provenSettings.createdAt));
   }
 
   async updateCandidateEvaluation(candidateId: number, updates: Pick<CandidateStock, 'evaluationResult' | 'skipReason' | 'evaluatedAt'>): Promise<CandidateStock | undefined> {
