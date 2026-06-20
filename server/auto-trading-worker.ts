@@ -474,6 +474,12 @@ class AutoTradingWorker {
   }
 
   private async processModel(model: AiModel) {
+    // 안전장치: 시뮬레이션 모델은 실 워커에서 절대 실행하지 않는다
+    // (실 KiwoomService로 돌면 실주문 위험 — 섀도우는 SimulationService 전용 경로)
+    if ((model.config as any)?.isSimulation === true) {
+      console.log(`  ⏭ 시뮬레이션 모델 건너뜀 — 실 워커 비대상 (model ${model.id})`);
+      return;
+    }
     console.log(`\n🎯 Processing model: ${model.modelName} (ID: ${model.id})`);
     const startedAt = Date.now();
     const cycleId = `model-${model.id}-${startedAt}`;
