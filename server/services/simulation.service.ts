@@ -8,7 +8,7 @@ import { ShadowKiwoomService } from './shadow-kiwoom.service';
 import { getAIService } from './ai.service';
 import { TradeExecutorService } from './trade-executor.service';
 import { isEncrypted, decrypt } from '../utils/crypto';
-import type { AiModel, KiwoomAccount } from '@shared/schema';
+import type { AiModel, AutoTradingSettings, KiwoomAccount } from '@shared/schema';
 
 const SIM_ACCOUNT_PREFIX = 'SIM-';
 
@@ -72,6 +72,52 @@ export class SimulationService {
     return simModel;
   }
 
+  // 변종별 시뮬 모델 확보 — (sourceModelId, variantId)로 재사용. overrides를 settings에 병합.
+  async ensureSimModelForVariant(
+    sourceModel: AiModel,
+    simAccountId: number,
+    variant: { variantId: number; label: string; overrides: Record<string, unknown> },
+  ): Promise<AiModel> {
+    const models = await storage.getAiModels(sourceModel.userId);
+    const existing = models.find(
+      (m) =>
+        (m.config as any)?.isSimulation === true &&
+        (m.config as any)?.sourceModelId === sourceModel.id &&
+        (m.config as any)?.variantId === variant.variantId,
+    );
+    if (existing) return existing;
+
+    const sourceConfig = (sourceModel.config as any) || {};
+    const simModel = await storage.createAiModel({
+      userId: sourceModel.userId,
+      modelName: `[SIM v${variant.variantId}] ${sourceModel.modelName}`,
+      modelType: sourceModel.modelType as 'momentum' | 'value' | 'technical' | 'custom',
+      description: `전방 섀도우 변종 #${variant.variantId}(${variant.label}) — 원본 #${sourceModel.id}`,
+      config: {
+        ...sourceConfig,
+        accountId: simAccountId,
+        isSimulation: true,
+        sourceModelId: sourceModel.id,
+        simSource: 'forward_shadow',
+        variantId: variant.variantId,
+        variantLabel: variant.label,
+      },
+      isActive: false,
+    });
+
+    // 원본 settings 복제 후 변종 오버라이드 병합.
+    // 운영 모델엔 항상 settings가 존재하므로 도전자는 이 경로를 탄다.
+    // settings가 없는 예외 케이스는 챔피언(overrides 비어 있음)에서만 가능하므로 기본 생성으로 충분.
+    const srcSettings = await storage.getAutoTradingSettings(sourceModel.id);
+    if (srcSettings) {
+      const { id, modelId, createdAt, updatedAt, ...rest } = srcSettings as any;
+      await storage.createAutoTradingSettings({ ...rest, ...variant.overrides, modelId: simModel.id });
+    } else {
+      await this.executor.createDefaultSettings(simModel.id, sourceModel.modelType);
+    }
+    return simModel;
+  }
+
   // 한 사이클 실행 — 원본 모델의 신선 후보를 시뮬 모델/계좌로 평가 (섀도우 서비스)
   async runSimCycle(
     sourceModelId: number,
@@ -108,21 +154,25 @@ export class SimulationService {
       { simAccountId: simAccount.id },
     );
 
-    const aiModelName = 'gpt-5-mini'; // 분석 모델 (provider는 Track 0 LLM_PROVIDER로 결정)
+    const evaluated = await this.runCycleForSimModel(simModelForRun, sourceModel, shadow, simSettings);
+    return { ok: true, simModelId: simModel.id, evaluated };
+  }
 
-    // 1) 보유 추가매수 / 2) 청산 관리 (시뮬 계좌 holdings 기준)
+  // 한 sim 모델에 대해 한 사이클 실행(스케일인/청산/후보평가). 평가 건수 반환.
+  private async runCycleForSimModel(
+    simModel: AiModel,
+    sourceModel: AiModel,
+    shadow: ShadowKiwoomService,
+    simSettings: AutoTradingSettings,
+  ): Promise<number> {
+    const aiModelName = 'gpt-5-mini';
     try {
-      await this.executor.checkHoldingsForScaleIn(simModelForRun, simSettings, shadow, this.aiService, aiModelName);
-    } catch (e) {
-      console.warn('[Sim] scaleIn 오류(무시):', e);
-    }
+      await this.executor.checkHoldingsForScaleIn(simModel, simSettings, shadow, this.aiService, aiModelName);
+    } catch (e) { console.warn('[Sim] scaleIn 오류(무시):', e); }
     try {
-      await this.executor.checkPositionsForExits(simModelForRun, simSettings, shadow, this.aiService, aiModelName);
-    } catch (e) {
-      console.warn('[Sim] exits 오류(무시):', e);
-    }
+      await this.executor.checkPositionsForExits(simModel, simSettings, shadow, this.aiService, aiModelName);
+    } catch (e) { console.warn('[Sim] exits 오류(무시):', e); }
 
-    // 3) 원본 모델의 신선 후보(1시간 이내 스캔)를 시뮬 평가
     const rawCandidates = await storage.getCandidateStocks(sourceModel.userId, sourceModel.id);
     const freshMs = 60 * 60 * 1000;
     const now = Date.now();
@@ -133,13 +183,11 @@ export class SimulationService {
     let evaluated = 0;
     for (const candidate of candidates) {
       try {
-        await this.executor.evaluateCandidateStock(simModelForRun, simSettings, candidate, shadow, this.aiService, aiModelName);
+        await this.executor.evaluateCandidateStock(simModel, simSettings, candidate, shadow, this.aiService, aiModelName);
         evaluated++;
-      } catch (e) {
-        console.warn('[Sim] evaluate 오류(무시):', e);
-      }
+      } catch (e) { console.warn('[Sim] evaluate 오류(무시):', e); }
     }
-    return { ok: true, simModelId: simModel.id, evaluated };
+    return evaluated;
   }
 }
 
