@@ -14,3 +14,7 @@ agent/.env
 *.key
 artifacts/
 .playwright-mcp/
+
+# 테스트 산출물/세션 (커밋 제외)
+.playwright-session.json
+test-*.png
