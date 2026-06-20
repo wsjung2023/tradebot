@@ -9,6 +9,8 @@ import { getAIService } from './ai.service';
 import { TradeExecutorService } from './trade-executor.service';
 import { isEncrypted, decrypt } from '../utils/crypto';
 import type { AiModel, AutoTradingSettings, KiwoomAccount } from '@shared/schema';
+import { generateVariants } from './variant-generator';
+import { scorePerf, pickWinner } from './race-scoring';
 
 const SIM_ACCOUNT_PREFIX = 'SIM-';
 
@@ -156,6 +158,89 @@ export class SimulationService {
 
     const evaluated = await this.runCycleForSimModel(simModelForRun, sourceModel, shadow, simSettings);
     return { ok: true, simModelId: simModel.id, evaluated };
+  }
+
+  // 시합 한 사이클 — 변종들을 각각 섀도우로 한 번씩 돌린다(반복 호출로 누적).
+  async runRaceCycle(sourceModelId: number, count = 5): Promise<{
+    ok: boolean; reason?: string;
+    variants?: { variantId: number; simModelId: number; label: string; evaluated: number }[];
+  }> {
+    const sourceModel = await storage.getAiModel(sourceModelId);
+    if (!sourceModel) return { ok: false, reason: 'source model not found' };
+    const sourceConfig = (sourceModel.config as any) || {};
+    if (sourceConfig.isSimulation) return { ok: false, reason: 'source is already a sim model' };
+    const sourceAccountId = sourceConfig.accountId;
+    if (!sourceAccountId) return { ok: false, reason: 'source model has no accountId' };
+    const accounts = await storage.getKiwoomAccounts(sourceModel.userId);
+    const sourceAccount = accounts.find((a) => a.id === sourceAccountId);
+    if (!sourceAccount) return { ok: false, reason: 'source account not found' };
+    const appKey = this.decryptKey(sourceAccount.kiwoomAppKey);
+    const appSecret = this.decryptKey(sourceAccount.kiwoomAppSecret);
+    if (!appKey || !appSecret) return { ok: false, reason: 'source account missing kiwoom keys' };
+
+    const simAccount = await this.ensureSimAccount(sourceModel.userId, sourceAccount);
+    const baseSettings = await storage.getAutoTradingSettings(sourceModelId);
+    const base = {
+      minAiConfidence: baseSettings?.minAiConfidence ?? undefined,
+      defaultPositionSize: baseSettings?.defaultPositionSize ?? undefined,
+      stalePeriodDays: baseSettings?.stalePeriodDays ?? undefined,
+      surgeThreshold: baseSettings?.surgeThreshold ?? undefined,
+    } as any;
+    const variants = generateVariants(base, count);
+
+    const shadow = new ShadowKiwoomService(
+      { appKey, appSecret, accountType: simAccount.accountType === 'real' ? 'real' : 'mock' },
+      { simAccountId: simAccount.id },
+    );
+
+    const out: { variantId: number; simModelId: number; label: string; evaluated: number }[] = [];
+    for (const variant of variants) {
+      const simModel = await this.ensureSimModelForVariant(sourceModel, simAccount.id, variant);
+      const simSettings = await storage.getAutoTradingSettings(simModel.id);
+      if (!simSettings) continue;
+      const evaluated = await this.runCycleForSimModel(simModel, sourceModel, shadow, simSettings);
+      out.push({ variantId: variant.variantId, simModelId: simModel.id, label: variant.label, evaluated });
+    }
+    return { ok: true, variants: out };
+  }
+
+  // 시합 정산 — 변종 sim 모델들을 채점해 1등을 proven_settings에 보관(자동 적용 없음).
+  async settleRace(sourceModelId: number, minTrades = 3): Promise<{
+    ok: boolean; reason?: string;
+    winner?: { variantId: number; label: string; score: unknown }; provenId?: number;
+  }> {
+    const sourceModel = await storage.getAiModel(sourceModelId);
+    if (!sourceModel) return { ok: false, reason: 'source model not found' };
+    const models = await storage.getAiModels(sourceModel.userId);
+    const variantModels = models.filter(
+      (m) => (m.config as any)?.isSimulation === true && (m.config as any)?.sourceModelId === sourceModelId &&
+        (m.config as any)?.variantId !== undefined,
+    );
+    if (variantModels.length === 0) return { ok: false, reason: 'no variant sim models — run race first' };
+
+    const scored = [] as { model: typeof variantModels[number]; score: ReturnType<typeof scorePerf>; settings: any }[];
+    for (const m of variantModels) {
+      const perf = await storage.getTradingPerformance(m.id, 1000);
+      const simPerf = perf.filter((p) => p.simulated === true);
+      const settings = await storage.getAutoTradingSettings(m.id);
+      scored.push({ model: m, score: scorePerf(simPerf), settings });
+    }
+    const winner = pickWinner(scored, minTrades);
+    if (!winner) return { ok: false, reason: 'no eligible variant (min trades not met)' };
+
+    const wConfig = (winner.model.config as any) || {};
+    const proven = await storage.createProvenSettings({
+      userId: sourceModel.userId,
+      sourceModelId,
+      variantLabel: wConfig.variantLabel ?? `v${wConfig.variantId}`,
+      settings: winner.settings ?? {},
+      score: winner.score,
+    });
+    return {
+      ok: true,
+      winner: { variantId: wConfig.variantId, label: wConfig.variantLabel, score: winner.score },
+      provenId: proven.id,
+    };
   }
 
   // 한 sim 모델에 대해 한 사이클 실행(스케일인/청산/후보평가). 평가 건수 반환.
