@@ -384,20 +384,15 @@ git commit -m "feat(Track 1): proven_settings 테이블 + 스토리지 (승격 �
       isActive: false,
     });
 
-    // 원본 settings 복제 후 변종 오버라이드 병합
+    // 원본 settings 복제 후 변종 오버라이드 병합.
+    // 운영 모델엔 항상 settings가 존재하므로 도전자는 이 경로를 탄다.
+    // settings가 없는 예외 케이스는 챔피언(overrides 비어 있음)에서만 가능하므로 기본 생성으로 충분.
     const srcSettings = await storage.getAutoTradingSettings(sourceModel.id);
     if (srcSettings) {
       const { id, modelId, createdAt, updatedAt, ...rest } = srcSettings as any;
       await storage.createAutoTradingSettings({ ...rest, ...variant.overrides, modelId: simModel.id });
     } else {
       await this.executor.createDefaultSettings(simModel.id, sourceModel.modelType);
-      const created = await storage.getAutoTradingSettings(simModel.id);
-      if (created && Object.keys(variant.overrides).length > 0) {
-        // 기본 생성 settings에도 오버라이드 반영
-        const { id, modelId, createdAt, updatedAt, ...rest } = created as any;
-        // createAutoTradingSettings는 unique(modelId) — 이미 있으면 업데이트 경로 필요.
-        // 기본 settings는 변종 0(챔피언)에서만 생성되므로 일반적으로 srcSettings 경로를 탄다.
-      }
     }
     return simModel;
   }
@@ -694,4 +689,4 @@ git commit -m "feat(Track 1): 시합 엔드포인트 + 스모크 (승격 브리�
 - **Spec 커버리지:** ① 변종 생성=Task 1, ② 시합 실행=Task 4·5, ③ 채점=Task 2·5, ④ 보관=Task 3·5. 안전 가드=Global Constraints + Task 4·6 스모크. 성공 기준 1~5 모두 태스크에 매핑됨.
 - **비목표 확인:** 워커 자동 스케줄·AI 변종 생성·진짜 계좌 자동 적용은 계획에 없음(의도적 제외).
 - **타입 일관성:** `generateVariants`/`Variant`/`VariantOverride`(Task1), `scorePerf`/`pickWinner`/`VariantScore`(Task2), `ProvenSetting`/`createProvenSettings`/`getProvenSettings`(Task3), `ensureSimModelForVariant`/`runCycleForSimModel`(Task4), `runRaceCycle`/`settleRace`(Task5), 엔드포인트(Task6) — 호출부/정의부 이름·시그니처 일치.
-- **알려진 주의:** Task 4 Step 1의 "기본 settings 생성 + 오버라이드" 분기는 실경로상 챔피언(오버라이드 없음)에서만 타므로 단순 유지. 도전자는 항상 source settings 복제 경로를 탄다(운영 모델엔 settings가 존재).
+- **알려진 주의:** Task 4 Step 1의 settings 없음(`else`) 분기는 실경로상 챔피언(오버라이드 없음)에서만 가능하므로 기본 생성만 한다. 도전자는 항상 source settings 복제+오버라이드 경로를 탄다(운영 모델엔 settings가 존재).
