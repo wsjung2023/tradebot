@@ -413,6 +413,11 @@ export const tradingPerformance = pgTable("trading_performance", {
   scaleOutHistory: jsonb("scale_out_history"),
   plannedExitPolicy: jsonb("planned_exit_policy"),
 
+  // Forward-shadow simulation (Track 1): 실거래와 분리된 가상 매매 기록
+  simulated: boolean("simulated").notNull().default(false),
+  simSource: text("sim_source"), // 'forward_shadow' | 'historical_replay'
+  simRunId: text("sim_run_id"),  // 한 시뮬레이션 배치 그룹 id
+
   entryTime: timestamp("entry_time").notNull().defaultNow(),
   exitTime: timestamp("exit_time"),
   createdAt: timestamp("created_at").notNull().defaultNow(),

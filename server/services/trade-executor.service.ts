@@ -1972,6 +1972,10 @@ export class TradeExecutorService {
         institutionalScore: aiAnalysis ? aiAnalysis.institutionalScore.toFixed(2) : '0',
         filledUnits: 1,
         avgEntryLine: rainbow.currentLine,
+        // 시뮬레이션 모델이면 실거래와 분리 (Track 1) — 실모델은 isSimulation 미설정 → false
+        simulated: config.isSimulation === true,
+        simSource: config.isSimulation === true ? (config.simSource ?? 'forward_shadow') : null,
+        simRunId: config.isSimulation === true ? (config.simRunId ?? null) : null,
       });
 
       console.log(`    ✅ BUY order placed: ${quantity} shares @ ${stock.price}`);

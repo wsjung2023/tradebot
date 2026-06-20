@@ -85,6 +85,11 @@ ALTER TABLE orders ADD COLUMN IF NOT EXISTS details JSONB;
 
 ALTER TABLE auto_trading_settings ADD COLUMN IF NOT EXISTS filter_investment_warnings BOOLEAN NOT NULL DEFAULT FALSE;
 UPDATE auto_trading_settings SET filter_investment_warnings = FALSE WHERE filter_investment_warnings IS NULL OR filter_investment_warnings = TRUE;
+
+-- Forward-shadow simulation (Track 1)
+ALTER TABLE trading_performance ADD COLUMN IF NOT EXISTS simulated BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE trading_performance ADD COLUMN IF NOT EXISTS sim_source TEXT;
+ALTER TABLE trading_performance ADD COLUMN IF NOT EXISTS sim_run_id TEXT;
 `;
 
 const client = new Client({ connectionString: process.env.DATABASE_URL });
