@@ -5,6 +5,7 @@ import type { NewsResult } from './news.service';
 import { RainbowChartAnalyzer, type OHLCVData, type RainbowChartResult } from '../formula/rainbow-chart';
 import { storage } from '../storage';
 import { opsMonitorService } from './ops-monitor.service';
+import { createLlmProvider, type LlmProvider } from './llm-provider';
 
 export class AiBudgetExceededError extends Error {
   constructor(monthlyTotal: number, budget: number) {
@@ -71,6 +72,7 @@ interface TradingStrategyResponse {
 
 export class AIService {
   private openai: OpenAI;
+  private provider: LlmProvider;
   private readonly defaultPricingPer1m: Record<string, { input: number; output: number }> = {
     'gpt-5.5': { input: 5.0, output: 30.0 },
     'gpt-5.4': { input: 2.5, output: 15.0 },
@@ -86,6 +88,8 @@ export class AIService {
 
   constructor(apiKey: string) {
     this.openai = new OpenAI({ apiKey });
+    // 기본 provider는 OpenAI(동작 무변경). env LLM_PROVIDER로만 추가 backend 선택.
+    this.provider = createLlmProvider(this.openai);
   }
 
   // ==================== Helper Methods ====================
@@ -128,15 +132,13 @@ export class AIService {
     return Number((inputCost + outputCost).toFixed(8));
   }
 
-  private async recordUsageFromCompletion(
-    completion: OpenAI.Chat.Completions.ChatCompletion,
+  private async recordUsage(
+    usage: { promptTokens: number; completionTokens: number; totalTokens: number },
     model: string,
     usageContext?: AiUsageContext,
   ): Promise<void> {
     if (!usageContext?.userId) return;
-    const promptTokens = Number(completion.usage?.prompt_tokens ?? 0);
-    const completionTokens = Number(completion.usage?.completion_tokens ?? 0);
-    const totalTokens = Number(completion.usage?.total_tokens ?? (promptTokens + completionTokens));
+    const { promptTokens, completionTokens, totalTokens } = usage;
     const costUsd = await this.estimateUsageCostUsd(model, promptTokens, completionTokens);
 
     await storage.recordAiUsageDaily({
@@ -280,20 +282,23 @@ export class AIService {
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       const attemptStartedAt = Date.now();
       try {
-        const completion = await this.openai.chat.completions.create({
+        const result = await this.provider.createJsonCompletion({
           model,
           messages,
-          ...(effectiveTemperature !== undefined && { temperature: effectiveTemperature }),
-          response_format: { type: 'json_object' },
+          temperature: effectiveTemperature,
         });
 
         try {
-          await this.recordUsageFromCompletion(completion, model, usageContext);
+          await this.recordUsage(
+            { promptTokens: result.promptTokens, completionTokens: result.completionTokens, totalTokens: result.totalTokens },
+            model,
+            usageContext,
+          );
         } catch (recordError: any) {
           console.warn('[AIService] usage record failed:', recordError?.message || recordError);
         }
 
-        const rawResponse = completion.choices?.[0]?.message?.content || '{}';
+        const rawResponse = result.content || '{}';
         opsMonitorService.recordAiTrace({
           userId: usageContext?.userId ?? null,
           source: usageContext?.source ?? "unknown",
@@ -303,9 +308,9 @@ export class AIService {
           promptPreview: trace.promptPreview,
           contextPreview: trace.contextPreview,
           responsePreview: rawResponse,
-          promptTokens: Number(completion.usage?.prompt_tokens ?? 0),
-          completionTokens: Number(completion.usage?.completion_tokens ?? 0),
-          totalTokens: Number(completion.usage?.total_tokens ?? 0),
+          promptTokens: result.promptTokens,
+          completionTokens: result.completionTokens,
+          totalTokens: result.totalTokens,
         });
         return JSON.parse(rawResponse);
       } catch (error: any) {
