@@ -197,6 +197,43 @@ const tests = [
     },
     expected: { averagePrice: "3000" },
   },
+  {
+    name: "깨진 숫자 정규화: 모의서버 음수 수익률 '-10..15'(점2개) → '-10.15'",
+    input: {
+      stk_cd: "000430",
+      stk_nm: "대원강업",
+      rmnd_qty: "10",
+      pur_pric: "5000",
+      cur_prc: "4500",
+      evltv_prft: "-5000",
+      prft_rt: "-10..15",
+    },
+    expected: { stockCode: "000430", profitLossRate: "-10.15" },
+  },
+  {
+    name: "깨진 숫자 정규화: 수익률 '-6..33' → '-6.33', 가격 '31..50' → '31.5'",
+    input: {
+      stk_cd: "037460",
+      hldg_qty: "14",
+      pchs_avg_pric: "33550",
+      prpr: "31..50",
+      evlu_pfls_amt: "0",
+      evlu_pfls_rt: "-6..33",
+    },
+    expected: { currentPrice: "31.5", profitLossRate: "-6.33" },
+  },
+  {
+    name: "정상 숫자는 원본 보존 (소수점·정수 그대로)",
+    input: {
+      stk_cd: "005930",
+      hldg_qty: "10",
+      pchs_avg_pric: "75000",
+      prpr: "80000",
+      evlu_pfls_amt: "50000",
+      evlu_pfls_rt: "6.67",
+    },
+    expected: { averagePrice: "75000", currentPrice: "80000", profitLossRate: "6.67" },
+  },
 ];
 
 // ── 실행 ──────────────────────────────────────────────────────────────────────

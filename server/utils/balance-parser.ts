@@ -44,6 +44,20 @@ export function cleanStr(v: unknown): string {
 }
 
 /**
+ * 깨진 숫자 문자열을 유효한 decimal 문자열로 정규화한다.
+ * 키움 모의서버가 음수 수익률 등을 "-10..15"(점 2개)처럼 잘못 주는 경우,
+ * 그대로 decimal 컬럼에 넣으면 Postgres가 거부해 잔고 조회 전체가 실패한다.
+ * 이미 유효한 숫자는 원본 그대로 보존한다.
+ */
+export function sanitizeDecimal(v: string): string {
+  if (!v) return "0";
+  if (!Number.isNaN(Number(v))) return v; // 이미 유효한 숫자 → 원본 보존
+  const fixed = v.replace(/\.{2,}/g, "."); // 점 2개 이상 → 점 1개
+  const n = Number(fixed);
+  return Number.isFinite(n) ? String(n) : "0";
+}
+
+/**
  * 키움 API 응답의 보유종목 항목 하나를 DB 스키마 형식으로 변환한다.
  * 실계좌(stk_cd, pur_pric, …)와 모의계좌(acnt_pdno, pchs_avg_pric, …) 양쪽을 지원한다.
  */
@@ -60,17 +74,17 @@ export function parseHoldingItem(item: HoldingRawItem): ParsedHolding {
         String(item.hldg_qty || item.rmnd_qty || (item.quantity ?? "0")),
         10,
       ),
-    averagePrice:
+    averagePrice: sanitizeDecimal(
       cleanStr(item.pchs_avg_pric) || cleanStr(item.avg_pric) ||
-      cleanStr(item.pur_pric) || cleanStr(item.averagePrice) || "0",
-    currentPrice:
+      cleanStr(item.pur_pric) || cleanStr(item.averagePrice) || "0"),
+    currentPrice: sanitizeDecimal(
       cleanStr(item.prpr) || cleanStr(item.cur_prc) ||
-      cleanStr(item.currentPrice) || "0",
-    profitLoss:
+      cleanStr(item.currentPrice) || "0"),
+    profitLoss: sanitizeDecimal(
       cleanStr(item.evlu_pfls_amt) || cleanStr(item.evlu_pfls) ||
-      cleanStr(item.evltv_prft) || "0",
-    profitLossRate:
+      cleanStr(item.evltv_prft) || "0"),
+    profitLossRate: sanitizeDecimal(
       cleanStr(item.evlu_pfls_rt) || cleanStr(item.pfls_rt) ||
-      cleanStr(item.prft_rt) || "0",
+      cleanStr(item.prft_rt) || "0"),
   };
 }
