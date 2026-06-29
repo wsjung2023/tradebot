@@ -7,6 +7,7 @@ import { RainbowChartAnalyzer } from '../formula/rainbow-chart';
 import { normalizeChartDataAsc } from '../utils/chart-normalization';
 import { parseHoldingItem } from '../utils/balance-parser';
 import { extractErrorDiagnostics } from '../utils/error-diagnostics';
+import { holdingDaysSince, meetsDynamicExitMinHold } from '../utils/exit-guards';
 import { getNewsService } from './news.service';
 import { getDartService } from './dart.service';
 import { getUserKiwoomService } from './user-kiwoom.service';
@@ -1270,25 +1271,26 @@ export class TradeExecutorService {
             exitReason = `급등 청산: +${profitRate.toFixed(1)}% (기준: +${surgeThreshold}%)`;
           }
 
+          // 진입 시각 1회 조회 (장기보유·거래량급증 청산 공용)
+          let daysSinceEntry: number | null = null;
+          try {
+            const perfEntry = await storage.getTradingPerformanceByStock(model.id, holding.stockCode);
+            daysSinceEntry = holdingDaysSince(perfEntry?.createdAt, new Date());
+          } catch { /* 무시 */ }
+
           // 2) 장기 보유 청산: stalePeriodDays 초과 + 손실 → 청산
-          if (!shouldSell && stalePeriodDays > 0) {
-            try {
-              const perfEntry = await storage.getTradingPerformanceByStock(model.id, holding.stockCode);
-              if (perfEntry?.createdAt) {
-                const entryMs = new Date(perfEntry.createdAt).getTime();
-                const daysSince = (Date.now() - entryMs) / 86400000;
-                if (daysSince >= stalePeriodDays && profitRate < 0) {
-                  shouldSell = true;
-                  exitReason = `장기보유 청산: ${daysSince.toFixed(0)}일 보유, ${profitRate.toFixed(1)}% (기준: ${stalePeriodDays}일)`;
-                }
-              }
-            } catch { /* 무시 */ }
+          if (!shouldSell && stalePeriodDays > 0 && daysSinceEntry !== null
+              && daysSinceEntry >= stalePeriodDays && profitRate < 0) {
+            shouldSell = true;
+            exitReason = `장기보유 청산: ${daysSinceEntry.toFixed(0)}일 보유, ${profitRate.toFixed(1)}% (기준: ${stalePeriodDays}일)`;
           }
 
           // 3) 거래량 급증 청산: 당일 거래량 > 평균 × multiplier
           // [수정] 손실 중일 때는 작동하지 않도록 가드 (profitRate > 0)
           // [수정] 최소 10거래일 이상의 데이터가 있을 때만 신뢰 (데이터 부족으로 인한 오판 방지)
-          if (!shouldSell && volMultiplier > 0 && profitRate > 0) {
+          // [수정 2026-06] 최소보유 가드: "보유기간(일)" 이상(최소 1일) 보유한 종목만 — 방금 산 종목 즉시 청산(45초 매도) 방지
+          if (!shouldSell && volMultiplier > 0 && profitRate > 0
+              && meetsDynamicExitMinHold(daysSinceEntry, stalePeriodDays)) {
             try {
               const chartData = await kiwoomService.getStockChart(holding.stockCode, 'D', 30);
               const ohlcv = normalizeChartDataAsc(chartData.output || chartData);
