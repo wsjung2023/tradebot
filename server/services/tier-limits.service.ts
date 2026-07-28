@@ -3,10 +3,10 @@ import { storage } from '../storage';
 import { isPublicSaaS } from '../config';
 
 export const TIER_LIMITS = {
-  free:             { maxRealAccounts: 0, maxAiAnalysisPerDay: 0,   canAutoApply: false },
-  saas_basic:       { maxRealAccounts: 1, maxAiAnalysisPerDay: 10,  canAutoApply: false },
-  saas_pro:         { maxRealAccounts: 2, maxAiAnalysisPerDay: 50,  canAutoApply: true  },
-  saas_enterprise:  { maxRealAccounts: 5, maxAiAnalysisPerDay: 300, canAutoApply: true  },
+  free:             { maxRealAccounts: 0, maxAiAnalysisPerDay: 0,   canAutoApply: false, ontology: false },
+  saas_basic:       { maxRealAccounts: 1, maxAiAnalysisPerDay: 10,  canAutoApply: false, ontology: false },
+  saas_pro:         { maxRealAccounts: 2, maxAiAnalysisPerDay: 50,  canAutoApply: true,  ontology: true  },
+  saas_enterprise:  { maxRealAccounts: 5, maxAiAnalysisPerDay: 300, canAutoApply: true,  ontology: true  },
 } as const;
 
 type Tier = keyof typeof TIER_LIMITS;
@@ -56,6 +56,12 @@ export async function checkAiAnalysisLimit(userId: string): Promise<{ allowed: b
 export async function checkAutoApplyAllowed(userId: string): Promise<boolean> {
   const tier = await getUserTier(userId);
   return getLimits(tier).canAutoApply;
+}
+
+// 온톨로지(집중게이트 등) 사용 허용 여부 — 프리미엄 티어 전용
+export async function checkOntologyAllowed(userId: string): Promise<boolean> {
+  const tier = await getUserTier(userId);
+  return getLimits(tier).ontology;
 }
 
 // 실계좌 총 운용자산 기준 AUM 티어 계산
