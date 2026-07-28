@@ -5,6 +5,9 @@ import { AIService, AiBudgetExceededError } from './ai.service';
 import { AiModel, AutoTradingSettings, CandidateStock } from '@shared/schema';
 import { RainbowChartAnalyzer } from '../formula/rainbow-chart';
 import { normalizeChartDataAsc } from '../utils/chart-normalization';
+import { toReturns } from '../utils/correlation';
+import { assessConcentration, decideConcentrationAction, type ConcentrationPolicy } from './concentration-risk';
+import { checkOntologyAllowed } from './tier-limits.service';
 import { parseHoldingItem } from '../utils/balance-parser';
 import { extractErrorDiagnostics } from '../utils/error-diagnostics';
 import { holdingDaysSince, meetsDynamicExitMinHold } from '../utils/exit-guards';
@@ -2625,6 +2628,27 @@ export class TradeExecutorService {
         return;
       }
       if (!resolvedPrecheck.isAdditionalBuy) {
+        // ── 온톨로지 집중리스크 게이트 (토글 OFF 기본 + 프리미엄 티어 전용 + fail-open, 신규 진입만) ──
+        if (settings.ontologyEnabled && await checkOntologyAllowed(model.userId)) {
+          const holdingsForGate = await storage.getHoldings(activeAccount.id);
+          const gate = await this.runConcentrationGate(candidate.stockCode, holdingsForGate, settings, kiwoomService);
+          if (gate.action === 'block') {
+            await logDecision({
+              accepted: false,
+              rejectReason: 'concentration_blocked',
+              decisionType: 'concentration_blocked',
+              qualitativeReason: `집중 리스크 차단 — ${gate.reason}`,
+              quantitativeReason: { gateReason: gate.reason },
+              marketAnalysis: effectiveMarketAnalysis,
+              currentLine,
+              timeCapitalDecision,
+            });
+            return; // 매수 스킵
+          }
+          if (gate.action === 'warn') {
+            console.log(`    ⚠️ [집중게이트] ${candidate.stockCode} 경고(매수 진행): ${gate.reason}`);
+          }
+        }
         await logDecision({
           accepted: true,
           rejectReason: null,
@@ -2688,6 +2712,45 @@ export class TradeExecutorService {
         qualitativeReason: '평가 중 예외가 발생했습니다.',
         quantitativeReason: { error: errMsg },
       });
+    }
+  }
+
+  // 온톨로지 집중리스크 게이트 — 후보가 보유종목과 고상관이면 정책(warn/block) 반환.
+  // 결정적(가격상관)·fail-open(어떤 실패든 allow)·비파괴(판단만, 실행경로 무변경).
+  private async runConcentrationGate(
+    candidateCode: string,
+    holdings: { stockCode: string }[],
+    settings: AutoTradingSettings,
+    kiwoomService: KiwoomService,
+  ): Promise<{ action: 'allow' | 'warn' | 'block'; reason: string }> {
+    try {
+      if (!holdings.length) return { action: 'allow', reason: '보유 없음' };
+      const threshold = parseFloat(String(settings.concentrationThreshold ?? '0.7'));
+      const maxCorrelated = parseInt(String(settings.maxCorrelatedPositions ?? '1'), 10);
+      const policy = (settings.concentrationPolicy === 'block' ? 'block' : 'warn') as ConcentrationPolicy;
+
+      const closesOf = async (code: string): Promise<number[]> => {
+        const chart = await kiwoomService.getStockChart(code, 'D', 30);
+        return normalizeChartDataAsc(chart.output || chart).map((r) => r.close);
+      };
+      const candReturns = toReturns(await closesOf(candidateCode));
+      if (candReturns.length < 5) return { action: 'allow', reason: '후보 데이터 부족' };
+
+      const holdingReturns: { stockCode: string; returns: number[] }[] = [];
+      for (const h of holdings) {
+        if (h.stockCode === candidateCode) continue;
+        try {
+          const r = toReturns(await closesOf(h.stockCode));
+          if (r.length >= 5) holdingReturns.push({ stockCode: h.stockCode, returns: r });
+        } catch { /* 개별 보유 실패는 무시 */ }
+      }
+      if (!holdingReturns.length) return { action: 'allow', reason: '비교 가능한 보유 없음' };
+
+      const assessment = assessConcentration(candReturns, holdingReturns, threshold);
+      return decideConcentrationAction(assessment, policy, maxCorrelated);
+    } catch (e) {
+      console.warn('[ConcentrationGate] 실패 — fail-open(allow):', e);
+      return { action: 'allow', reason: 'gate 예외 → fail-open' };
     }
   }
 
