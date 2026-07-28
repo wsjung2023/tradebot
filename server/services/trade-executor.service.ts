@@ -2629,9 +2629,14 @@ export class TradeExecutorService {
       }
       if (!resolvedPrecheck.isAdditionalBuy) {
         // ── 온톨로지 집중리스크 게이트 (토글 OFF 기본 + 프리미엄 티어 전용 + fail-open, 신규 진입만) ──
-        if (settings.ontologyEnabled && await checkOntologyAllowed(model.userId)) {
-          const holdingsForGate = await storage.getHoldings(activeAccount.id);
-          const gate = await this.runConcentrationGate(candidate.stockCode, holdingsForGate, settings, kiwoomService);
+        let ontologyOn = false;
+        try {
+          ontologyOn = settings.ontologyEnabled === true && await checkOntologyAllowed(model.userId);
+        } catch {
+          ontologyOn = false;
+        }
+        if (ontologyOn) {
+          const gate = await this.runConcentrationGate(candidate.stockCode, holdings, settings, kiwoomService);
           if (gate.action === 'block') {
             await logDecision({
               accepted: false,
