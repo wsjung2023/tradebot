@@ -139,6 +139,11 @@ export class PostgreSQLCoreStorage {
     await db.delete(schema.kiwoomAccounts).where(eq(schema.kiwoomAccounts.id, id));
   }
 
+  async createAuditLog(row: schema.InsertAuditLog): Promise<schema.AuditLog> {
+    const result = await db.insert(schema.auditLogs).values([row]).returning();
+    return result[0];
+  }
+
   // ==================== Holdings Methods ====================
 
   async getHoldings(accountId: number): Promise<Holding[]> {

@@ -95,7 +95,37 @@ export function registerAccountRoutes(app: Router) {
         return res.status(400).json({ error: "변경할 항목이 없습니다." });
       }
 
+      // [안전가드] 실전(real) 전환은 그 계좌 키가 실전 서버에서 실제 인증될 때만 허용.
+      // 모의 키를 실전으로 잘못 바꾸는 사고(8030 연쇄 마비)를 원천 차단.
+      const switchingToReal = updates.accountType === "real" && account.accountType !== "real";
+      if (switchingToReal) {
+        const check = await getUserKiwoomService().validateRealServerAccess(accountId);
+        if (!check.ok) {
+          return res.status(400).json({
+            error: `실전 전환 불가 — 이 계좌 키가 실전 서버에서 인증되지 않습니다. (${check.reason || "실전 키 확인 필요"})`,
+            errorCode: "REAL_KEY_INVALID",
+          });
+        }
+      }
+
       const updated = await storage.updateKiwoomAccount(accountId, updates);
+
+      // accountType 변경 시: 캐시 즉시 무효화(재시작 없이 반영) + audit 기록(추적 가능)
+      if (updates.accountType && updates.accountType !== account.accountType) {
+        getUserKiwoomService().invalidateAccountCache(accountId);
+        await storage.createAuditLog({
+          userId: user!.id,
+          action: "ACCOUNT_TYPE_CHANGED",
+          detail: {
+            accountId,
+            accountNumber: account.accountNumber,
+            from: account.accountType,
+            to: updates.accountType,
+          },
+          ip: req.ip ?? null,
+        }).catch(() => {});
+      }
+
       res.json(updated);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
@@ -176,7 +206,7 @@ export function registerAccountRoutes(app: Router) {
       const result = await userKiwoom.getBalance(
         user!.id,
         account.accountNumber,
-        (account.accountType || "real") as "mock" | "real",
+        (account.accountType === "real" ? "real" : "mock") as "mock" | "real",
         account.id,
       );
 

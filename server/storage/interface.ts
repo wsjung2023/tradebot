@@ -2,6 +2,7 @@
 import {
   type User, type InsertUser,
   type KiwoomAccount, type InsertKiwoomAccount,
+  type AuditLog, type InsertAuditLog,
   type Holding, type InsertHolding,
   type Order, type InsertOrder,
   type AiModel, type InsertAiModel,
@@ -69,6 +70,7 @@ export interface IStorage {
   getKiwoomAccount(id: number): Promise<KiwoomAccount | undefined>;
   createKiwoomAccount(account: InsertKiwoomAccount): Promise<KiwoomAccount>;
   updateKiwoomAccount(id: number, updates: Partial<KiwoomAccount>): Promise<KiwoomAccount | undefined>;
+  createAuditLog(row: InsertAuditLog): Promise<AuditLog>;
   deleteKiwoomAccount(id: number): Promise<void>;
 
   // 보유종목

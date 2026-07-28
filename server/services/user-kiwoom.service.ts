@@ -2,6 +2,7 @@ import { storage } from "../storage";
 import { decrypt, isEncrypted } from "../utils/crypto";
 import { normalizePriceHistoryAsc } from "../utils/chart-normalization";
 import { createKiwoomService, type KiwoomService, type OrderRequest } from "./kiwoom";
+import { accountServiceFingerprint } from "../utils/kiwoom-cache-key";
 
 type CachedService = {
   fingerprint: string;
@@ -56,7 +57,8 @@ export class UserKiwoomService {
     const account = await storage.getKiwoomAccount(accountId);
     if (!account?.kiwoomAppKey || !account?.kiwoomAppSecret) return null;
 
-    const fingerprint = account.kiwoomAppKey + ":" + account.kiwoomAppSecret;
+    // fingerprint에 accountType 포함 — 타입 변경이 즉시 새 서비스로 반영되게(캐시 stale 방지)
+    const fingerprint = accountServiceFingerprint(account.kiwoomAppKey, account.kiwoomAppSecret, account.accountType);
     const cached = this.byAccount.get(accountId);
     if (cached?.fingerprint === fingerprint) {
       cached.lastUsed = Date.now();
@@ -66,7 +68,7 @@ export class UserKiwoomService {
     const service = createKiwoomService({
       appKey: safeDecrypt(account.kiwoomAppKey),
       appSecret: safeDecrypt(account.kiwoomAppSecret),
-      accountType: (account.accountType as "real" | "mock") || "real",
+      accountType: account.accountType === "real" ? "real" : "mock", // 안전 기본: real이 아니면 mock
     });
     this.byAccount.set(accountId, { fingerprint, service, lastUsed: Date.now() });
     return service;
@@ -103,6 +105,26 @@ export class UserKiwoomService {
 
   invalidateAccountCache(accountId: number): void {
     this.byAccount.delete(accountId);
+  }
+
+  // 실전(real) 전환 안전 가드: 이 계좌 키가 실전 서버에서 실제로 인증·잔고조회 되는지 검증.
+  // 모의 키를 실전으로 잘못 바꾸는 사고(8030 연쇄 마비)를 원천 차단한다.
+  async validateRealServerAccess(accountId: number): Promise<{ ok: boolean; reason?: string }> {
+    const account = await storage.getKiwoomAccount(accountId);
+    if (!account?.kiwoomAppKey || !account?.kiwoomAppSecret) {
+      return { ok: false, reason: "이 계좌에 API 키가 등록되어 있지 않습니다." };
+    }
+    try {
+      const probe = createKiwoomService({
+        appKey: safeDecrypt(account.kiwoomAppKey),
+        appSecret: safeDecrypt(account.kiwoomAppSecret),
+        accountType: "real", // 실전으로 강제해 실제 인증 가능한지 확인
+      });
+      await probe.getAccountBalance(account.accountNumber, "real");
+      return { ok: true };
+    } catch (e: any) {
+      return { ok: false, reason: e?.message || "실전 서버 인증 실패" };
+    }
   }
 
   async getPrice(userId: string, stockCode: string) {
@@ -174,7 +196,7 @@ export class UserKiwoomService {
     return response?.output ?? [];
   }
 
-  async getBalance(userId: string, accountNumber: string, accountType: "mock" | "real" = "real", accountId?: number) {
+  async getBalance(userId: string, accountNumber: string, accountType: "mock" | "real" = "mock", accountId?: number) {
     if (!accountId) throw new Error("계좌 ID가 필요합니다.");
     const service = await this.getServiceForAccount(accountId);
     if (!service) throw new Error(`계좌 ${accountNumber}에 API 키가 등록되지 않았습니다. 계좌 설정에서 API 키를 등록하세요.`);

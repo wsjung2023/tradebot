@@ -1134,6 +1134,10 @@ export const auditLogs = pgTable("audit_logs", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+export const insertAuditLogSchema = createInsertSchema(auditLogs).omit({ id: true, createdAt: true });
+export type AuditLog = typeof auditLogs.$inferSelect;
+export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
+
 // Plans definition — SaaS pricing tiers
 export const plans = pgTable("plans", {
   id: text("id").primaryKey(), // 'free' | 'saas_basic' | 'saas_pro' | 'saas_enterprise'
