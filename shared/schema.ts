@@ -334,6 +334,12 @@ export const autoTradingSettings = pgTable("auto_trading_settings", {
   surgeThreshold: decimal("surge_threshold", { precision: 5, scale: 2 }).notNull().default('10'), // Raise exit if +10% surge
   volumeSpikeMultiplier: decimal("volume_spike_multiplier", { precision: 5, scale: 2 }).notNull().default('3'), // 3x volume
 
+  // 온톨로지: 집중 리스크 게이트 (기본 OFF — 켜기 전 기존 동작과 100% 동일)
+  ontologyEnabled: boolean("ontology_enabled").notNull().default(false),
+  concentrationPolicy: text("concentration_policy").notNull().default('warn'), // 'warn' | 'block'
+  concentrationThreshold: decimal("concentration_threshold", { precision: 4, scale: 2 }).notNull().default('0.70'),
+  maxCorrelatedPositions: integer("max_correlated_positions").notNull().default(1),
+
   // Unit/capital management
   baseUnitSize: decimal("base_unit_size", { precision: 12, scale: 2 }),
   maxUnitsPerStock: integer("max_units_per_stock"),
