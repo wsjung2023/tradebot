@@ -4,6 +4,8 @@ title TradeBot-PROD (port 5000)
 cd /d D:\Projects\tradebot
 if not exist logs mkdir logs
 set "LOG_FILE=D:\Projects\tradebot\logs\server-prod.log"
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "scripts\clear-server-port.ps1" -Port 5000
+if errorlevel 1 exit /b %ERRORLEVEL%
 
 :restart
 echo.>> "%LOG_FILE%"
