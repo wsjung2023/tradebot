@@ -15,4 +15,4 @@ COPY --from=builder /app/scripts ./scripts
 EXPOSE 8080
 ENV NODE_ENV=production
 ENV PORT=8080
-CMD ["sh", "-c", "node scripts/migrate-prod.mjs && node dist/index.js"]
+CMD ["sh", "-c", "node scripts/wait-for-database.mjs && node scripts/migrate-prod.mjs && node dist/index.js"]

@@ -17,6 +17,8 @@ import { jobManager } from "./job-manager";
 import { masterSettings } from "./services/master-settings.service";
 import { opsMonitorService } from "./services/ops-monitor.service";
 import { getAllowedOrigins } from "./config";
+import { waitForDatabase } from "./utils/startup-db";
+import { createStartupReadiness } from "./utils/startup-readiness";
 
 if (process.env.SENTRY_DSN) {
   Sentry.init({
@@ -150,12 +152,14 @@ setupAuth(app);
 
 // 경량 헬스체크 엔드포인트
 const SERVER_START_TIME = new Date().toISOString();
+const startupReadiness = createStartupReadiness({
+  startedAt: SERVER_START_TIME,
+  buildVersion:
+    process.env.BUILD_VERSION || process.env.RAILWAY_GIT_COMMIT_SHA || null,
+});
 app.get('/api/healthz', (_req, res) => {
-  res.status(200).json({
-    ok: true,
-    buildVersion: process.env.BUILD_VERSION || null,
-    startedAt: SERVER_START_TIME,
-  });
+  const health = startupReadiness.getHealthResponse();
+  res.status(health.statusCode).json(health.body);
 });
 
 app.use((req, res, next) => {
@@ -214,6 +218,20 @@ httpServer.listen({ port, host: "0.0.0.0" }, () => {
 
 (async () => {
   try {
+    await waitForDatabase(
+      () => pool.query("select 1"),
+      {
+        retryDelayMs: 5000,
+        onRetry: (error, attempt) => {
+          const message = error instanceof Error ? error.message : String(error);
+          console.warn(
+            `[STARTUP] Database unavailable (attempt ${attempt}): ${message}. Retrying in 5s...`,
+          );
+        },
+      },
+    );
+    console.log('[STARTUP] Database ready');
+
     console.log('[STARTUP] Registering routes...');
     await registerRoutes(app, httpServer, sessionMiddleware);
 
@@ -236,6 +254,7 @@ httpServer.listen({ port, host: "0.0.0.0" }, () => {
 
     await masterSettings.init();
     await jobManager.initialize();
+    startupReadiness.markReady();
     const env = port === 5000 ? 'PROD' : 'DEV';
     process.title = `TradeBot-${env} (port ${port})`;
     console.log(`[STARTUP] Ready ✓  [${env}] port=${port}`);

@@ -4,9 +4,13 @@ on:
   push:
     branches: [dev]
 
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: true
+
 jobs:
   typecheck:
-    name: Type Check
+    name: Validate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -16,25 +20,78 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
+      - run: npm run test:startup-resilience
 
   deploy:
-    name: Deploy to Railway
+    name: Verify Railway Deployment
     runs-on: ubuntu-latest
     needs: typecheck
+    timeout-minutes: 20
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+      RAILWAY_ENVIRONMENT_ID: ${{ vars.RAILWAY_ENVIRONMENT_ID }}
+      RAILWAY_SERVICE_ID: ${{ vars.RAILWAY_SERVICE_ID }}
+      SAAS_HEALTH_URL: ${{ vars.SAAS_HEALTH_URL }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Validate deployment target
+        shell: bash
+        run: |
+          missing=0
+          for name in RAILWAY_TOKEN RAILWAY_PROJECT_ID RAILWAY_ENVIRONMENT_ID RAILWAY_SERVICE_ID SAAS_HEALTH_URL; do
+            if [ -z "${!name}" ]; then
+              echo "::error::$name is not configured"
+              missing=1
+            fi
+          done
+          exit "$missing"
 
       - name: Install Railway CLI
-        run: npm install -g @railway/cli
+        run: npm install -g @railway/cli@5.37.7
 
-      - name: Deploy to Railway
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-          RAILWAY_SERVICE_ID: ${{ secrets.RAILWAY_SERVICE_ID }}
+      - name: Wait for the pushed commit
+        shell: bash
         run: |
-          echo "Deploying commit: $GITHUB_SHA"
-          if [ -n "$RAILWAY_SERVICE_ID" ]; then
-            railway up --detach --service "$RAILWAY_SERVICE_ID"
-          else
-            railway up --detach
+          deployment_id=""
+          for attempt in $(seq 1 90); do
+            deployment=$(railway deployment list \
+              --project "$RAILWAY_PROJECT_ID" \
+              --environment "$RAILWAY_ENVIRONMENT_ID" \
+              --service "$RAILWAY_SERVICE_ID" \
+              --limit 20 \
+              --json | jq -c --arg sha "$GITHUB_SHA" \
+              '[.[] | select(.meta.commitHash == $sha)] | sort_by(.createdAt) | last // empty')
+
+            if [ -n "$deployment" ]; then
+              deployment_id=$(jq -r '.id' <<<"$deployment")
+              status=$(jq -r '.status' <<<"$deployment")
+              echo "Railway deployment $deployment_id status: $status"
+
+              case "$status" in
+                SUCCESS) break ;;
+                FAILED|CRASHED)
+                  railway logs "$deployment_id" --deployment --lines 200 || true
+                  exit 1
+                  ;;
+              esac
+            else
+              echo "Waiting for Railway to create deployment for $GITHUB_SHA (attempt $attempt/90)"
+            fi
+
+            sleep 10
+          done
+
+          if [ -z "$deployment_id" ] || [ "$status" != "SUCCESS" ]; then
+            echo "::error::Railway deployment for $GITHUB_SHA did not become healthy in time"
+            exit 1
           fi
+
+      - name: Verify public readiness and commit
+        shell: bash
+        run: |
+          health=$(curl --fail --silent --show-error \
+            --retry 12 --retry-delay 5 --retry-all-errors \
+            "$SAAS_HEALTH_URL")
+          echo "$health" | jq .
+          echo "$health" | jq -e --arg sha "$GITHUB_SHA" \
+            '.ok == true and .status == "ready" and .buildVersion == $sha'
